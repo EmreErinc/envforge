@@ -1,0 +1,164 @@
+use std::io::{Read, Write};
+use std::path::PathBuf;
+
+use age::secrecy::ExposeSecret;
+
+use crate::config::config_dir;
+use crate::model::ParseError;
+
+const ENC_PREFIX: &str = "ENC[age:";
+const ENC_SUFFIX_STR: &str = "]";
+
+/// Get the age key file path.
+pub fn age_key_path() -> Result<PathBuf, ParseError> {
+    Ok(config_dir()?.join("age.key"))
+}
+
+/// Ensure an age keypair exists, generating one if needed.
+pub fn ensure_age_key() -> Result<String, EncryptError> {
+    let path =
+        age_key_path().map_err(|_| EncryptError::KeyError("Cannot find config dir".into()))?;
+
+    if path.exists() {
+        std::fs::read_to_string(&path)
+            .map_err(|e| EncryptError::KeyError(format!("Cannot read key: {}", e)))
+    } else {
+        let key = age::x25519::Identity::generate();
+        let secret = key.to_string();
+        let public = key.to_public().to_string();
+
+        let content = format!(
+            "# created by envforge\n# public key: {}\n{}\n",
+            public,
+            secret.expose_secret()
+        );
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| EncryptError::KeyError(format!("Cannot create dir: {}", e)))?;
+        }
+
+        std::fs::write(&path, &content)
+            .map_err(|e| EncryptError::KeyError(format!("Cannot write key: {}", e)))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            let _ = std::fs::set_permissions(&path, perms);
+        }
+
+        Ok(content)
+    }
+}
+
+fn get_recipient(key_content: &str) -> Result<age::x25519::Recipient, EncryptError> {
+    for line in key_content.lines() {
+        if line.starts_with("# public key: ") {
+            let pubkey_str = line.trim_start_matches("# public key: ");
+            return pubkey_str
+                .parse()
+                .map_err(|_| EncryptError::KeyError("Invalid public key".into()));
+        }
+    }
+    Err(EncryptError::KeyError(
+        "No public key found in key file".into(),
+    ))
+}
+
+fn get_identity(key_content: &str) -> Result<age::x25519::Identity, EncryptError> {
+    for line in key_content.lines() {
+        if line.starts_with("AGE-SECRET-KEY-") {
+            return line
+                .parse()
+                .map_err(|_| EncryptError::KeyError("Invalid secret key".into()));
+        }
+    }
+    Err(EncryptError::KeyError(
+        "No secret key found in key file".into(),
+    ))
+}
+
+/// Encrypt a plain text value.
+pub fn encrypt_value(plain: &str) -> Result<String, EncryptError> {
+    let key_content = ensure_age_key()?;
+    let recipient = get_recipient(&key_content)?;
+
+    let recipients: Vec<&dyn age::Recipient> = vec![&recipient];
+    let encryptor = age::Encryptor::with_recipients(recipients.into_iter())
+        .map_err(|_| EncryptError::EncryptFailed("No recipients".into()))?;
+
+    let mut encrypted = vec![];
+    let mut writer = encryptor
+        .wrap_output(&mut encrypted)
+        .map_err(|e| EncryptError::EncryptFailed(e.to_string()))?;
+    writer
+        .write_all(plain.as_bytes())
+        .map_err(|e| EncryptError::EncryptFailed(e.to_string()))?;
+    writer
+        .finish()
+        .map_err(|e| EncryptError::EncryptFailed(e.to_string()))?;
+
+    let encoded = base64_encode(&encrypted);
+    Ok(format!("{}{}{}", ENC_PREFIX, encoded, ENC_SUFFIX_STR))
+}
+
+/// Decrypt an encrypted value.
+pub fn decrypt_value(encrypted: &str) -> Result<String, EncryptError> {
+    let key_content = ensure_age_key()?;
+    let identity = get_identity(&key_content)?;
+
+    let data = extract_encrypted_data(encrypted)?;
+    let decoded = base64_decode(&data)?;
+
+    let decryptor = age::Decryptor::new(&decoded[..])
+        .map_err(|e| EncryptError::DecryptFailed(e.to_string()))?;
+
+    let mut reader = decryptor
+        .decrypt(std::iter::once(&identity as &dyn age::Identity))
+        .map_err(|e| EncryptError::DecryptFailed(e.to_string()))?;
+
+    let mut decrypted = String::new();
+    reader
+        .read_to_string(&mut decrypted)
+        .map_err(|e| EncryptError::DecryptFailed(e.to_string()))?;
+
+    Ok(decrypted)
+}
+
+/// Check if a value is encrypted.
+pub fn is_encrypted(value: &str) -> bool {
+    value.starts_with(ENC_PREFIX) && value.ends_with(ENC_SUFFIX_STR)
+}
+
+fn extract_encrypted_data(value: &str) -> Result<String, EncryptError> {
+    if !is_encrypted(value) {
+        return Err(EncryptError::DecryptFailed("Not an encrypted value".into()));
+    }
+    let data = &value[ENC_PREFIX.len()..value.len() - ENC_SUFFIX_STR.len()];
+    Ok(data.to_string())
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(data)
+}
+
+fn base64_decode(data: &str) -> Result<Vec<u8>, EncryptError> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| EncryptError::DecryptFailed(format!("Base64 decode failed: {}", e)))
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum EncryptError {
+    #[error("key error: {0}")]
+    KeyError(String),
+
+    #[error("encryption failed: {0}")]
+    EncryptFailed(String),
+
+    #[error("decryption failed: {0}")]
+    DecryptFailed(String),
+}

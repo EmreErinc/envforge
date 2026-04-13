@@ -1,0 +1,23 @@
+/target
+
+# EnvForge test artifacts
+*.bak
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI-DLC / specsmd (development tooling, not part of the release)
+.specsmd/
+.claude/
+memory-bank/
+node_modules/
+package.json
+package-lock.json
+envforge-plan.md

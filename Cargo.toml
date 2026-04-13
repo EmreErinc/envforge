@@ -1,0 +1,45 @@
+[package]
+name = "env-forge-tui"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Terminal environment variable manager with TUI and CLI"
+license = "MIT"
+repository = "https://github.com/emreerinc/envforge"
+homepage = "https://github.com/emreerinc/envforge"
+readme = "README.md"
+keywords = ["env", "environment", "terminal", "tui", "shell"]
+categories = ["command-line-utilities"]
+authors = ["Emre Erinc"]
+exclude = [".specsmd/", "memory-bank/", ".github/", "node_modules/", ".claude/"]
+
+[[bin]]
+name = "envforge"
+path = "src/main.rs"
+
+[lib]
+name = "envforge"
+path = "src/lib.rs"
+
+[dependencies]
+regex = "1"
+sha2 = "0.10"
+dirs = "6"
+thiserror = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tempfile = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+copypasta = "0.10"
+ratatui = "0.29"
+crossterm = "0.28"
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+fuzzy-matcher = "0.3.7"
+clap_complete = { version = "4.6.0", features = ["default"] }
+age = "0.11.2"
+base64 = "0.22.1"
+
+[dev-dependencies]
+insta = "1.47.2"
