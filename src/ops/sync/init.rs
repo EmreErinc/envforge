@@ -215,6 +215,7 @@ pub fn init_fresh(base_path: &Path, machine_id: &str) -> Result<(), SyncError> {
     // Initialize git repo
     let git = GitCommandRunner::new(base_path.to_path_buf());
     git.init(DEFAULT_BRANCH)?;
+    git.ensure_user_config()?;
 
     // Write .gitignore
     std::fs::write(base_path.join(".gitignore"), GITIGNORE_CONTENT).map_err(|e| {
@@ -302,6 +303,7 @@ pub fn init_from_remote(
 
     // Commit any changes made during setup
     let git = GitCommandRunner::new(base_path.to_path_buf());
+    git.ensure_user_config()?;
     if git.has_changes()? {
         git.add_all()?;
         git.commit(&format!("init: joined from {}", machine_id))?;

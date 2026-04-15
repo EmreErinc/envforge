@@ -31,6 +31,19 @@ impl GitCommandRunner {
         Self { repo_path }
     }
 
+    /// Ensure git user.name and user.email are configured for this repo.
+    /// Sets repo-local defaults if not already set globally.
+    pub fn ensure_user_config(&self) -> Result<(), SyncError> {
+        // Check if user.name is set (global or local)
+        if self.run_git(&["config", "user.name"]).is_err() {
+            self.run_git(&["config", "user.name", "envforge"])?;
+        }
+        if self.run_git(&["config", "user.email"]).is_err() {
+            self.run_git(&["config", "user.email", "envforge@localhost"])?;
+        }
+        Ok(())
+    }
+
     /// Run a git command in the repo directory and capture output.
     fn run_git(&self, args: &[&str]) -> Result<String, SyncError> {
         let mut cmd = Command::new("git");
