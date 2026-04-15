@@ -500,6 +500,7 @@ fn test_git_add_commit_log() {
     let git = GitCommandRunner::new(repo_path.clone());
 
     git.init("main").unwrap();
+    git.ensure_user_config().unwrap();
 
     // Create a file
     std::fs::write(repo_path.join("test.txt"), "hello world").unwrap();
@@ -519,6 +520,7 @@ fn test_git_has_changes() {
     let git = GitCommandRunner::new(repo_path.clone());
 
     git.init("main").unwrap();
+    git.ensure_user_config().unwrap();
 
     // No changes initially
     // (empty repo with no files)
@@ -540,6 +542,7 @@ fn test_git_show_file_at_commit() {
     let git = GitCommandRunner::new(repo_path.clone());
 
     git.init("main").unwrap();
+    git.ensure_user_config().unwrap();
 
     std::fs::write(repo_path.join("data.txt"), "version 1").unwrap();
     git.add_all().unwrap();
@@ -576,6 +579,7 @@ fn test_git_push_no_remote() {
     let git = GitCommandRunner::new(repo_path);
 
     git.init("main").unwrap();
+    git.ensure_user_config().unwrap();
     std::fs::write(dir.path().join("repo/test.txt"), "content").unwrap();
     git.add_all().unwrap();
     git.commit("test").unwrap();
