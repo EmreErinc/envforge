@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-15
+
+### Added
+
+#### Remote Sync
+- **Git-based sync** to share ENV variables across machines via any Git remote
+- `envforge sync init [--remote URL] [--machine-id ID] [--force]` — Initialize sync repository
+- `envforge sync push [-m MSG] [--dry-run]` — Export marked keys, commit, and push
+- `envforge sync pull [--dry-run]` — Pull remote snapshot and apply changes
+- `envforge sync status` — Show diff between local state and sync snapshot
+- `envforge sync mark <KEY|PATTERN> --sync|--local [--all]` — Select which keys to sync
+- `envforge sync list-keys` — View all keys with sync/local status
+- `envforge sync override <KEY> <VALUE> [--remove] [--list]` — Machine-specific overrides
+- `envforge sync history [-n N]` — View snapshot commit history
+- `envforge sync rollback <COMMIT|--last>` — Restore previous snapshot with auto-backup
+- `envforge sync log [-n N]` — View sync operation log
+- `envforge sync machine` — Show machine identity and override count
+- Selective sync with glob pattern support (`AWS_*`, `DB_?`)
+- Auto-generated machine identity (`{hostname}-{hex}`) per machine
+- Machine overrides — per-machine values that take precedence over shared snapshot
+- Three-way conflict detection when both local and remote modify the same key
+- Conflict resolution strategies: `keep-local`, `keep-remote`, `manual-edit`, with configurable default
+- Offline-first design — all operations work locally, remote sync is optional
+- Sync history and rollback via Git commit history
+- Sync operation log (local, append-only, auto-rotated at 100 entries)
+- JSON output (`--json`) and dry-run (`--dry-run`) for all sync commands
+
+### Changed
+
+- `envforge sync mark` now requires explicit `--sync` or `--local` flag (no silent defaults)
+- `--all` flag no longer requires a key argument
+
+### Dependencies
+
+- Added `hostname` (0.4) for machine ID generation
+- Added `rand` (0.9) for random hex suffix
+
+### Quality
+
+- 115 sync-specific tests (82 unit + 33 integration)
+- 240 total project tests, all passing
+- Clippy clean (`-D warnings`), rustfmt clean
+
 ## [0.1.0] - 2026-04-12
 
 ### Added

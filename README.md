@@ -44,12 +44,59 @@ envforge validate                   # Check validation rules
 envforge encrypt KEY                # Encrypt a value (age)
 envforge decrypt KEY                # Decrypt a value
 envforge profile list|switch|create|delete
+envforge sync <subcommand>          # Sync across machines (see below)
 envforge log [KEY] [-n N]           # View change history
 envforge completions zsh|bash|fish  # Shell completions
 envforge config                     # Show config
 envforge diff                       # Show pending changes
 envforge --dry-run <command>        # Preview without writing
 ```
+
+### Remote Sync
+
+Sync your environment variables across machines using Git:
+
+```bash
+# Initialize sync repository
+envforge sync init
+envforge sync init --remote git@github.com:user/envforge-sync.git
+
+# Choose which keys to sync
+envforge sync mark --all --sync                 # Sync all keys
+envforge sync mark DB_HOST --sync               # Sync a single key
+envforge sync mark "AWS_*" --sync               # Sync by glob pattern
+envforge sync mark SECRET_KEY --local           # Keep a key local-only
+envforge sync list-keys                         # View sync/local status
+
+# Push and pull
+envforge sync push                              # Export & push to remote
+envforge sync push -m "updated DB config"       # Custom commit message
+envforge sync push --dry-run                    # Preview without pushing
+envforge sync pull                              # Pull latest from remote
+envforge sync pull --dry-run                    # Preview incoming changes
+envforge sync status                            # Show local vs remote diff
+
+# Machine-specific overrides
+envforge sync override DB_HOST localhost        # Override for this machine
+envforge sync override DB_HOST --remove         # Remove override
+envforge sync override --list dummy             # List all overrides
+
+# History and rollback
+envforge sync history                           # View snapshot history
+envforge sync rollback --last                   # Rollback to previous
+envforge sync rollback abc1234                  # Rollback to specific commit
+envforge sync log                               # View operation log
+
+# Machine info
+envforge sync machine                           # Show machine ID
+```
+
+**How it works:**
+- Sync data lives in `~/.envforge/sync/` — a separate Git repo that never touches your existing config.
+- You choose which keys to sync (`--sync`) and which stay local (`--local`).
+- Each machine has a unique ID and can set overrides that take precedence over shared values.
+- Offline-first: everything works locally, remote sync is optional.
+- All commands support `--json` for scripting and `--dry-run` for preview.
 
 ### Profiles
 Manage different environment sets for dev/staging/prod:
@@ -59,6 +106,14 @@ Manage different environment sets for dev/staging/prod:
 ~/.env_managed.prod      # Prod profile
 ```
 Profile-specific values override shared values. Last used profile remembered.
+
+### Remote Sync
+- **Git-based sync** — Sync ENV variables across machines using any Git remote (GitHub, GitLab, etc.)
+- **Selective sync** — Choose which keys to sync and which stay local-only, with glob pattern support
+- **Machine overrides** — Per-machine values that override shared config (e.g. different DB_HOST per machine)
+- **Conflict resolution** — Three-way merge with keep-local, keep-remote, or manual edit strategies
+- **Offline-first** — Everything works locally, remote is optional. Full history via Git.
+- **Rollback** — Restore any previous snapshot with automatic backup
 
 ### Security
 - **ENV encryption** — Encrypt sensitive values at rest with `age` (X25519)
@@ -197,8 +252,9 @@ src/
 ├── parser/          # Shell file parser & writer (round-trip safe)
 ├── config/          # App config, backup, atomic writes
 ├── ops/             # Operations (CRUD, profiles, groups, encryption, etc.)
+│   └── sync/        # Remote sync (Git wrapper, push/pull, conflict, machine overrides)
 ├── ui/              # Ratatui TUI (app state, rendering, dialogs)
-└── cli/             # Clap CLI (subcommands, wizard)
+└── cli/             # Clap CLI (subcommands, sync commands, wizard)
 ```
 
 ### Design Principles

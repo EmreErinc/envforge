@@ -1,9 +1,11 @@
 mod commands;
+mod sync_cmd;
 mod wizard;
 
 use clap::{Parser, Subcommand};
 
 pub use commands::*;
+pub use sync_cmd::*;
 pub use wizard::*;
 
 #[derive(Parser)]
@@ -145,6 +147,12 @@ pub enum Commands {
 
     /// Show current configuration
     Config,
+
+    /// Sync environment variables across machines
+    Sync {
+        #[command(subcommand)]
+        action: SyncAction,
+    },
 }
 
 #[derive(Subcommand)]
