@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-15
+
+### Added
+
+#### Secret Manager Integration
+- **Provider pattern** with `SecretProvider` trait — extensible for any secret manager
+- 7 built-in providers: HashiCorp Vault, AWS SSM, 1Password, Doppler, Infisical, GCP Secret Manager, Azure Key Vault
+- `envforge secrets pull --from <provider>` — Pull secrets from any provider
+- `envforge secrets push --to <provider> [--keys|--all|--filter]` — Push secrets to provider
+- `envforge secrets ref <KEY> --from <provider> --path <path>` — Create lazy references
+- `envforge secrets unref <KEY>` — Remove a reference
+- `envforge secrets resolve` — Resolve all references (with TTL cache + offline fallback)
+- `envforge secrets config <provider> --set key=value` — Store credentials (age encrypted)
+- `envforge secrets providers` — List all providers with binary and config status
+- `envforge secrets status` — Show configured providers
+- **Credential store** — Provider credentials encrypted with age in `credentials.toml`
+- **Reference cache** — TTL-based caching for resolved secrets, offline fallback
+- **authenticate()** and **validate_config()** on SecretProvider trait
+- **Source tracking** — Pulled keys track which provider they came from
+- **Progress indicator** — Shown for large pull/push operations (>50 keys)
+- Vault AppRole authentication support
+- AWS profile and IAM role authentication support
+- "Did you mean?" suggestion for misspelled provider names
+
+### Quality
+- 256 total tests, all passing
+- Clippy clean, rustfmt clean
+
 ## [0.2.0] - 2026-04-15
 
 ### Added

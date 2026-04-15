@@ -1,10 +1,12 @@
 mod commands;
+mod secrets_cmd;
 mod sync_cmd;
 mod wizard;
 
 use clap::{Parser, Subcommand};
 
 pub use commands::*;
+pub use secrets_cmd::*;
 pub use sync_cmd::*;
 pub use wizard::*;
 
@@ -152,6 +154,12 @@ pub enum Commands {
     Sync {
         #[command(subcommand)]
         action: SyncAction,
+    },
+
+    /// Manage secrets from external secret managers
+    Secrets {
+        #[command(subcommand)]
+        action: SecretsAction,
     },
 }
 

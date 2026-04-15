@@ -45,6 +45,7 @@ envforge encrypt KEY                # Encrypt a value (age)
 envforge decrypt KEY                # Decrypt a value
 envforge profile list|switch|create|delete
 envforge sync <subcommand>          # Sync across machines (see below)
+envforge secrets <subcommand>       # Secret manager integration (see below)
 envforge log [KEY] [-n N]           # View change history
 envforge completions zsh|bash|fish  # Shell completions
 envforge config                     # Show config
@@ -97,6 +98,36 @@ envforge sync machine                           # Show machine ID
 - Each machine has a unique ID and can set overrides that take precedence over shared values.
 - Offline-first: everything works locally, remote sync is optional.
 - All commands support `--json` for scripting and `--dry-run` for preview.
+
+### Secret Manager Integration
+
+Pull and push secrets from external secret managers:
+
+```bash
+# Configure provider credentials (encrypted with age)
+envforge secrets config vault --set addr=https://vault.example.com
+envforge secrets config vault --set token=hvs.xxx
+
+# Pull secrets from a provider
+envforge secrets pull --from vault --path secret/myapp
+envforge secrets pull --from aws-ssm --path /myapp/prod --filter "DB_*"
+
+# Push secrets to a provider
+envforge secrets push --to vault --path secret/myapp --keys DB_URL,API_KEY
+envforge secrets push --to doppler --all
+
+# Reference mode (lazy resolve, cached)
+envforge secrets ref DB_URL --from vault --path secret/myapp/DB_URL
+envforge secrets resolve
+
+# Manage providers
+envforge secrets providers                       # List all (7 supported)
+envforge secrets status                          # Show configured providers
+```
+
+**Supported providers**: HashiCorp Vault, AWS SSM, 1Password, Doppler, Infisical, GCP Secret Manager, Azure Key Vault
+
+**Three modes**: Pull (import once), Reference (lazy resolve with cache), Push (export to manager)
 
 ### Profiles
 Manage different environment sets for dev/staging/prod:

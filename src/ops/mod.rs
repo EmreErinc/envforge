@@ -12,6 +12,7 @@ mod offset;
 pub mod profile;
 mod reference;
 pub mod scanner;
+pub mod secrets;
 pub mod sync;
 pub mod undo;
 pub mod validation;
