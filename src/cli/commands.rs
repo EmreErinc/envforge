@@ -36,6 +36,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Config => cmd_config(),
         Commands::Sync { action } => super::sync_cmd::execute_sync(action, json, dry_run),
         Commands::Secrets { action } => super::secrets_cmd::execute_secrets(action, json, dry_run),
+        Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
     };
 
     if let Err(e) = result {
@@ -528,6 +529,9 @@ fn cmd_profile(action: &super::ProfileAction) -> Result<(), Box<dyn std::error::
             delete_profile(&mut config, name, false)?;
             println!("Deleted profile '{}' (file kept)", name);
         }
+        super::ProfileAction::Diff { a, b } => {
+            cmd_profile_diff(&config, a, b)?;
+        }
     }
     Ok(())
 }
@@ -793,6 +797,155 @@ fn print_entries_json(entries: &[EnvEntry]) -> Result<(), Box<dyn std::error::Er
         .collect();
 
     println!("{}", serde_json::to_string_pretty(&json_entries)?);
+    Ok(())
+}
+
+fn cmd_profile_diff(
+    config: &AppConfig,
+    profile_a: &str,
+    profile_b: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::profile_diff::diff_profiles;
+
+    let result = diff_profiles(config, profile_a, profile_b)?;
+
+    if result.is_empty() {
+        println!(
+            "Profiles '{}' and '{}' are identical.",
+            profile_a, profile_b
+        );
+        return Ok(());
+    }
+
+    let only_a = result.only_in_a();
+    let only_b = result.only_in_b();
+    let modified = result.modified();
+
+    if !only_a.is_empty() {
+        println!(
+            "\x1b[31m--- only in {}: {} key(s)\x1b[0m",
+            profile_a,
+            only_a.len()
+        );
+        for e in &only_a {
+            println!(
+                "  \x1b[31m- {} = {}\x1b[0m",
+                e.key,
+                e.value_a.as_deref().unwrap_or("")
+            );
+        }
+        println!();
+    }
+
+    if !only_b.is_empty() {
+        println!(
+            "\x1b[32m+++ only in {}: {} key(s)\x1b[0m",
+            profile_b,
+            only_b.len()
+        );
+        for e in &only_b {
+            println!(
+                "  \x1b[32m+ {} = {}\x1b[0m",
+                e.key,
+                e.value_b.as_deref().unwrap_or("")
+            );
+        }
+        println!();
+    }
+
+    if !modified.is_empty() {
+        println!("\x1b[33m~~~ modified: {} key(s)\x1b[0m", modified.len());
+        for e in &modified {
+            println!("  \x1b[33m~ {}\x1b[0m", e.key);
+            println!(
+                "    \x1b[31m- {}\x1b[0m",
+                e.value_a.as_deref().unwrap_or("")
+            );
+            println!(
+                "    \x1b[32m+ {}\x1b[0m",
+                e.value_b.as_deref().unwrap_or("")
+            );
+        }
+        println!();
+    }
+
+    println!(
+        "Summary: {} only in {}, {} only in {}, {} modified",
+        only_a.len(),
+        profile_a,
+        only_b.len(),
+        profile_b,
+        modified.len()
+    );
+
+    Ok(())
+}
+
+fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::doctor::{run_doctor, CheckStatus};
+
+    let report = run_doctor();
+
+    if json {
+        let checks: Vec<serde_json::Value> = report
+            .checks
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "name": c.name,
+                    "status": match c.status {
+                        CheckStatus::Ok => "ok",
+                        CheckStatus::Warning => "warning",
+                        CheckStatus::Error => "error",
+                    },
+                    "message": c.message,
+                    "details": c.details,
+                    "hint": c.hint,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "checks": checks,
+                "summary": {
+                    "ok": report.ok_count(),
+                    "warnings": report.warning_count(),
+                    "errors": report.error_count(),
+                }
+            }))?
+        );
+        return Ok(());
+    }
+
+    for check in &report.checks {
+        let icon = match check.status {
+            CheckStatus::Ok => "\x1b[32m✓\x1b[0m",
+            CheckStatus::Warning => "\x1b[33m⚠\x1b[0m",
+            CheckStatus::Error => "\x1b[31m✗\x1b[0m",
+        };
+        println!("{} {:<18} — {}", icon, check.name, check.message);
+        if verbose && !check.details.is_empty() {
+            for detail in &check.details {
+                println!("  {:<20} {}", "", detail);
+            }
+        }
+        if check.status != CheckStatus::Ok {
+            if let Some(hint) = &check.hint {
+                println!("  {:<20} \x1b[36m→ {}\x1b[0m", "", hint);
+            }
+        }
+    }
+
+    println!();
+    println!(
+        "  {} checks: {} ok, {} warning(s), {} error(s)",
+        report.checks.len(),
+        report.ok_count(),
+        report.warning_count(),
+        report.error_count()
+    );
+
     Ok(())
 }
 

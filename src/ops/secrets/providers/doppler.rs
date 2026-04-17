@@ -60,25 +60,30 @@ impl SecretProvider for DopplerProvider {
         let env_vars = build_env(credentials);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
-        for (key, value) in secrets {
-            let assignment = format!("{}={}", key, value);
-            let mut args = vec!["secrets", "set", &assignment];
+        // Batch all KEY=VALUE pairs into a single doppler secrets set call
+        let assignments: Vec<String> = secrets
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
 
-            let project_str;
-            if let Some(project) = credentials.get("project") {
-                project_str = project.clone();
-                args.extend_from_slice(&["--project", &project_str]);
-            }
-
-            let config_str;
-            if let Some(config) = credentials.get("config") {
-                config_str = config.clone();
-                args.extend_from_slice(&["--config", &config_str]);
-            }
-
-            run_cli("doppler", &args, &env_refs, "doppler")?;
+        let mut args: Vec<&str> = vec!["secrets", "set"];
+        for a in &assignments {
+            args.push(a);
         }
 
+        let project_str;
+        if let Some(project) = credentials.get("project") {
+            project_str = project.clone();
+            args.extend_from_slice(&["--project", &project_str]);
+        }
+
+        let config_str;
+        if let Some(config) = credentials.get("config") {
+            config_str = config.clone();
+            args.extend_from_slice(&["--config", &config_str]);
+        }
+
+        run_cli("doppler", &args, &env_refs, "doppler")?;
         Ok(secrets.len())
     }
 
@@ -116,14 +121,20 @@ fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String
     env
 }
 
-fn parse_doppler_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
+/// Doppler system keys injected into download output that are not user secrets.
+const DOPPLER_SYSTEM_KEYS: &[&str] = &["DOPPLER_PROJECT", "DOPPLER_CONFIG", "DOPPLER_ENVIRONMENT"];
+
+pub fn parse_doppler_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
     let map: HashMap<String, String> =
         serde_json::from_str(output).map_err(|e| SecretsError::ParseError {
             provider: "doppler".to_string(),
             message: e.to_string(),
         })?;
 
-    let mut result: Vec<(String, String)> = map.into_iter().collect();
+    let mut result: Vec<(String, String)> = map
+        .into_iter()
+        .filter(|(k, _)| !DOPPLER_SYSTEM_KEYS.contains(&k.as_str()))
+        .collect();
     result.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(result)
 }

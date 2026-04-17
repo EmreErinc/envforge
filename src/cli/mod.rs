@@ -161,6 +161,13 @@ pub enum Commands {
         #[command(subcommand)]
         action: SecretsAction,
     },
+
+    /// Run health checks on EnvForge setup
+    Doctor {
+        /// Show detailed output for each check
+        #[arg(long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -196,5 +203,14 @@ pub enum ProfileAction {
     Delete {
         /// Profile name
         name: String,
+    },
+
+    /// Compare environment variables between two profiles
+    Diff {
+        /// First profile name
+        a: String,
+
+        /// Second profile name
+        b: String,
     },
 }

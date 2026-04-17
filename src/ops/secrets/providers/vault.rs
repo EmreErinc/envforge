@@ -156,14 +156,11 @@ impl SecretProvider for VaultProvider {
             "vault",
         )?;
 
-        serde_json::from_str::<Vec<String>>(&output).map_err(|e| SecretsError::ParseError {
-            provider: "vault".to_string(),
-            message: e.to_string(),
-        })
+        parse_kv_list_output(&output)
     }
 }
 
-fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
+pub fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
     let mut env = Vec::new();
     if let Some(addr) = credentials.get("addr") {
         env.push(("VAULT_ADDR", addr.clone()));
@@ -174,7 +171,7 @@ fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String
     env
 }
 
-fn parse_kv_get_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
+pub fn parse_kv_get_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
     let json: serde_json::Value =
         serde_json::from_str(output).map_err(|e| SecretsError::ParseError {
             provider: "vault".to_string(),
@@ -202,4 +199,28 @@ fn parse_kv_get_output(output: &str) -> Result<Vec<(String, String)>, SecretsErr
 
     result.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(result)
+}
+
+/// Parse `vault kv list -format=json` output.
+/// Output structure: `{"data": {"keys": ["key1", "key2/", ...]}}`
+pub fn parse_kv_list_output(output: &str) -> Result<Vec<String>, SecretsError> {
+    let json: serde_json::Value =
+        serde_json::from_str(output).map_err(|e| SecretsError::ParseError {
+            provider: "vault".to_string(),
+            message: e.to_string(),
+        })?;
+
+    let keys = json
+        .get("data")
+        .and_then(|d| d.get("keys"))
+        .and_then(|k| k.as_array())
+        .ok_or_else(|| SecretsError::ParseError {
+            provider: "vault".to_string(),
+            message: "expected data.keys array in list output".to_string(),
+        })?;
+
+    Ok(keys
+        .iter()
+        .filter_map(|k| k.as_str().map(String::from))
+        .collect())
 }

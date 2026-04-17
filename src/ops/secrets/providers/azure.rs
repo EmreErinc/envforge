@@ -4,6 +4,17 @@ use super::super::provider::{run_cli, SecretProvider, SecretsError};
 
 pub struct AzureKeyVaultProvider;
 
+/// Convert env var name (with underscores) to Azure Key Vault compatible name (hyphens).
+/// Azure Key Vault only allows `[a-zA-Z0-9-]` in secret names.
+pub fn to_vault_name(env_key: &str) -> String {
+    env_key.replace('_', "-")
+}
+
+/// Convert Azure Key Vault secret name (hyphens) back to env var style (underscores).
+pub fn from_vault_name(vault_name: &str) -> String {
+    vault_name.replace('-', "_")
+}
+
 impl SecretProvider for AzureKeyVaultProvider {
     fn name(&self) -> &str {
         "azure"
@@ -32,10 +43,10 @@ impl SecretProvider for AzureKeyVaultProvider {
     ) -> Result<Vec<(String, String)>, SecretsError> {
         let vault = credentials.get("vault_name").cloned().unwrap_or_default();
 
-        let keys = self.list(credentials, "")?;
+        let vault_keys = self.list_vault_names(credentials)?;
         let mut result = Vec::new();
 
-        for key in &keys {
+        for vault_key in &vault_keys {
             let output = run_cli(
                 "az",
                 &[
@@ -43,7 +54,7 @@ impl SecretProvider for AzureKeyVaultProvider {
                     "secret",
                     "show",
                     "--name",
-                    key,
+                    vault_key,
                     "--vault-name",
                     &vault,
                     "--output",
@@ -60,7 +71,9 @@ impl SecretProvider for AzureKeyVaultProvider {
                 })?;
 
             if let Some(value) = json.get("value").and_then(|v| v.as_str()) {
-                result.push((key.clone(), value.to_string()));
+                // Convert vault name (hyphens) back to env var style (underscores)
+                let env_key = from_vault_name(vault_key);
+                result.push((env_key, value.to_string()));
             }
         }
 
@@ -77,6 +90,8 @@ impl SecretProvider for AzureKeyVaultProvider {
         let vault = credentials.get("vault_name").cloned().unwrap_or_default();
 
         for (key, value) in secrets {
+            // Convert underscore env var names to hyphenated vault names
+            let vault_name = to_vault_name(key);
             run_cli(
                 "az",
                 &[
@@ -84,7 +99,7 @@ impl SecretProvider for AzureKeyVaultProvider {
                     "secret",
                     "set",
                     "--name",
-                    key,
+                    &vault_name,
                     "--value",
                     value,
                     "--vault-name",
@@ -105,6 +120,7 @@ impl SecretProvider for AzureKeyVaultProvider {
         key: &str,
     ) -> Result<String, SecretsError> {
         let vault = credentials.get("vault_name").cloned().unwrap_or_default();
+        let vault_key = to_vault_name(key);
 
         let output = run_cli(
             "az",
@@ -113,7 +129,7 @@ impl SecretProvider for AzureKeyVaultProvider {
                 "secret",
                 "show",
                 "--name",
-                key,
+                &vault_key,
                 "--vault-name",
                 &vault,
                 "--output",
@@ -142,6 +158,23 @@ impl SecretProvider for AzureKeyVaultProvider {
         &self,
         credentials: &HashMap<String, String>,
         _path: &str,
+    ) -> Result<Vec<String>, SecretsError> {
+        let vault_names = self.list_vault_names(credentials)?;
+        // Convert vault names (hyphens) to env var style (underscores)
+        let mut names: Vec<String> = vault_names
+            .into_iter()
+            .map(|n| from_vault_name(&n))
+            .collect();
+        names.sort();
+        Ok(names)
+    }
+}
+
+impl AzureKeyVaultProvider {
+    /// List raw vault secret names (with hyphens, not converted to underscores).
+    fn list_vault_names(
+        &self,
+        credentials: &HashMap<String, String>,
     ) -> Result<Vec<String>, SecretsError> {
         let vault = credentials.get("vault_name").cloned().unwrap_or_default();
 

@@ -154,22 +154,34 @@ impl SecretProvider for GcpSecretManagerProvider {
             "gcp",
         )?;
 
-        let items: Vec<serde_json::Value> =
-            serde_json::from_str(&output).map_err(|e| SecretsError::ParseError {
-                provider: "gcp".to_string(),
-                message: e.to_string(),
-            })?;
-
-        let mut names: Vec<String> = items
-            .iter()
-            .filter_map(|i| {
-                let name = i.get("name")?.as_str()?;
-                // Format: "projects/123/secrets/MY_SECRET" → extract "MY_SECRET"
-                name.rsplit('/').next().map(String::from)
-            })
-            .collect();
-
-        names.sort();
-        Ok(names)
+        parse_gcp_list_output(&output)
     }
+}
+
+/// Parse `gcloud secrets list --format=json` output.
+/// Handles empty string output (some gcloud versions) and extracts secret names
+/// from full resource paths like `projects/123/secrets/MY_SECRET`.
+pub fn parse_gcp_list_output(output: &str) -> Result<Vec<String>, SecretsError> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let items: Vec<serde_json::Value> =
+        serde_json::from_str(trimmed).map_err(|e| SecretsError::ParseError {
+            provider: "gcp".to_string(),
+            message: e.to_string(),
+        })?;
+
+    let mut names: Vec<String> = items
+        .iter()
+        .filter_map(|i| {
+            let name = i.get("name")?.as_str()?;
+            // Format: "projects/123/secrets/MY_SECRET" → extract "MY_SECRET"
+            name.rsplit('/').next().map(String::from)
+        })
+        .collect();
+
+    names.sort();
+    Ok(names)
 }

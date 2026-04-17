@@ -290,28 +290,99 @@ fn cmd_secrets_unref(key: &str, json_output: bool) -> Result<(), Box<dyn std::er
 }
 
 fn cmd_secrets_resolve(
-    _key: Option<&str>,
+    key: Option<&str>,
     json_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::config::load_or_create_default;
+    use crate::ops::secrets::cache::is_reference;
+    use crate::parser::parse_shell_file;
+
     let registry = create_default_registry();
 
-    // TODO: load references from EnvForge config
-    let entries: Vec<(String, String)> = Vec::new();
+    // Load entries from shell files
+    let config = load_or_create_default()?;
+    let mut shell_files = Vec::new();
 
-    let resolved = modes::resolve_all_references(&entries, &registry)?;
+    let primary = shellexpand(&config.files.primary);
+    if primary.exists() {
+        shell_files.push(parse_shell_file(&primary)?);
+    }
+
+    let ref_path = shellexpand(&config.files.reference);
+    if config.files.use_reference_file && ref_path.exists() {
+        shell_files.push(parse_shell_file(&ref_path)?);
+    }
+
+    // Load profile files
+    if !config.profiles.active.is_empty() {
+        if let Some(profile) = config.profiles.entries.get(&config.profiles.active) {
+            let profile_path = shellexpand(&profile.file);
+            if profile_path.exists() {
+                shell_files.push(parse_shell_file(&profile_path)?);
+            }
+        }
+    }
+
+    let shared = shellexpand(&config.profiles.shared_file);
+    if shared.exists() {
+        shell_files.push(parse_shell_file(&shared)?);
+    }
+
+    let all_entries = crate::ops::collect_all_entries(&shell_files);
+
+    // Convert to (key, value) tuples, filtering inactive
+    let entries: Vec<(String, String)> = all_entries
+        .iter()
+        .filter(|e| e.location != crate::ops::EntryLocation::Commented)
+        .map(|e| (e.key.clone(), e.value.clone()))
+        .collect();
+
+    // Filter by key if specified, or only references if no key
+    let filtered: Vec<(String, String)> = if let Some(k) = key {
+        entries.into_iter().filter(|(ek, _)| ek == k).collect()
+    } else {
+        // By default, resolve only references for shell eval
+        entries
+            .into_iter()
+            .filter(|(_, v)| is_reference(v))
+            .collect()
+    };
+
+    if filtered.is_empty() {
+        if let Some(k) = key {
+            eprintln!("# key '{}' not found", k);
+        }
+        // Output nothing — safe for eval
+        return Ok(());
+    }
+
+    let resolved = modes::resolve_all_references(&filtered, &registry)?;
 
     if json_output {
         let items: Vec<serde_json::Value> = resolved
             .iter()
             .map(|(k, v, is_ref)| json!({"key": k, "value": v, "was_reference": is_ref}))
             .collect();
-        println!("{}", json!(items));
+        println!("{}", serde_json::to_string_pretty(&json!(items))?);
     } else {
-        let ref_count = resolved.iter().filter(|(_, _, is_ref)| *is_ref).count();
-        println!("Resolved {} references", ref_count);
+        // Output shell-compatible export statements for eval
+        for (k, v, _) in &resolved {
+            // Escape single quotes for safe shell embedding
+            let escaped = v.replace('\'', "'\\''");
+            println!("export {}='{}'", k, escaped);
+        }
     }
 
     Ok(())
+}
+
+fn shellexpand(path: &str) -> std::path::PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    std::path::PathBuf::from(path)
 }
 
 fn cmd_secrets_config(

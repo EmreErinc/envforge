@@ -33,7 +33,7 @@ impl SecretProvider for InfisicalProvider {
         let env_vars = build_env(credentials);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
-        let mut args = vec!["secrets", "get", "--plain", "--format=json"];
+        let mut args = vec!["export", "--format=json"];
 
         let env_str;
         if let Some(environment) = credentials.get("environment") {
@@ -60,24 +60,30 @@ impl SecretProvider for InfisicalProvider {
         let env_vars = build_env(credentials);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
-        for (key, value) in secrets {
-            let mut args = vec!["secrets", "set", key.as_str(), value.as_str()];
+        // Infisical supports multiple KEY=VALUE pairs in a single set call
+        let assignments: Vec<String> = secrets
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
 
-            let env_str;
-            if let Some(environment) = credentials.get("environment") {
-                env_str = environment.clone();
-                args.extend_from_slice(&["--env", &env_str]);
-            }
-
-            let project_str;
-            if let Some(project_id) = credentials.get("project_id") {
-                project_str = project_id.clone();
-                args.extend_from_slice(&["--projectId", &project_str]);
-            }
-
-            run_cli("infisical", &args, &env_refs, "infisical")?;
+        let mut args: Vec<&str> = vec!["secrets", "set"];
+        for a in &assignments {
+            args.push(a);
         }
 
+        let env_str;
+        if let Some(environment) = credentials.get("environment") {
+            env_str = environment.clone();
+            args.extend_from_slice(&["--env", &env_str]);
+        }
+
+        let project_str;
+        if let Some(project_id) = credentials.get("project_id") {
+            project_str = project_id.clone();
+            args.extend_from_slice(&["--projectId", &project_str]);
+        }
+
+        run_cli("infisical", &args, &env_refs, "infisical")?;
         Ok(secrets.len())
     }
 
@@ -115,7 +121,7 @@ fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String
     env
 }
 
-fn parse_infisical_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
+pub fn parse_infisical_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
     let items: Vec<serde_json::Value> =
         serde_json::from_str(output).map_err(|e| SecretsError::ParseError {
             provider: "infisical".to_string(),

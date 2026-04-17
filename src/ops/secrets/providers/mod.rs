@@ -1,10 +1,10 @@
-mod aws_ssm;
-mod azure;
-mod doppler;
-mod gcp;
-mod infisical;
-mod onepassword;
-mod vault;
+pub mod aws_ssm;
+pub mod azure;
+pub mod doppler;
+pub mod gcp;
+pub mod infisical;
+pub mod onepassword;
+pub mod vault;
 
 use super::provider::ProviderRegistry;
 

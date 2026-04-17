@@ -73,7 +73,7 @@ impl SecretProvider for OnePasswordProvider {
         let env_vars = build_env(credentials);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
-        let field = format!("--fields={}", key);
+        let field = format!("--fields=label={}", key);
         let output = run_cli("op", &["item", "get", path, &field], &env_refs, "1password")?;
 
         Ok(output.trim().to_string())
@@ -107,7 +107,7 @@ impl SecretProvider for OnePasswordProvider {
     }
 }
 
-fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
+pub fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
     let mut env = Vec::new();
     if let Some(token) = credentials.get("service_account_token") {
         env.push(("OP_SERVICE_ACCOUNT_TOKEN", token.clone()));
@@ -115,7 +115,7 @@ fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String
     env
 }
 
-fn parse_item_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
+pub fn parse_item_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
     let json: serde_json::Value =
         serde_json::from_str(output).map_err(|e| SecretsError::ParseError {
             provider: "1password".to_string(),

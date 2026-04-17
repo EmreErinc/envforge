@@ -8,49 +8,160 @@ EnvForge safely manages environment variables in your shell configuration files 
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-blue.svg)
 
-## Features
+## Features at a Glance
 
-### Core
-- **Safe parsing** — Line-level AST preserves every byte. Parse-serialize round-trip is always identical.
-- **Soft delete** — Nothing is ever physically deleted. Entries are commented with tags and can be restored.
-- **Atomic writes** — All file writes use tempfile + rename. Crash-safe by design.
-- **Auto backup** — Backup created before every write. Last 10 retained.
+| Category | Highlights |
+|----------|-----------|
+| **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
+| **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
+| **CLI** | 40+ subcommands, `--json` output, `--dry-run` preview, shell completions |
+| **Profiles** | Dev/staging/prod environments, shared + profile-specific files |
+| **Encryption** | Age (X25519) encryption at rest, per-value encrypt/decrypt |
+| **Remote Sync** | Git-based cross-machine sync, selective keys, machine overrides, rollback |
+| **Secret Managers** | 7 providers (Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure) |
+| **Health Check** | `envforge doctor` with actionable fix suggestions |
+| **Security** | Secret scanning, value masking, encrypted credential storage |
+
+## Installation
+
+### From source (Rust 1.75+)
+```bash
+git clone https://github.com/emreerinc/envforge.git
+cd envforge
+cargo install --path .
+```
+
+### Cargo
+```bash
+cargo install env-forge-tui
+```
+
+## Quick Start
+
+```bash
+# First run — interactive setup wizard
+envforge
+
+# List your ENV variables
+envforge list
+
+# Add or update a variable
+envforge set DATABASE_URL=postgres://localhost/mydb
+
+# Import from a .env file
+envforge import .env
+
+# Check system health
+envforge doctor
+
+# Launch the TUI
+envforge
+```
+
+## Core Features
+
+### Safe Shell File Parsing
+
+EnvForge parses shell files into a line-level AST that preserves every byte — comments, blank lines, formatting, and ordering. A parse-serialize round-trip produces a byte-identical file.
+
+- **Atomic writes** — Every file write uses tempfile + rename. No partial files on crash.
+- **Auto backup** — A backup is created before every write. Last 10 retained automatically.
+- **SHA-256 verification** — Detects external changes between reads and writes.
+- **Protected zones** — Conda, Amazon Q, and other managed blocks are never modified.
+- **Soft delete** — Nothing is physically removed. Entries are commented with tags and can be restored.
 
 ### TUI Interface
-- **Table view** — KEY / VALUE / LOCATION columns with sorting and filtering
-- **Keyboard-driven** — Full vim-style navigation (j/k, search with /, etc.)
+
+Launch with `envforge` (no arguments):
+
+| Key | Action |
+|-----|--------|
+| `j/k` or arrows | Navigate |
+| `Space` | Toggle active/passive |
+| `e` | Edit value |
+| `a` | Add new variable |
+| `d` | Delete (soft) |
+| `r` | Restore deleted |
+| `u` | Undo last operation |
+| `c` / `C` | Copy value / KEY=VALUE |
+| `m` | Move to reference file |
+| `v` | Toggle value masking |
+| `/` | Fuzzy search |
+| `g` | Toggle grouping |
+| `P` | Switch profile |
+| `I` / `E` | Import / Export .env |
+| `S` | Save changes |
+| `?` | Help |
+| `q` | Quit |
+
+Additional TUI features:
 - **Mouse support** — Click to select, scroll to navigate
-- **Value masking** — Sensitive values (SECRET, TOKEN, PASSWORD) masked by default
-- **Grouping** — Auto-detected prefix groups (DB_*, AWS_*) + user-defined groups, collapsible
-- **Active/passive toggle** — Space key to enable/disable ENV entries
+- **Value masking** — Keys containing SECRET, TOKEN, PASSWORD auto-masked
+- **Grouping** — Auto-detected prefix groups (DB_\*, AWS_\*) + custom groups, collapsible
 - **Fuzzy search** — Type "dbh" to find DB_HOST, with match highlighting
-- **Undo history** — Full in-session undo with `u` key
-- **Profile switching** — Press `P` to switch between dev/staging/prod
-- **Import/Export** — `I` to import from .env, `E` to export
 
 ### CLI Interface
-```
+
+All commands support `--json` for machine-readable output and `--dry-run` for preview.
+
+```bash
+# Variable management
 envforge list [--json]              # List all variables
 envforge get KEY [--json]           # Get a value
 envforge set KEY=VALUE              # Set or create
 envforge delete KEY                 # Soft-delete
 envforge copy KEY                   # Copy to clipboard
 envforge move KEY                   # Move to reference file
+
+# Import / Export
 envforge import file.env [--force]  # Import from .env
-envforge export [path]              # Export to .env
+envforge export [path]              # Export to .env format
+  --exclude-sensitive               # Skip SECRET, TOKEN, PASSWORD keys
+  --filter PATTERN                  # Only matching keys
+
+# Analysis & validation
 envforge duplicates                 # Find duplicate keys
 envforge scan [path] [--staged]     # Scan for leaked secrets
-envforge validate                   # Check validation rules
-envforge encrypt KEY                # Encrypt a value (age)
-envforge decrypt KEY                # Decrypt a value
-envforge profile list|switch|create|delete
-envforge sync <subcommand>          # Sync across machines (see below)
-envforge secrets <subcommand>       # Secret manager integration (see below)
-envforge log [KEY] [-n N]           # View change history
-envforge completions zsh|bash|fish  # Shell completions
-envforge config                     # Show config
+envforge validate                   # Check against validation rules
 envforge diff                       # Show pending changes
-envforge --dry-run <command>        # Preview without writing
+envforge doctor [--verbose]         # Health check with fix suggestions
+
+# Encryption
+envforge encrypt KEY                # Encrypt a value (age/X25519)
+envforge decrypt KEY                # Decrypt a value
+
+# Profiles
+envforge profile list               # List all profiles
+envforge profile switch NAME        # Switch active profile
+envforge profile create NAME        # Create a new profile
+envforge profile delete NAME        # Delete a profile
+envforge profile diff A B           # Compare two profiles side-by-side
+
+# History & config
+envforge log [KEY] [-n N]           # View change history
+envforge config                     # Show current configuration
+envforge backup list                # List available backups
+envforge backup restore FILE        # Restore from backup
+envforge completions zsh|bash|fish  # Generate shell completions
+```
+
+### Profiles
+
+Manage different environment sets for dev/staging/prod:
+
+```
+~/.env_managed.shared    # Always loaded (common ENVs)
+~/.env_managed.dev       # Dev-specific values
+~/.env_managed.prod      # Prod-specific values
+```
+
+Profile-specific values override shared values. Switch instantly:
+
+```bash
+envforge profile switch prod
+
+# Compare what differs between profiles
+envforge profile diff dev prod
 ```
 
 ### Remote Sync
@@ -72,9 +183,7 @@ envforge sync list-keys                         # View sync/local status
 # Push and pull
 envforge sync push                              # Export & push to remote
 envforge sync push -m "updated DB config"       # Custom commit message
-envforge sync push --dry-run                    # Preview without pushing
 envforge sync pull                              # Pull latest from remote
-envforge sync pull --dry-run                    # Preview incoming changes
 envforge sync status                            # Show local vs remote diff
 
 # Machine-specific overrides
@@ -87,21 +196,28 @@ envforge sync history                           # View snapshot history
 envforge sync rollback --last                   # Rollback to previous
 envforge sync rollback abc1234                  # Rollback to specific commit
 envforge sync log                               # View operation log
-
-# Machine info
-envforge sync machine                           # Show machine ID
+envforge sync machine                           # Show machine identity
 ```
 
 **How it works:**
-- Sync data lives in `~/.envforge/sync/` — a separate Git repo that never touches your existing config.
+- Sync data lives in `~/.envforge/sync/` — a separate Git repo that never touches your shell config.
 - You choose which keys to sync (`--sync`) and which stay local (`--local`).
 - Each machine has a unique ID and can set overrides that take precedence over shared values.
 - Offline-first: everything works locally, remote sync is optional.
-- All commands support `--json` for scripting and `--dry-run` for preview.
 
 ### Secret Manager Integration
 
-Pull and push secrets from external secret managers:
+Pull, push, and reference secrets from 7 providers:
+
+| Provider | Binary | Auth Method |
+|----------|--------|-------------|
+| HashiCorp Vault | `vault` | Token, AppRole |
+| AWS SSM Parameter Store | `aws` | Access key, profile, IAM role |
+| 1Password | `op` | Service account token |
+| Doppler | `doppler` | Service token |
+| Infisical | `infisical` | Token, machine identity |
+| GCP Secret Manager | `gcloud` | Application default credentials |
+| Azure Key Vault | `az` | Azure CLI login |
 
 ```bash
 # Configure provider credentials (encrypted with age)
@@ -116,96 +232,57 @@ envforge secrets pull --from aws-ssm --path /myapp/prod --filter "DB_*"
 envforge secrets push --to vault --path secret/myapp --keys DB_URL,API_KEY
 envforge secrets push --to doppler --all
 
-# Reference mode (lazy resolve, cached)
+# Reference mode (lazy resolve with cache)
 envforge secrets ref DB_URL --from vault --path secret/myapp/DB_URL
-envforge secrets resolve
+envforge secrets resolve                        # Resolve all references
+envforge secrets resolve --key DB_URL           # Resolve specific key
+
+# Use in shell init (.zshrc / .bashrc)
+eval "$(envforge secrets resolve)"
 
 # Manage providers
-envforge secrets providers                       # List all (7 supported)
-envforge secrets status                          # Show configured providers
+envforge secrets providers                      # List all 7 with status
+envforge secrets status                         # Show configured providers
+envforge secrets config vault --show            # Show stored credentials
 ```
 
-**Supported providers**: HashiCorp Vault, AWS SSM, 1Password, Doppler, Infisical, GCP Secret Manager, Azure Key Vault
+**Three modes:**
+- **Pull** — Import secrets once as local ENV entries
+- **Reference** — Lazy resolve at shell init with TTL cache (`eval "$(envforge secrets resolve)"`)
+- **Push** — Export local ENV entries to a secret manager
 
-**Three modes**: Pull (import once), Reference (lazy resolve with cache), Push (export to manager)
+### Health Check
 
-### Profiles
-Manage different environment sets for dev/staging/prod:
+Run `envforge doctor` to check the entire system:
+
 ```
-~/.env_managed.shared    # Always loaded (common ENVs)
-~/.env_managed.dev       # Dev profile
-~/.env_managed.prod      # Prod profile
-```
-Profile-specific values override shared values. Last used profile remembered.
+$ envforge doctor
+✓ Config             — loaded OK
+⚠ Encryption key     — no age key yet
+                       → Run: envforge encrypt <KEY> to generate a key and encrypt a value
+✓ Shell files        — 3 file(s) parsed, 112 entries
+⚠ Duplicates         — 1 duplicate key(s) found
+                       → Run: envforge duplicates to see details and resolve them
+✓ Validation         — no rules configured
+✓ References         — 0 reference(s), 0 encrypted
+✓ Sync               — in sync, no local changes
+✓ Providers          — 0/7 binaries found
+✓ Credentials        — no providers configured
 
-### Remote Sync
-- **Git-based sync** — Sync ENV variables across machines using any Git remote (GitHub, GitLab, etc.)
-- **Selective sync** — Choose which keys to sync and which stay local-only, with glob pattern support
-- **Machine overrides** — Per-machine values that override shared config (e.g. different DB_HOST per machine)
-- **Conflict resolution** — Three-way merge with keep-local, keep-remote, or manual edit strategies
-- **Offline-first** — Everything works locally, remote is optional. Full history via Git.
-- **Rollback** — Restore any previous snapshot with automatic backup
+  9 checks: 7 ok, 2 warning(s), 0 error(s)
+```
+
+Checks: config health, encryption key, shell files, duplicate keys, validation rules, secret references, sync status, provider binaries, provider credentials.
+
+Use `--verbose` for details, `--json` for machine-readable output.
 
 ### Security
-- **ENV encryption** — Encrypt sensitive values at rest with `age` (X25519)
-- **Secret scanning** — Detect leaked secrets in source code (`envforge scan --staged` as pre-commit hook)
-- **Value masking** — Sensitive keys never displayed in plain text by default
 
-## Installation
-
-### From source (Rust 1.75+)
-```bash
-git clone https://github.com/emreerinc/envforge.git
-cd envforge
-cargo install --path .
-```
-
-### Cargo
-```bash
-cargo install env-forge-tui
-```
-
-### Shell Completions
-```bash
-# Zsh
-envforge completions zsh > ~/.zsh/completions/_envforge
-
-# Bash
-envforge completions bash > /etc/bash_completion.d/envforge
-
-# Fish
-envforge completions fish > ~/.config/fish/completions/envforge.fish
-```
-
-## Quick Start
-
-```bash
-# First run — setup wizard
-envforge
-
-# Or skip wizard with defaults
-envforge config
-
-# List your ENV variables
-envforge list
-
-# Search (fuzzy)
-envforge list --filter dbh
-
-# Import from .env file
-envforge import .env
-
-# Create profiles
-envforge profile create dev
-envforge profile create prod
-envforge profile switch dev
-
-# Encrypt sensitive values
-envforge encrypt API_KEY
-
-# Scan for secrets before commit
-envforge scan --staged
-```
+- **Encryption at rest** — Encrypt individual values with age (X25519): `envforge encrypt API_KEY`
+- **Secret scanning** — Detect leaked secrets in source code: `envforge scan --staged` (use as pre-commit hook)
+- **Credential storage** — Provider credentials encrypted with age in `~/.config/envforge/credentials.toml`
+- **Value masking** — Keys containing SECRET, TOKEN, PASSWORD, CREDENTIAL are masked in TUI by default
+- **No plain-text secrets in history** — Encrypted values stay encrypted in backups and sync
 
 ## Configuration
 
@@ -246,32 +323,22 @@ DATABASE_URL = "url"
 PORT = "number"
 DEBUG = "bool"
 API_KEY = "nonempty"
+EMAIL = "email"
+CUSTOM = "regex:^[A-Z]{3}-\\d{4}$"
 ```
 
-## Keyboard Shortcuts
+### Shell Completions
 
-| Key | Action |
-|-----|--------|
-| `j/k` or `↑/↓` | Navigate |
-| `Space` | Toggle active/passive |
-| `e` | Edit value |
-| `a` | Add new variable |
-| `d` | Delete (soft) |
-| `r` | Restore deleted |
-| `u` | Undo last operation |
-| `c` / `C` | Copy value / KEY=VALUE |
-| `m` | Move to reference file |
-| `v` | Toggle value mask |
-| `/` | Fuzzy search |
-| `g` | Toggle grouping |
-| `→/Enter` | Expand group |
-| `←` | Collapse group |
-| `P` | Switch profile |
-| `I` | Import from .env |
-| `E` | Export to .env |
-| `S` / `Ctrl+S` | Save changes |
-| `?` | Help |
-| `q` | Quit |
+```bash
+# Zsh
+envforge completions zsh > ~/.zsh/completions/_envforge
+
+# Bash
+envforge completions bash > /etc/bash_completion.d/envforge
+
+# Fish
+envforge completions fish > ~/.config/fish/completions/envforge.fish
+```
 
 ## Architecture
 
@@ -282,10 +349,18 @@ src/
 ├── model/           # Data types (LineNode, ShellFile, ExportStyle)
 ├── parser/          # Shell file parser & writer (round-trip safe)
 ├── config/          # App config, backup, atomic writes
-├── ops/             # Operations (CRUD, profiles, groups, encryption, etc.)
-│   └── sync/        # Remote sync (Git wrapper, push/pull, conflict, machine overrides)
+├── ops/             # Operations
+│   ├── crud.rs      # Add, edit, delete, move, toggle
+│   ├── profile.rs   # Profile management
+│   ├── encrypt.rs   # Age encryption/decryption
+│   ├── duplicates.rs # Duplicate key detection
+│   ├── validation.rs # Rule-based value validation
+│   ├── scanner.rs   # Secret scanning
+│   ├── doctor.rs    # System health checks
+│   ├── sync/        # Remote sync (Git, push/pull, conflict, machine overrides)
+│   └── secrets/     # Secret manager integration (7 providers, credentials, cache)
 ├── ui/              # Ratatui TUI (app state, rendering, dialogs)
-└── cli/             # Clap CLI (subcommands, sync commands, wizard)
+└── cli/             # Clap CLI (subcommands, sync, secrets, wizard)
 ```
 
 ### Design Principles

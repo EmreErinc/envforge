@@ -44,24 +44,49 @@ impl SecretProvider for AwsSsmProvider {
         let env_vars = build_env(credentials);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
-        let mut args = vec![
-            "ssm",
-            "get-parameters-by-path",
-            "--path",
-            path,
-            "--with-decryption",
-            "--output",
-            "json",
-        ];
+        let region_str = credentials.get("region").cloned().unwrap_or_default();
+        let has_region = credentials.contains_key("region");
 
-        let region_str;
-        if let Some(region) = credentials.get("region") {
-            region_str = region.clone();
-            args.extend_from_slice(&["--region", &region_str]);
+        let mut all_results = Vec::new();
+        let mut next_token: Option<String> = None;
+
+        loop {
+            let mut args = vec![
+                "ssm",
+                "get-parameters-by-path",
+                "--path",
+                path,
+                "--recursive",
+                "--with-decryption",
+                "--output",
+                "json",
+            ];
+
+            if has_region {
+                args.extend_from_slice(&["--region", &region_str]);
+            }
+
+            let token_str;
+            if let Some(ref token) = next_token {
+                token_str = token.clone();
+                args.extend_from_slice(&["--next-token", &token_str]);
+            }
+
+            let output = run_cli("aws", &args, &env_refs, "aws-ssm")?;
+            let mut page = parse_ssm_output(&output, path)?;
+            all_results.append(&mut page);
+
+            // Check for pagination token
+            let json: serde_json::Value =
+                serde_json::from_str(&output).unwrap_or(serde_json::Value::Null);
+            match json.get("NextToken").and_then(|t| t.as_str()) {
+                Some(token) => next_token = Some(token.to_string()),
+                None => break,
+            }
         }
 
-        let output = run_cli("aws", &args, &env_refs, "aws-ssm")?;
-        parse_ssm_output(&output, path)
+        all_results.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(all_results)
     }
 
     fn push(
@@ -152,7 +177,7 @@ impl SecretProvider for AwsSsmProvider {
     }
 }
 
-fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
+pub fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
     let mut env = Vec::new();
     if let Some(key) = credentials.get("access_key") {
         env.push(("AWS_ACCESS_KEY_ID", key.clone()));
@@ -169,7 +194,7 @@ fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String
     env
 }
 
-fn parse_ssm_output(
+pub fn parse_ssm_output(
     output: &str,
     path_prefix: &str,
 ) -> Result<Vec<(String, String)>, SecretsError> {
