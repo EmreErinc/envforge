@@ -40,7 +40,7 @@ pub fn validate_entries(
 
 /// Validate a single value against a rule string.
 /// Returns None if valid, Some(error_message) if invalid.
-fn validate_value(value: &str, rule: &str) -> Option<String> {
+pub fn validate_value(value: &str, rule: &str) -> Option<String> {
     match rule {
         "nonempty" => {
             if value.trim().is_empty() {

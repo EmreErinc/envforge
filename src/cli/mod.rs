@@ -116,8 +116,20 @@ pub enum Commands {
         action: ProfileAction,
     },
 
-    /// Validate ENV values against config rules
-    Validate,
+    /// Validate ENV values against config rules and/or .env.schema
+    Validate {
+        /// Path to .env.schema (auto-detected if omitted)
+        #[arg(long)]
+        schema: Option<String>,
+
+        /// Validate a specific .env file instead of EnvForge config
+        #[arg(long = "env")]
+        env_file: Option<String>,
+
+        /// Environment name for schema overrides (e.g., production)
+        #[arg(long)]
+        environment: Option<String>,
+    },
 
     /// Generate shell completion scripts
     Completions {
@@ -162,11 +174,87 @@ pub enum Commands {
         action: SecretsAction,
     },
 
+    /// Run a command with EnvForge-managed environment variables
+    Run {
+        /// Profile to use (default: active profile)
+        #[arg(long)]
+        profile: Option<String>,
+
+        /// Resolve secret references (ref:provider:path) at runtime
+        #[arg(long)]
+        resolve: bool,
+
+        /// Load additional .env file(s) (can be repeated)
+        #[arg(long = "env-file", num_args = 1)]
+        env_files: Vec<String>,
+
+        /// Override a specific variable (KEY=VALUE, can be repeated)
+        #[arg(long = "override", num_args = 1)]
+        overrides: Vec<String>,
+
+        /// Command and arguments to run (after --)
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
+
+    /// Generate documentation from .env.schema
+    Docs {
+        /// Path to .env.schema (auto-detected if omitted)
+        #[arg(long)]
+        schema: Option<String>,
+
+        /// Write output to file instead of stdout
+        #[arg(long)]
+        output: Option<String>,
+    },
+
+    /// Detect environment variable drift across .env files
+    Drift {
+        /// Path to .env.schema (auto-detected if omitted)
+        #[arg(long)]
+        schema: Option<String>,
+
+        /// Environment name for schema overrides
+        #[arg(long)]
+        environment: Option<String>,
+
+        /// .env files to compare
+        #[arg(long = "envs", num_args = 1.., required = true)]
+        env_files: Vec<String>,
+    },
+
+    /// Generate .env.schema from existing environment variables
+    Schema {
+        #[command(subcommand)]
+        action: SchemaAction,
+    },
+
+    /// Interactive environment setup from .env.schema
+    Init {
+        /// Path to .env.schema (auto-detected if omitted)
+        #[arg(long)]
+        schema: Option<String>,
+
+        /// Output .env file path
+        #[arg(long, default_value = ".env")]
+        output: String,
+    },
+
     /// Run health checks on EnvForge setup
     Doctor {
         /// Show detailed output for each check
         #[arg(long)]
         verbose: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SchemaAction {
+    /// Generate .env.schema from current environment variables
+    Generate {
+        /// Write output to file instead of stdout
+        #[arg(long)]
+        output: Option<String>,
     },
 }
 

@@ -28,14 +28,46 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Diff => cmd_diff(),
         Commands::Backup { action } => cmd_backup(action),
         Commands::Profile { action } => cmd_profile(action),
-        Commands::Validate => cmd_validate(json),
+        Commands::Validate {
+            schema,
+            env_file,
+            environment,
+        } => cmd_validate_enhanced(
+            schema.as_deref(),
+            env_file.as_deref(),
+            environment.as_deref(),
+            json,
+        ),
         Commands::Encrypt { key } => cmd_encrypt(key, dry_run),
         Commands::Decrypt { key } => cmd_decrypt(key, dry_run),
         Commands::Completions { shell } => cmd_completions(shell),
         Commands::Log { key, n } => cmd_log(key.as_deref(), *n, json),
         Commands::Config => cmd_config(),
+        Commands::Run {
+            profile,
+            resolve,
+            env_files,
+            overrides,
+            command,
+        } => cmd_run(
+            profile.as_deref(),
+            *resolve,
+            env_files,
+            overrides,
+            command,
+            dry_run,
+            json,
+        ),
         Commands::Sync { action } => super::sync_cmd::execute_sync(action, json, dry_run),
         Commands::Secrets { action } => super::secrets_cmd::execute_secrets(action, json, dry_run),
+        Commands::Docs { schema, output } => cmd_docs(schema.as_deref(), output.as_deref()),
+        Commands::Drift {
+            schema,
+            environment,
+            env_files,
+        } => cmd_drift(schema.as_deref(), environment.as_deref(), env_files, json),
+        Commands::Schema { action } => cmd_schema(action, json),
+        Commands::Init { schema, output } => cmd_init_schema(schema.as_deref(), output),
         Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
     };
 
@@ -798,6 +830,383 @@ fn print_entries_json(entries: &[EnvEntry]) -> Result<(), Box<dyn std::error::Er
 
     println!("{}", serde_json::to_string_pretty(&json_entries)?);
     Ok(())
+}
+
+fn cmd_validate_enhanced(
+    schema_path: Option<&str>,
+    env_file: Option<&str>,
+    environment: Option<&str>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::schema::{find_schema, parse_schema, validate_against_schema};
+
+    let config = load_or_create_default()?;
+
+    // Load ENV vars
+    let env: std::collections::HashMap<String, String> = if let Some(env_path) = env_file {
+        let entries = crate::ops::dotenv::parse_dotenv(std::path::Path::new(env_path))?;
+        entries.into_iter().map(|e| (e.key, e.value)).collect()
+    } else {
+        let (_, shell_files) = load_context()?;
+        let entries = collect_all_entries(&shell_files);
+        entries
+            .into_iter()
+            .filter(|e| e.location != EntryLocation::Commented)
+            .map(|e| (e.key, e.value))
+            .collect()
+    };
+
+    // Try to load schema
+    let schema_file = schema_path
+        .map(std::path::PathBuf::from)
+        .or_else(find_schema);
+
+    if let Some(sf) = schema_file {
+        let schema = parse_schema(&sf)?;
+        let errors = validate_against_schema(&env, &schema, environment, &config.validation);
+
+        if json {
+            let items: Vec<serde_json::Value> = errors
+                .iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "key": e.key,
+                        "message": e.message,
+                        "expected": e.expected,
+                        "actual": e.actual,
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"errors": items, "valid": errors.is_empty()})
+                )?
+            );
+        } else if errors.is_empty() {
+            println!(
+                "All variables valid ({} checked against schema).",
+                env.len()
+            );
+        } else {
+            for e in &errors {
+                println!("\x1b[31m✗\x1b[0m {:<30} — {}", e.key, e.message);
+            }
+            println!("\n{} error(s) found.", errors.len());
+            std::process::exit(1);
+        }
+    } else {
+        // Fallback to config.toml validation only
+        return cmd_validate(json);
+    }
+
+    Ok(())
+}
+
+fn cmd_docs(
+    schema_path: Option<&str>,
+    output_path: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::schema::{find_schema, generate_docs, parse_schema};
+
+    let sf = schema_path
+        .map(std::path::PathBuf::from)
+        .or_else(find_schema)
+        .ok_or("No .env.schema found. Specify --schema or create .env.schema in project root.")?;
+
+    let schema = parse_schema(&sf)?;
+    let docs = generate_docs(&schema);
+
+    if let Some(out) = output_path {
+        std::fs::write(out, &docs)?;
+        println!("Documentation written to {}", out);
+    } else {
+        print!("{}", docs);
+    }
+
+    Ok(())
+}
+
+fn cmd_drift(
+    schema_path: Option<&str>,
+    _environment: Option<&str>,
+    env_files: &[String],
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::schema::{detect_drift, find_schema, parse_schema, DriftStatus};
+
+    let schema = schema_path
+        .map(std::path::PathBuf::from)
+        .or_else(find_schema)
+        .and_then(|p| parse_schema(&p).ok());
+
+    let mut envs: Vec<(String, std::collections::HashMap<String, String>)> = Vec::new();
+    for path in env_files {
+        let entries = crate::ops::dotenv::parse_dotenv(std::path::Path::new(path))?;
+        let map = entries.into_iter().map(|e| (e.key, e.value)).collect();
+        // Extract env name from filename: .env.production -> production
+        let name = std::path::Path::new(path)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        envs.push((name, map));
+    }
+
+    let drift = detect_drift(&envs, schema.as_ref());
+
+    if json {
+        let items: Vec<serde_json::Value> = drift
+            .iter()
+            .map(|d| {
+                serde_json::json!({
+                    "key": d.key,
+                    "status": match d.status {
+                        DriftStatus::Same => "same",
+                        DriftStatus::Differs => "differs",
+                        DriftStatus::Missing => "missing",
+                    },
+                    "values": d.values,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&items)?);
+        return Ok(());
+    }
+
+    // Matrix display
+    let env_names: Vec<&str> = envs.iter().map(|(n, _)| n.as_str()).collect();
+
+    // Header
+    print!("{:<30}", "Variable");
+    for name in &env_names {
+        print!(" {:<20}", name);
+    }
+    println!();
+    print!("{}", "-".repeat(30));
+    for _ in &env_names {
+        print!(" {}", "-".repeat(20));
+    }
+    println!();
+
+    let mut differ_count = 0;
+    let mut missing_count = 0;
+
+    for entry in &drift {
+        if entry.status == DriftStatus::Same {
+            continue; // Only show differences
+        }
+        let color = match entry.status {
+            DriftStatus::Differs => "\x1b[33m",
+            DriftStatus::Missing => "\x1b[31m",
+            DriftStatus::Same => "",
+        };
+        print!("{}{:<30}\x1b[0m", color, entry.key);
+        for name in &env_names {
+            let val = entry
+                .values
+                .get(*name)
+                .and_then(|v| v.as_deref())
+                .unwrap_or("(missing)");
+            let display = if val.len() > 18 {
+                format!("{}...", &val[..15])
+            } else {
+                val.to_string()
+            };
+            let cell_color = if val == "(missing)" { "\x1b[31m" } else { "" };
+            print!(" {}{:<20}\x1b[0m", cell_color, display);
+        }
+        println!();
+        match entry.status {
+            DriftStatus::Differs => differ_count += 1,
+            DriftStatus::Missing => missing_count += 1,
+            _ => {}
+        }
+    }
+
+    let same_count = drift
+        .iter()
+        .filter(|d| d.status == DriftStatus::Same)
+        .count();
+    println!(
+        "\n{} same, {} differ, {} missing across {} environments",
+        same_count,
+        differ_count,
+        missing_count,
+        env_names.len()
+    );
+
+    Ok(())
+}
+
+fn cmd_schema(action: &super::SchemaAction, _json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::schema::generate_schema;
+
+    match action {
+        super::SchemaAction::Generate { output } => {
+            let (_, shell_files) = load_context()?;
+            let entries = collect_all_entries(&shell_files);
+            let env: std::collections::HashMap<String, String> = entries
+                .into_iter()
+                .filter(|e| e.location != EntryLocation::Commented)
+                .map(|e| (e.key, e.value))
+                .collect();
+
+            let schema = generate_schema(&env);
+
+            if let Some(out) = output {
+                std::fs::write(out, &schema)?;
+                println!("Schema written to {} ({} variables)", out, env.len());
+            } else {
+                print!("{}", schema);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn cmd_init_schema(
+    schema_path: Option<&str>,
+    output: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::schema::{find_schema, parse_schema};
+    use std::io::{self, BufRead, Write};
+
+    let sf = schema_path
+        .map(std::path::PathBuf::from)
+        .or_else(find_schema)
+        .ok_or("No .env.schema found. Specify --schema or create .env.schema in project root.")?;
+
+    let schema = parse_schema(&sf)?;
+    let output_path = std::path::Path::new(output);
+
+    if output_path.exists() {
+        eprint!("{} already exists. Overwrite? [y/N] ", output);
+        io::stderr().flush()?;
+        let mut line = String::new();
+        io::stdin().lock().read_line(&mut line)?;
+        if !line.trim().eq_ignore_ascii_case("y") {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    let stdin = io::stdin();
+    let mut result = Vec::new();
+
+    // Sort: required first, then optional
+    let mut vars: Vec<(&String, &crate::ops::schema::SchemaVariable)> =
+        schema.variables.iter().collect();
+    vars.sort_by(|a, b| b.1.required.cmp(&a.1.required).then(a.0.cmp(b.0)));
+
+    for (name, var) in &vars {
+        let req = if var.required { " (required)" } else { "" };
+        let type_hint = var.var_type.display();
+
+        if let Some(ref desc) = var.description {
+            eprintln!("\n\x1b[36m{}\x1b[0m — {}", name, desc);
+        } else {
+            eprintln!("\n\x1b[36m{}\x1b[0m", name);
+        }
+
+        let default_hint = var
+            .default
+            .as_deref()
+            .map(|d| format!(" [default: {}]", d))
+            .unwrap_or_default();
+
+        eprint!("  {} {}{}{}: ", name, type_hint, req, default_hint);
+        io::stderr().flush()?;
+
+        let mut input = String::new();
+        stdin.lock().read_line(&mut input)?;
+        let input = input.trim();
+
+        let value = if input.is_empty() {
+            if let Some(ref default) = var.default {
+                default.clone()
+            } else if var.required {
+                eprintln!("  This variable is required.");
+                continue;
+            } else {
+                continue;
+            }
+        } else {
+            input.to_string()
+        };
+
+        result.push(format!("{}={}", name, value));
+    }
+
+    let content = result.join("\n") + "\n";
+    std::fs::write(output_path, content)?;
+    println!(
+        "\n.env created at {} with {} variables.",
+        output,
+        result.len()
+    );
+
+    Ok(())
+}
+
+fn cmd_run(
+    profile: Option<&str>,
+    resolve: bool,
+    env_files: &[String],
+    overrides: &[String],
+    command: &[String],
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::run::{collect_env, spawn_process, RunConfig};
+
+    if command.is_empty() {
+        return Err(
+            "No command specified. Usage: envforge run [flags] -- <command> [args...]".into(),
+        );
+    }
+
+    let override_pairs: Vec<(String, String)> = overrides
+        .iter()
+        .map(|s| {
+            let parts: Vec<&str> = s.splitn(2, '=').collect();
+            if parts.len() == 2 {
+                Ok((parts[0].to_string(), parts[1].to_string()))
+            } else {
+                Err(format!("Invalid override format '{}'. Use KEY=VALUE", s))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let run_config = RunConfig {
+        profile: profile.map(String::from),
+        resolve,
+        env_files: env_files.iter().map(std::path::PathBuf::from).collect(),
+        overrides: override_pairs,
+    };
+
+    let env = collect_env(&run_config)?;
+
+    if dry_run {
+        if json {
+            let map: serde_json::Value = env
+                .iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&map)?);
+        } else {
+            let mut keys: Vec<&String> = env.keys().collect();
+            keys.sort();
+            for key in keys {
+                println!("{}={}", key, env[key]);
+            }
+        }
+        return Ok(());
+    }
+
+    let cmd = &command[0];
+    let args: Vec<String> = command[1..].to_vec();
+    let result = spawn_process(cmd, &args, &env)?;
+    std::process::exit(result.exit_code);
 }
 
 fn cmd_profile_diff(
