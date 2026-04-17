@@ -21,8 +21,19 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Export {
             path,
             exclude_sensitive,
+            safe,
+            env_example,
             filter,
-        } => cmd_export(path.as_deref(), *exclude_sensitive, filter.as_deref()),
+        } => {
+            if *safe {
+                cmd_export_safe(path.as_deref())
+            } else if *env_example {
+                cmd_export_env_example(path.as_deref())
+            } else {
+                cmd_export(path.as_deref(), *exclude_sensitive, filter.as_deref())
+            }
+        }
+        Commands::Git { action } => cmd_git(action),
         Commands::Duplicates => cmd_duplicates(json),
         Commands::Scan { path, staged } => cmd_scan(path.as_deref(), *staged, json),
         Commands::Diff => cmd_diff(),
@@ -334,6 +345,217 @@ fn cmd_export(
         }
     }
     Ok(())
+}
+
+fn cmd_export_safe(path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::dotenv::export_safe;
+    use crate::ops::schema::find_schema;
+
+    let (_config, shell_files) = load_context()?;
+    let entries = collect_all_entries(&shell_files);
+
+    // Collect schema sensitive keys if .env.schema exists
+    let mut schema_sensitive = std::collections::HashSet::new();
+    if let Some(sf) = find_schema() {
+        if let Ok(schema) = crate::ops::schema::parse_schema(&sf) {
+            for (name, var) in &schema.variables {
+                if var.sensitive {
+                    schema_sensitive.insert(name.clone());
+                }
+            }
+        }
+    }
+
+    let output = export_safe(&entries, &schema_sensitive);
+
+    if let Some(p) = path {
+        std::fs::write(p, &output)?;
+        println!("Safe export written to {}", p);
+    } else {
+        print!("{}", output);
+    }
+    Ok(())
+}
+
+fn cmd_export_env_example(path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::dotenv::export_env_example;
+    use crate::ops::schema::{find_schema, parse_schema};
+
+    let sf = find_schema().ok_or(
+        "No .env.schema found. Create one first: envforge schema generate --output .env.schema",
+    )?;
+    let schema = parse_schema(&sf)?;
+    let output = export_env_example(&schema);
+
+    if let Some(p) = path {
+        std::fs::write(p, &output)?;
+        println!(".env.example written to {}", p);
+    } else {
+        print!("{}", output);
+    }
+    Ok(())
+}
+
+fn cmd_git(action: &super::GitAction) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        super::GitAction::InstallMergeDriver => {
+            // 1. Add merge driver to ~/.gitconfig
+            let home = dirs::home_dir().ok_or("Cannot find home directory")?;
+            let gitconfig = home.join(".gitconfig");
+
+            let driver_cmd = "envforge git merge %O %A %B";
+            std::process::Command::new("git")
+                .args([
+                    "config",
+                    "--global",
+                    "merge.envforge.name",
+                    "EnvForge .env merge driver",
+                ])
+                .output()?;
+            std::process::Command::new("git")
+                .args(["config", "--global", "merge.envforge.driver", driver_cmd])
+                .output()?;
+
+            println!("✓ Merge driver registered in {}", gitconfig.display());
+
+            // 2. Add .gitattributes entry
+            let gitattributes = std::path::Path::new(".gitattributes");
+            let entry = "*.env merge=envforge\n";
+
+            if gitattributes.exists() {
+                let content = std::fs::read_to_string(gitattributes)?;
+                if !content.contains("merge=envforge") {
+                    std::fs::write(gitattributes, format!("{}{}", content, entry))?;
+                    println!("✓ .gitattributes updated");
+                } else {
+                    println!("✓ .gitattributes already configured");
+                }
+            } else {
+                std::fs::write(gitattributes, entry)?;
+                println!("✓ .gitattributes created");
+            }
+
+            println!("\nEnvForge will now handle .env merges automatically.");
+        }
+
+        super::GitAction::RemoveMergeDriver => {
+            // Remove from gitconfig
+            let _ = std::process::Command::new("git")
+                .args(["config", "--global", "--remove-section", "merge.envforge"])
+                .output();
+            println!("✓ Merge driver removed from ~/.gitconfig");
+
+            // Remove from .gitattributes
+            let gitattributes = std::path::Path::new(".gitattributes");
+            if gitattributes.exists() {
+                let content = std::fs::read_to_string(gitattributes)?;
+                let filtered: String = content
+                    .lines()
+                    .filter(|l| !l.contains("merge=envforge"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if filtered.trim().is_empty() {
+                    std::fs::remove_file(gitattributes)?;
+                    println!("✓ .gitattributes removed (was empty)");
+                } else {
+                    std::fs::write(gitattributes, filtered + "\n")?;
+                    println!("✓ .gitattributes entry removed");
+                }
+            }
+        }
+
+        super::GitAction::Merge { base, ours, theirs } => {
+            // Three-way merge for .env files
+            let exit_code = merge_env_files(base, ours, theirs)?;
+            if exit_code != 0 {
+                std::process::exit(exit_code);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Three-way merge for .env files. Returns 0 for clean merge, 1 for conflicts.
+fn merge_env_files(
+    base_path: &str,
+    ours_path: &str,
+    theirs_path: &str,
+) -> Result<i32, Box<dyn std::error::Error>> {
+    let base = parse_env_file(base_path);
+    let ours = parse_env_file(ours_path);
+    let theirs = parse_env_file(theirs_path);
+
+    // Collect all keys
+    let mut all_keys: Vec<String> = Vec::new();
+    for key in base.keys().chain(ours.keys()).chain(theirs.keys()) {
+        if !all_keys.contains(key) {
+            all_keys.push(key.clone());
+        }
+    }
+    all_keys.sort();
+
+    let mut result = String::new();
+    let mut has_conflicts = false;
+
+    for key in &all_keys {
+        let b = base.get(key);
+        let o = ours.get(key);
+        let t = theirs.get(key);
+
+        match (b, o, t) {
+            // Both sides same → no conflict
+            (_, Some(ov), Some(tv)) if ov == tv => {
+                result.push_str(&format!("{}={}\n", key, ov));
+            }
+            // Only ours changed (theirs == base or absent)
+            (bv, Some(ov), tv) if tv == bv || tv.is_none() => {
+                result.push_str(&format!("{}={}\n", key, ov));
+            }
+            // Only theirs changed (ours == base or absent)
+            (bv, ov, Some(tv)) if ov == bv || ov.is_none() => {
+                result.push_str(&format!("{}={}\n", key, tv));
+            }
+            // Both changed differently → real conflict
+            (_, Some(ov), Some(tv)) => {
+                has_conflicts = true;
+                result.push_str(&format!(
+                    "<<<<<<< ours\n{}={}\n=======\n{}={}\n>>>>>>> theirs\n",
+                    key, ov, key, tv
+                ));
+            }
+            // Deleted in one, changed in other → conflict
+            (Some(_), Some(ov), None) => {
+                // Ours kept it, theirs deleted it
+                result.push_str(&format!("{}={}\n", key, ov));
+            }
+            (Some(_), None, Some(tv)) => {
+                // Theirs kept it, ours deleted it
+                result.push_str(&format!("{}={}\n", key, tv));
+            }
+            // Both deleted or key only in base → skip
+            (_, None, None) => {}
+            // Key not in base, only in one side
+            (None, Some(ov), None) => {
+                result.push_str(&format!("{}={}\n", key, ov));
+            }
+            (None, None, Some(tv)) => {
+                result.push_str(&format!("{}={}\n", key, tv));
+            }
+        }
+    }
+
+    // Write merged result to ours file (git convention)
+    std::fs::write(ours_path, result)?;
+
+    Ok(if has_conflicts { 1 } else { 0 })
+}
+
+fn parse_env_file(path: &str) -> std::collections::HashMap<String, String> {
+    crate::ops::dotenv::parse_dotenv(std::path::Path::new(path))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| (e.key, e.value))
+        .collect()
 }
 
 fn cmd_duplicates(json: bool) -> Result<(), Box<dyn std::error::Error>> {

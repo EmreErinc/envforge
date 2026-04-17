@@ -21,7 +21,9 @@ EnvForge safely manages environment variables in your shell configuration files 
 | **Encryption** | Age (X25519) encryption at rest, per-value encrypt/decrypt |
 | **Remote Sync** | Git-based cross-machine sync, selective keys, machine overrides, rollback |
 | **Secret Managers** | 7 providers (Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure) |
-| **Health Check** | `envforge doctor` with actionable fix suggestions |
+| **AI Safety** | Safe export with redaction, `.envforgeignore`, AI-aware doctor checks |
+| **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
+| **Health Check** | `envforge doctor` with 10 checks and actionable fix suggestions |
 | **Security** | Secret scanning, value masking, encrypted credential storage |
 
 ## Installation
@@ -284,6 +286,8 @@ envforge move KEY                        # Move to reference file
 envforge import file.env [--force]       # Import from .env
 envforge export [path]                   # Export to .env format
   --exclude-sensitive                    # Skip SECRET, TOKEN, PASSWORD keys
+  --safe                                 # Redact sensitive values as [REDACTED]
+  --env-example                          # Generate .env.example from schema
   --filter PATTERN                       # Only matching keys
 
 # Run
@@ -319,6 +323,10 @@ envforge profile switch NAME             # Switch active profile
 envforge profile create NAME             # Create a new profile
 envforge profile delete NAME             # Delete a profile
 envforge profile diff A B               # Compare two profiles side-by-side
+
+# Git merge driver
+envforge git install-merge-driver        # Register semantic .env merge driver
+envforge git remove-merge-driver         # Unregister merge driver
 
 # History & config
 envforge log [KEY] [-n N]                # View change history
@@ -454,21 +462,86 @@ $ envforge doctor
                        → Run: envforge duplicates to see details and resolve them
 ✓ Validation         — no rules configured
 ✓ References         — 0 reference(s), 0 encrypted
+✓ AI safety          — no .env in project root
 ✓ Sync               — in sync, no local changes
 ✓ Providers          — 0/7 binaries found
 ✓ Credentials        — no providers configured
 
-  9 checks: 7 ok, 2 warning(s), 0 error(s)
+  10 checks: 8 ok, 2 warning(s), 0 error(s)
 ```
 
-Checks: config health, encryption key, shell files, duplicate keys, validation rules, secret references, sync status, provider binaries, provider credentials. Every warning includes an actionable fix suggestion.
+Checks: config, encryption key, shell files, duplicates, validation, references, AI safety, sync, providers, credentials. Every warning includes an actionable fix suggestion.
 
 Use `--verbose` for details, `--json` for machine-readable output.
+
+### AI Agent Safety
+
+Protect your secrets from leaking into AI coding tools (Claude Code, Cursor, Copilot):
+
+```bash
+# Export with sensitive values redacted — safe to share with AI
+envforge export --safe
+# Output:
+# NODE_ENV=development
+# PORT=3000
+# API_KEY=[REDACTED]
+# DATABASE_URL=[REDACTED]
+
+# Save to file
+envforge export --safe --output .env.safe
+
+# Generate .env.example from schema (placeholders, no real values)
+envforge export --env-example
+```
+
+Create a `.envforgeignore` file in your project root to mark files AI tools should skip:
+
+```
+# .envforgeignore
+.env
+.env.local
+.env.production
+credentials.toml
+*.key
+*.pem
+```
+
+`envforge doctor` detects when `.env` exists without `.envforgeignore` and warns you:
+
+```
+⚠ AI safety — .env found but no .envforgeignore — secrets may leak to AI tools
+  → Create .envforgeignore or run: envforge export --safe for redacted output
+```
+
+### Git Merge Driver
+
+EnvForge can act as a custom Git merge driver for `.env` files, understanding key=value semantics:
+
+```bash
+# One-time setup
+envforge git install-merge-driver
+
+# Now git merge handles .env files intelligently:
+# - Different keys added on each side → auto-merged
+# - Same key, same value → kept
+# - Same key, different values → real conflict (with clear context)
+
+# Example conflict output:
+# <<<<<<< ours
+# DB_HOST=localhost
+# =======
+# DB_HOST=staging
+# >>>>>>> theirs
+
+# Uninstall when no longer needed
+envforge git remove-merge-driver
+```
 
 ### Security
 
 - **Encryption at rest** — Encrypt individual values with age (X25519): `envforge encrypt API_KEY`
 - **Process-scoped secrets** — `envforge run --resolve` injects secrets only into the child process
+- **AI-safe export** — `envforge export --safe` redacts sensitive values for AI tool consumption
 - **Secret scanning** — Detect leaked secrets in source code: `envforge scan --staged` (use as pre-commit hook)
 - **Credential storage** — Provider credentials encrypted with age in `~/.config/envforge/credentials.toml`
 - **Value masking** — Keys containing SECRET, TOKEN, PASSWORD, CREDENTIAL are masked in TUI by default
@@ -551,7 +624,8 @@ src/
 │   ├── duplicates.rs # Duplicate key detection
 │   ├── validation.rs # Rule-based value validation
 │   ├── scanner.rs   # Secret scanning
-│   ├── doctor.rs    # System health checks
+│   ├── doctor.rs    # System health checks (10 checks including AI safety)
+│   ├── dotenv.rs    # .env parsing, safe export, env-example generation
 │   ├── sync/        # Remote sync (Git, push/pull, conflict, machine overrides)
 │   └── secrets/     # Secret manager integration (7 providers, credentials, cache)
 ├── ui/              # Ratatui TUI (app state, rendering, dialogs)

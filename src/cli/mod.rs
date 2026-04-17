@@ -83,9 +83,23 @@ pub enum Commands {
         #[arg(long)]
         exclude_sensitive: bool,
 
+        /// Redact sensitive values as [REDACTED] (safe for AI tools)
+        #[arg(long)]
+        safe: bool,
+
+        /// Generate .env.example from schema with placeholder values
+        #[arg(long)]
+        env_example: bool,
+
         /// Only export entries matching this query
         #[arg(long)]
         filter: Option<String>,
+    },
+
+    /// Manage Git merge driver for .env files
+    Git {
+        #[command(subcommand)]
+        action: GitAction,
     },
 
     /// Detect and list duplicate keys
@@ -245,6 +259,26 @@ pub enum Commands {
         /// Show detailed output for each check
         #[arg(long)]
         verbose: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum GitAction {
+    /// Install EnvForge as a Git merge driver for .env files
+    InstallMergeDriver,
+
+    /// Remove the Git merge driver
+    RemoveMergeDriver,
+
+    /// Run merge (called by Git, not directly by users)
+    #[command(hide = true)]
+    Merge {
+        /// Base file (ancestor)
+        base: String,
+        /// Ours file (current branch)
+        ours: String,
+        /// Theirs file (other branch)
+        theirs: String,
     },
 }
 

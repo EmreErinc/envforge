@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-17
+
+### Added
+
+#### Subprocess Runner (`envforge run`)
+- `envforge run [flags] -- <command> [args]` — Run any command with injected ENV vars
+- `--profile NAME` — Use a specific profile without switching the active profile
+- `--resolve` — Decrypt `ENC[age:...]` values and resolve `ref:` secret references at runtime
+- `--env-file PATH` — Load additional .env file(s), repeatable, override order preserved
+- `--override KEY=VALUE` — Override specific variables, repeatable
+- `--dry-run` — Preview injected ENV vars without executing the command
+- Exit code and signal passthrough from child process
+- ENV merge order: shell env → shared file → profile file → env-file(s) → overrides
+
+#### ENV Schema (`.env.schema`)
+- `.env.schema` TOML format with per-variable type, required, default, description, example, sensitive, pattern, values, min, max
+- Type system: `string`, `number`, `bool`, `url`, `email`, `enum`, `regex`, `port`
+- Environment-specific overrides: `[VARIABLE.production]` sections
+- `envforge validate --schema PATH [--env PATH] [--environment NAME]` — Schema-based validation with CI-friendly exit codes
+- Schema and `config.toml` `[validation]` rules merged (schema takes priority)
+- `envforge schema generate [--output PATH]` — Auto-generate schema from existing ENV with type heuristics
+- `envforge docs --schema PATH [--output PATH]` — Generate Markdown documentation table
+- `envforge drift --envs FILE1 FILE2 ...` — Multi-environment drift detection with color-coded matrix
+- `envforge init --schema PATH [--output PATH]` — Interactive onboarding wizard for new developers
+
+#### AI Agent Safety
+- `envforge export --safe` — Export with sensitive values redacted as `[REDACTED]`
+- `envforge export --env-example` — Generate `.env.example` from schema with placeholder values
+- `.envforgeignore` convention — List files AI tools should not read (`.gitignore` syntax)
+- `envforge doctor` AI safety check — Warns when `.env` exists without `.envforgeignore`
+
+#### Git Merge Driver
+- `envforge git install-merge-driver` — Register semantic `.env` merge driver in git config
+- Three-way merge with key=value understanding: auto-merges non-conflicting changes
+- Per-key conflict markers for true conflicts (same key changed on both sides)
+- `envforge git remove-merge-driver` — Clean uninstall
+
+#### Health Check (`envforge doctor`)
+- 10 health checks: config, encryption key, shell files, duplicates, validation, references, AI safety, sync, providers, credentials
+- Every warning includes an actionable fix suggestion (cyan `→` hint)
+- `--verbose` for detailed output, `--json` for machine-readable output
+
+#### Other
+- `envforge secrets resolve [--key KEY]` — Output `export KEY='value'` for shell init (`eval "$(envforge secrets resolve)"`)
+- `envforge profile diff A B` — Side-by-side profile comparison with color-coded output
+
+### Fixed
+
+#### Secret Manager Providers (all 7 validated against official CLI docs)
+- **AWS SSM**: Added pagination loop for `get-parameters-by-path` (>10 results), added `--recursive` flag
+- **Doppler**: Filter system keys (`DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT`) from pull results, batch push into single CLI call
+- **Infisical**: Changed pull from invalid `secrets get --plain --format=json` to correct `export --format=json`, fixed set syntax from `set KEY VALUE` to `set KEY=VALUE`
+- **Azure Key Vault**: Added underscore-to-hyphen name mapping (`DB_HOST` → `DB-HOST` on push, reverse on pull)
+- **Vault**: Fixed `kv list` parsing to read `data.keys` instead of bare array
+- **1Password**: Fixed `--fields` flag to `--fields=label=KEY` per official docs
+- **GCP**: Handle empty `secrets list` output (empty string instead of `[]`)
+
+### Quality
+- 357 total tests (was 256), all passing
+- 59 new provider validation tests covering all 7 providers
+- 42 new feature tests (schema, run, safe export, doctor, drift, merge)
+- Clippy clean, rustfmt clean
+- No new crate dependencies
+
 ## [0.3.0] - 2026-04-15
 
 ### Added

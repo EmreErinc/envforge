@@ -88,7 +88,10 @@ pub fn run_doctor() -> HealthReport {
         // 6. References
         checks.push(check_references(&entries));
 
-        // 7. Sync status
+        // 7. AI safety
+        checks.push(check_ai_safety());
+
+        // 8. Sync status
         checks.push(check_sync());
 
         // 8. Provider binaries
@@ -482,6 +485,42 @@ fn check_provider_credentials() -> HealthCheck {
             details: vec![],
             hint: None,
         },
+    }
+}
+
+fn check_ai_safety() -> HealthCheck {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let env_file = cwd.join(".env");
+    let ignore_file = cwd.join(".envforgeignore");
+
+    if !env_file.exists() {
+        return HealthCheck {
+            name: "AI safety".into(),
+            status: CheckStatus::Ok,
+            message: "no .env in project root".into(),
+            details: vec![],
+            hint: None,
+        };
+    }
+
+    if ignore_file.exists() {
+        HealthCheck {
+            name: "AI safety".into(),
+            status: CheckStatus::Ok,
+            message: ".env found, .envforgeignore present".into(),
+            details: vec![],
+            hint: None,
+        }
+    } else {
+        HealthCheck {
+            name: "AI safety".into(),
+            status: CheckStatus::Warning,
+            message: ".env found but no .envforgeignore — secrets may leak to AI tools".into(),
+            details: vec![],
+            hint: Some(
+                "Create .envforgeignore or run: envforge export --safe for redacted output".into(),
+            ),
+        }
     }
 }
 
