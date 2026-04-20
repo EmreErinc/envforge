@@ -18,6 +18,7 @@ pub struct RunConfig {
     pub resolve: bool,
     pub env_files: Vec<PathBuf>,
     pub overrides: Vec<(String, String)>,
+    pub redact: bool,
 }
 
 #[derive(Debug)]
@@ -205,6 +206,79 @@ pub fn spawn_process(
         #[cfg(not(unix))]
         1
     });
+
+    Ok(RunResult { exit_code })
+}
+
+/// Redact known secret values in a string.
+pub fn redact_secrets(text: &str, secrets: &[(String, String)]) -> String {
+    let mut result = text.to_string();
+    for (key, value) in secrets {
+        if value.len() < 4 {
+            continue; // Don't redact very short values (might cause false positives)
+        }
+        if crate::ops::dotenv::is_sensitive_key(key) {
+            result = result.replace(value, &format!("[REDACTED:{}]", key));
+        }
+    }
+    result
+}
+
+/// Spawn a child process with stdout/stderr redaction of sensitive values.
+pub fn spawn_process_with_redaction(
+    command: &str,
+    args: &[String],
+    env: &HashMap<String, String>,
+    sensitive_pairs: &[(String, String)],
+) -> Result<RunResult, RunError> {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    let mut cmd = Command::new(command);
+    cmd.args(args);
+    cmd.env_clear();
+    cmd.envs(env);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            RunError::CommandNotFound(command.to_string())
+        } else {
+            RunError::SpawnFailed(e.to_string())
+        }
+    })?;
+
+    let stdout = child.stdout.take().unwrap();
+    let sensitive_clone = sensitive_pairs.to_vec();
+    let stdout_handle = std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                println!("{}", redact_secrets(&line, &sensitive_clone));
+            }
+        }
+    });
+
+    let stderr = child.stderr.take().unwrap();
+    let sensitive_clone2 = sensitive_pairs.to_vec();
+    let stderr_handle = std::thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                eprintln!("{}", redact_secrets(&line, &sensitive_clone2));
+            }
+        }
+    });
+
+    stdout_handle.join().ok();
+    stderr_handle.join().ok();
+
+    let status = child
+        .wait()
+        .map_err(|e| RunError::SpawnFailed(e.to_string()))?;
+
+    let exit_code = status.code().unwrap_or(1);
 
     Ok(RunResult { exit_code })
 }

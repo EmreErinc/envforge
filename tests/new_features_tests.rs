@@ -636,6 +636,7 @@ fn test_run_collect_env_includes_shell_vars() {
         resolve: false,
         env_files: vec![],
         overrides: vec![],
+        redact: false,
     };
 
     let env = collect_env(&config).unwrap();
@@ -659,6 +660,7 @@ fn test_run_overrides_take_priority() {
         resolve: false,
         env_files: vec![],
         overrides: vec![("ENVFORGE_OVERRIDE_TEST".into(), "overridden".into())],
+        redact: false,
     };
 
     let env = collect_env(&config).unwrap();
@@ -680,6 +682,7 @@ fn test_run_invalid_profile_error() {
         resolve: false,
         env_files: vec![],
         overrides: vec![],
+        redact: false,
     };
 
     let result = collect_env(&config);
@@ -698,6 +701,7 @@ fn test_run_missing_env_file_error() {
         resolve: false,
         env_files: vec![std::path::PathBuf::from("/tmp/nonexistent_file_xyz.env")],
         overrides: vec![],
+        redact: false,
     };
 
     let result = collect_env(&config);
@@ -735,4 +739,72 @@ fn test_spawn_with_env() {
 
     let result = spawn_process("printenv", &["TEST_INJECTED".into()], &env).unwrap();
     assert_eq!(result.exit_code, 0);
+}
+
+// ─── Redaction Tests ───────────────────────────────────────
+
+#[test]
+fn test_redact_secrets_basic() {
+    use envforge::ops::run::redact_secrets;
+
+    let secrets = vec![
+        ("API_KEY".to_string(), "sk-abc123".to_string()),
+    ];
+    let text = "Connecting with key sk-abc123 to server";
+    let result = redact_secrets(text, &secrets);
+    assert_eq!(result, "Connecting with key [REDACTED:API_KEY] to server");
+}
+
+#[test]
+fn test_redact_secrets_skips_short_values() {
+    use envforge::ops::run::redact_secrets;
+
+    let secrets = vec![
+        ("API_KEY".to_string(), "abc".to_string()),
+    ];
+    let text = "Value is abc here";
+    let result = redact_secrets(text, &secrets);
+    // Short values (< 4 chars) should NOT be redacted
+    assert_eq!(result, "Value is abc here");
+}
+
+#[test]
+fn test_redact_secrets_skips_non_sensitive_keys() {
+    use envforge::ops::run::redact_secrets;
+
+    let secrets = vec![
+        ("PORT".to_string(), "3000".to_string()),
+    ];
+    let text = "Running on port 3000";
+    let result = redact_secrets(text, &secrets);
+    // PORT is not a sensitive key, so value should not be redacted
+    assert_eq!(result, "Running on port 3000");
+}
+
+#[test]
+fn test_redact_secrets_multiple() {
+    use envforge::ops::run::redact_secrets;
+
+    let secrets = vec![
+        ("API_KEY".to_string(), "sk-abc123".to_string()),
+        ("DB_PASSWORD".to_string(), "super-secret".to_string()),
+    ];
+    let text = "key=sk-abc123 pass=super-secret done";
+    let result = redact_secrets(text, &secrets);
+    assert!(result.contains("[REDACTED:API_KEY]"));
+    assert!(result.contains("[REDACTED:DB_PASSWORD]"));
+    assert!(!result.contains("sk-abc123"));
+    assert!(!result.contains("super-secret"));
+}
+
+#[test]
+fn test_redact_secrets_no_match() {
+    use envforge::ops::run::redact_secrets;
+
+    let secrets = vec![
+        ("API_KEY".to_string(), "sk-abc123".to_string()),
+    ];
+    let text = "No secrets here at all";
+    let result = redact_secrets(text, &secrets);
+    assert_eq!(result, "No secrets here at all");
 }

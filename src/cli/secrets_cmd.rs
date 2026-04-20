@@ -243,6 +243,10 @@ fn cmd_secrets_pull(
         }
     }
 
+    if !dry_run {
+        crate::ops::schema::auto_update_ai_context();
+    }
+
     Ok(())
 }
 

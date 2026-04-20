@@ -6,7 +6,7 @@ use crate::model::*;
 use crate::ops::*;
 use crate::parser::*;
 
-use super::{BackupAction, Commands, ShareAction, SnapshotAction};
+use super::{AiHookAction, BackupAction, Commands, LeaseAction, McpAction, ShareAction, SnapshotAction};
 
 /// Execute a CLI subcommand.
 pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
@@ -40,8 +40,10 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         }
         Commands::Git { action } => cmd_git(action),
         Commands::Duplicates => cmd_duplicates(json),
-        Commands::Scan { path, staged, install_hook, remove_hook } => {
-            if *install_hook {
+        Commands::Scan { path, staged, install_hook, remove_hook, mcp } => {
+            if *mcp {
+                cmd_scan_mcp(json)
+            } else if *install_hook {
                 cmd_install_scan_hook()
             } else if *remove_hook {
                 cmd_remove_scan_hook()
@@ -75,6 +77,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             overrides,
             command,
             volatile,
+            redact,
         } => {
             if profile.is_some() && profiles.is_some() {
                 eprintln!("Error: Use --profile OR --profiles, not both");
@@ -94,6 +97,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
                 json,
                 *volatile,
                 &profile_list,
+                *redact,
             )
         }
         Commands::Sync { action } => super::sync_cmd::execute_sync(action, json, dry_run),
@@ -114,7 +118,16 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Check { only } => cmd_check(only.as_deref(), json),
         Commands::Snapshot { action } => cmd_snapshot(action, dry_run),
         Commands::Share { action } => cmd_share(action, dry_run),
-        Commands::Audit { key, since, machine, n } => cmd_audit(key.as_deref(), since.as_deref(), machine.as_deref(), *n, json),
+        Commands::ResolveUri { file, env, output } => cmd_resolve_uri(file, *env, output.as_deref(), json),
+        Commands::Mcp { action } => cmd_mcp(action, dry_run, json),
+        Commands::Audit { key, since, machine, n, ai_leaks, access } => cmd_audit(key.as_deref(), since.as_deref(), machine.as_deref(), *n, json, *ai_leaks, *access),
+        Commands::Fence => cmd_fence(dry_run),
+        Commands::Sanitize { file, output } => cmd_sanitize(file, output.as_deref()),
+        Commands::AiHook { action } => cmd_ai_hook(action),
+        Commands::AiGuard { stage, tool_name, tool_input } => cmd_ai_guard(stage, tool_name, tool_input.as_deref()),
+        Commands::Proxy { port, keys, profile, allow_origins, require_lease } => cmd_proxy(*port, keys.as_deref(), profile.as_deref(), allow_origins.as_deref(), *require_lease),
+        Commands::Lease { action } => cmd_lease(action),
+        Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref()),
     };
 
     if let Err(e) = result {
@@ -220,6 +233,7 @@ fn cmd_set(assignment: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Er
         let content = serialize_shell_file(sf);
         safe_write(&sf.path, &content, Some(sf.hash))?;
         println!("Set {}={}", key, value);
+        crate::ops::schema::auto_update_ai_context();
     }
     Ok(())
 }
@@ -340,6 +354,10 @@ fn cmd_import(path: &str, force: bool, dry_run: bool) -> Result<(), Box<dyn std:
     } else {
         let content = serialize_shell_file(sf);
         safe_write(&sf.path, &content, Some(sf.hash))?;
+    }
+
+    if !dry_run {
+        crate::ops::schema::auto_update_ai_context();
     }
 
     println!(
@@ -743,6 +761,144 @@ fn cmd_scan(
     }
 
     process::exit(1);
+}
+
+fn cmd_scan_mcp(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::mcp_scan::{scan_mcp_configs, scanned_file_count, findings_to_json, suggestion_for};
+
+    let findings = scan_mcp_configs();
+    let files_scanned = scanned_file_count();
+
+    if json {
+        let json_val = findings_to_json(&findings, files_scanned);
+        println!("{}", serde_json::to_string_pretty(&json_val)?);
+        if !findings.is_empty() {
+            process::exit(1);
+        }
+        return Ok(());
+    }
+
+    println!("MCP Configuration Secret Scan\n");
+
+    if findings.is_empty() {
+        println!("{} file(s) scanned, 0 credential(s) found", files_scanned);
+        return Ok(());
+    }
+
+    // Group findings by file
+    let mut by_file: std::collections::BTreeMap<String, Vec<&crate::ops::mcp_scan::McpFinding>> =
+        std::collections::BTreeMap::new();
+    for f in &findings {
+        by_file
+            .entry(f.file.to_string_lossy().to_string())
+            .or_default()
+            .push(f);
+    }
+
+    for (file, file_findings) in &by_file {
+        println!("{}", file);
+        for f in file_findings {
+            println!(
+                "  \x1b[33m!\x1b[0m {} = {}",
+                f.path, f.value_preview
+            );
+            println!(
+                "    \x1b[36m-> {}\x1b[0m",
+                suggestion_for(f)
+            );
+        }
+        println!();
+    }
+
+    println!(
+        "{} file(s) scanned, {} credential(s) found",
+        files_scanned,
+        findings.len()
+    );
+
+    process::exit(1);
+}
+
+fn cmd_mcp(action: &McpAction, dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        McpAction::Harden => cmd_mcp_harden(dry_run, json),
+    }
+}
+
+fn cmd_mcp_harden(dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::mcp_scan::harden_all_mcp_configs;
+
+    let results = harden_all_mcp_configs(dry_run);
+
+    if json {
+        let items: Vec<serde_json::Value> = results
+            .iter()
+            .map(|(path, count, keys, backup)| {
+                serde_json::json!({
+                    "file": path.to_string_lossy(),
+                    "secrets_replaced": count,
+                    "keys": keys,
+                    "backup": backup.as_ref().map(|b| b.to_string_lossy().to_string()),
+                    "dry_run": dry_run,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "hardened_files": items.len(),
+            "dry_run": dry_run,
+            "results": items,
+        }))?);
+        return Ok(());
+    }
+
+    if dry_run {
+        println!("MCP Config Hardening (dry run)\n");
+    } else {
+        println!("MCP Config Hardening\n");
+    }
+
+    if results.is_empty() {
+        println!("No MCP config files with plaintext secrets found.");
+        return Ok(());
+    }
+
+    let mut all_keys = Vec::new();
+    for (path, count, keys, backup) in &results {
+        if dry_run {
+            println!(
+                "\x1b[33m~\x1b[0m {}",
+                path.to_string_lossy()
+            );
+            println!("  {} secret(s) would be replaced", count);
+        } else {
+            println!(
+                "\x1b[32m\u{2713}\x1b[0m {}",
+                path.to_string_lossy()
+            );
+            if let Some(bak) = backup {
+                println!(
+                    "  {} secret(s) replaced (backup: {})",
+                    count,
+                    bak.to_string_lossy()
+                );
+            } else {
+                println!("  {} secret(s) replaced", count);
+            }
+        }
+        for key in keys {
+            println!("  \x1b[36m->\x1b[0m Set: export {}=<your-value>", key);
+            all_keys.push(key.clone());
+        }
+        println!();
+    }
+
+    if dry_run {
+        println!("Run without --dry-run to apply changes.");
+    } else {
+        println!("Set these environment variables before running AI tools.");
+    }
+
+    Ok(())
 }
 
 fn cmd_diff() -> Result<(), Box<dyn std::error::Error>> {
@@ -1478,6 +1634,31 @@ fn cmd_schema(action: &super::SchemaAction, _json: bool) -> Result<(), Box<dyn s
             let schema = crate::ops::schema_json::generate_json_schema();
             println!("{}", serde_json::to_string_pretty(&schema)?);
         }
+        super::SchemaAction::EmitAi { output, infer } => {
+            use crate::ops::schema::{emit_ai_context, find_schema, parse_schema};
+
+            let schema = find_schema().and_then(|p| parse_schema(&p).ok());
+
+            let entries: Vec<(String, String)> = if *infer || schema.is_none() {
+                let (_, shell_files) = load_context()?;
+                let all = collect_all_entries(&shell_files);
+                all.into_iter()
+                    .filter(|e| e.location != EntryLocation::Commented)
+                    .map(|e| (e.key, e.value))
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            let content = emit_ai_context(schema.as_ref(), &entries);
+
+            if let Some(path) = output {
+                std::fs::write(path, &content)?;
+                println!("AI context written to {}", path);
+            } else {
+                print!("{}", content);
+            }
+        }
     }
     Ok(())
 }
@@ -1576,9 +1757,10 @@ fn cmd_run(
     json: bool,
     volatile: bool,
     profiles: &[String],
+    redact: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::dotenv::is_sensitive_key;
-    use crate::ops::run::{collect_env, spawn_process, RunConfig};
+    use crate::ops::run::{collect_env, spawn_process, spawn_process_with_redaction, RunConfig};
 
     if command.is_empty() {
         return Err(
@@ -1618,6 +1800,7 @@ fn cmd_run(
             env_files.iter().map(std::path::PathBuf::from).collect()
         },
         overrides: override_pairs,
+        redact,
     };
 
     let env = collect_env(&run_config)?;
@@ -1652,8 +1835,20 @@ fn cmd_run(
 
     let cmd = &command[0];
     let args: Vec<String> = command[1..].to_vec();
-    let result = spawn_process(cmd, &args, &env)?;
-    std::process::exit(result.exit_code);
+
+    if redact {
+        let sensitive_pairs: Vec<(String, String)> = env
+            .iter()
+            .filter(|(k, _)| is_sensitive_key(k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        let result = spawn_process_with_redaction(cmd, &args, &env, &sensitive_pairs)?;
+        std::process::exit(result.exit_code);
+    } else {
+        let result = spawn_process(cmd, &args, &env)?;
+        std::process::exit(result.exit_code);
+    }
 }
 
 fn cmd_profile_diff(
@@ -2487,7 +2682,61 @@ fn cmd_audit(
     machine: Option<&str>,
     n: usize,
     json: bool,
+    ai_leaks: bool,
+    access: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if access {
+        return cmd_audit_access(n, json);
+    }
+    if ai_leaks {
+        use crate::ops::audit::scan_ai_leaks;
+        let cwd = std::env::current_dir()?;
+        let leaks = scan_ai_leaks(&cwd, n)?;
+        if leaks.is_empty() {
+            if json {
+                println!("{}", serde_json::json!({"leaks": [], "total": 0}));
+            } else {
+                println!("No secret leaks found in AI-assisted commits.");
+            }
+        } else if json {
+            let items: Vec<serde_json::Value> = leaks
+                .iter()
+                .map(|l| {
+                    serde_json::json!({
+                        "commit": l.commit_hash,
+                        "date": l.date,
+                        "author": l.author,
+                        "ai_tool": l.ai_tool,
+                        "file": l.file_path,
+                        "patterns": l.leaked_patterns,
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "leaks": items,
+                    "total": leaks.len(),
+                }))?
+            );
+        } else {
+            println!("AI-Assisted Commit Secret Leaks\n");
+            for leak in &leaks {
+                println!(
+                    "  {} {} [{}]",
+                    leak.commit_hash, leak.date, leak.ai_tool
+                );
+                println!("    File: {}", leak.file_path);
+                for pattern in &leak.leaked_patterns {
+                    println!("    \u{26a0} {}", pattern);
+                }
+                println!();
+            }
+            println!("{} leak(s) found in AI-assisted commits.", leaks.len());
+        }
+        return Ok(());
+    }
+
     use crate::ops::audit::get_audit_trail;
     use crate::ops::sync::{sync_dir, is_initialized};
 
@@ -2533,6 +2782,471 @@ fn cmd_audit(
     }
 
     Ok(())
+}
+
+fn cmd_resolve_uri(
+    file: &str,
+    env_format: bool,
+    output: Option<&str>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::secrets::providers::create_default_registry;
+    use crate::ops::uri_resolve::{
+        format_as_env, format_as_export, format_summary, parse_uri_file, resolve_uris,
+    };
+
+    let file_path = Path::new(file);
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", file).into());
+    }
+
+    let entries = parse_uri_file(file_path)?;
+    if entries.is_empty() {
+        println!("No entries found in {}", file);
+        return Ok(());
+    }
+
+    let registry = create_default_registry();
+    let resolved = resolve_uris(&entries, &registry);
+
+    // Report errors to stderr first
+    for entry in &resolved {
+        if let Some(ref err) = entry.error {
+            eprintln!(
+                "Warning: failed to resolve {} ({}): {}",
+                entry.key, entry.value, err
+            );
+        }
+    }
+
+    if json {
+        let items: Vec<serde_json::Value> = resolved
+            .iter()
+            .map(|e| {
+                let mut obj = serde_json::json!({
+                    "key": e.key,
+                    "value": e.value,
+                    "was_uri": e.was_uri,
+                });
+                if let Some(ref err) = e.error {
+                    obj["error"] = serde_json::Value::String(err.clone());
+                }
+                obj
+            })
+            .collect();
+        let output_json = serde_json::to_string_pretty(&items)?;
+        if let Some(out_path) = output {
+            std::fs::write(out_path, &output_json)?;
+            eprintln!("Written to {}", out_path);
+        } else {
+            println!("{}", output_json);
+        }
+    } else {
+        let formatted = if env_format {
+            format_as_env(&resolved)
+        } else {
+            format_as_export(&resolved)
+        };
+
+        if let Some(out_path) = output {
+            std::fs::write(out_path, &formatted)?;
+            eprintln!("Written to {}", out_path);
+        } else {
+            print!("{}", formatted);
+        }
+    }
+
+    // Summary to stderr so it doesn't pollute piped output
+    eprintln!("{}", format_summary(&resolved));
+
+    // Exit with error if any URIs failed
+    let has_errors = resolved.iter().any(|e| e.error.is_some());
+    if has_errors {
+        process::exit(1);
+    }
+
+    Ok(())
+}
+
+fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::fence::create_fence;
+
+    let project_dir = std::env::current_dir()?;
+    let result = create_fence(&project_dir, dry_run)?;
+
+    if dry_run {
+        println!("AI Secret Fence (dry run)\n");
+    } else {
+        println!("AI Secret Fence\n");
+    }
+
+    for path in &result.files_created {
+        let display = path
+            .strip_prefix(&project_dir)
+            .unwrap_or(path)
+            .display();
+        println!("\x1b[32m\u{2713}\x1b[0m Created {}", display);
+    }
+
+    for path in &result.files_updated {
+        let display = path
+            .strip_prefix(&project_dir)
+            .unwrap_or(path)
+            .display();
+        println!("\x1b[32m\u{2713}\x1b[0m Updated {}", display);
+    }
+
+    for path in &result.files_skipped {
+        let display = path
+            .strip_prefix(&project_dir)
+            .unwrap_or(path)
+            .display();
+        println!("\x1b[90m- Skipped {} (already configured)\x1b[0m", display);
+    }
+
+    let total = result.files_created.len() + result.files_updated.len();
+    if total > 0 {
+        println!(
+            "\n{} file(s) {}. AI tools will now respect secret boundaries.",
+            total,
+            if dry_run { "would be written" } else { "written" }
+        );
+    } else {
+        println!("\nAll files already configured. Nothing to do.");
+    }
+
+    Ok(())
+}
+
+fn cmd_sanitize(file: &str, output: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::sanitize::sanitize_file;
+
+    let file_path = Path::new(file);
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", file).into());
+    }
+
+    // Load all entries from EnvForge config
+    let (_config, shell_files) = load_context()?;
+    let entries = collect_all_entries(&shell_files);
+
+    // Build secret pairs from sensitive entries
+    let secrets: Vec<(String, String)> = entries
+        .iter()
+        .filter(|e| e.location != EntryLocation::Commented)
+        .filter(|e| crate::ops::dotenv::is_sensitive_key(&e.key))
+        .map(|e| (e.key.clone(), e.value.clone()))
+        .collect();
+
+    if secrets.is_empty() {
+        eprintln!("No sensitive ENV values found to sanitize against.");
+        return Ok(());
+    }
+
+    let output_path = output.map(Path::new);
+    let count = sanitize_file(file_path, output_path, &secrets)?;
+
+    eprintln!("Sanitized: {} secret(s) replaced", count);
+
+    Ok(())
+}
+
+// ─── AI Hook Command ───────────────────────────────────────
+
+fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::ai_hooks::{install_ai_hook, parse_ai_tool, remove_ai_hook};
+
+    let cwd = std::env::current_dir()?;
+
+    match action {
+        AiHookAction::Install { tool } => {
+            let ai_tool = parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            let result = install_ai_hook(&ai_tool, &cwd)?;
+            if result.installed {
+                println!("{}", result.message);
+                println!("  Config: {}", result.config_path.display());
+            } else {
+                println!("{}", result.message);
+            }
+        }
+        AiHookAction::Remove { tool } => {
+            let ai_tool = parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            let result = remove_ai_hook(&ai_tool, &cwd)?;
+            println!("{}", result.message);
+            if result.config_path.exists() {
+                println!("  Config: {}", result.config_path.display());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ─── AI Guard Command ──────────────────────────────────────
+
+fn cmd_ai_guard(
+    stage: &str,
+    tool_name: &str,
+    tool_input: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::ai_guard::{run_guard, GuardStage};
+
+    let stage = match stage {
+        "pre-tool" => GuardStage::PreTool,
+        "post-tool" => GuardStage::PostTool,
+        _ => return Ok(()), // unknown stage, skip silently
+    };
+
+    let secrets = load_sensitive_secrets();
+    let result = run_guard(stage, tool_name, tool_input, &secrets);
+
+    for warning in &result.warnings {
+        eprintln!("{}", warning);
+    }
+
+    // Don't block (exit 0 always) — hooks are advisory
+    Ok(())
+}
+
+fn load_sensitive_secrets() -> Vec<(String, String)> {
+    let config = match crate::config::load_or_create_default() {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let primary = shellexpand_path(&config.files.primary);
+    let sf = match crate::parser::parse_shell_file(&primary) {
+        Ok(sf) => sf,
+        Err(_) => return vec![],
+    };
+    let entries = collect_all_entries(&[sf]);
+    entries
+        .into_iter()
+        .filter(|e| e.location != EntryLocation::Commented)
+        .filter(|e| is_sensitive_key(&e.key))
+        .filter(|e| e.value.len() >= 8) // skip short values
+        .map(|e| (e.key, e.value))
+        .collect()
+}
+
+fn shellexpand_path(path: &str) -> std::path::PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    std::path::PathBuf::from(path)
+}
+
+// ─── Proxy Command ─────────────────────────────────────────
+
+fn cmd_proxy(
+    port: u16,
+    keys: Option<&str>,
+    profile: Option<&str>,
+    allow_origins: Option<&str>,
+    require_lease: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::proxy::start_proxy;
+    use crate::ops::run::{collect_env, RunConfig};
+
+    let allowed_keys: Option<Vec<String>> = keys.map(|k| {
+        k.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+
+    let allowed_origins: Option<Vec<String>> = allow_origins.map(|o| {
+        o.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+
+    let run_config = RunConfig {
+        profile: profile.map(|s| s.to_string()),
+        profiles: Vec::new(),
+        resolve: true,
+        env_files: Vec::new(),
+        overrides: Vec::new(),
+        redact: false,
+    };
+
+    let env = collect_env(&run_config).map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+    if require_lease {
+        eprintln!("Lease enforcement: ON (requests require an active lease)");
+    }
+
+    start_proxy(port, &env, allowed_keys.as_deref(), allowed_origins.as_deref(), require_lease)?;
+
+    Ok(())
+}
+
+fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::proxy::read_audit_log;
+
+    let entries = read_audit_log()?;
+    if entries.is_empty() {
+        if json {
+            println!("{}", serde_json::json!({"entries": [], "total": 0}));
+        } else {
+            println!("No proxy access audit entries found.");
+            println!("Start the proxy with `envforge proxy` to generate audit logs.");
+        }
+        return Ok(());
+    }
+
+    // Take the last N entries
+    let start = if entries.len() > n { entries.len() - n } else { 0 };
+    let display = &entries[start..];
+
+    if json {
+        let items: Vec<serde_json::Value> = display
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "timestamp": e.timestamp,
+                    "action": e.action,
+                    "key": e.key,
+                    "keys_served": e.keys_served,
+                    "client_addr": e.client_addr,
+                    "user_agent": e.user_agent,
+                    "granted": e.granted,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "entries": items,
+                "total": entries.len(),
+            }))?
+        );
+    } else {
+        println!("Proxy Access Audit Log ({} of {} entries)\n", display.len(), entries.len());
+        println!(
+            "{:<24} {:<10} {:<20} {:<22} {:<8}",
+            "TIMESTAMP", "ACTION", "KEY", "CLIENT", "GRANTED"
+        );
+        println!("{}", "-".repeat(86));
+        for e in display {
+            let keys_label = e.keys_served.map(|n| format!("({} keys)", n));
+            let key_display = e
+                .key
+                .as_deref()
+                .unwrap_or(keys_label.as_deref().unwrap_or("-"));
+            let granted_str = if e.granted { "yes" } else { "NO" };
+            println!(
+                "{:<24} {:<10} {:<20} {:<22} {:<8}",
+                e.timestamp, e.action, key_display, e.client_addr, granted_str
+            );
+        }
+    }
+    Ok(())
+}
+
+fn cmd_lease(action: &LeaseAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::lease;
+
+    match action {
+        LeaseAction::Create { name, ttl, keys } => {
+            let ttl_seconds = lease::parse_lease_duration(ttl)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+            let lease_name = name.clone().unwrap_or_else(|| {
+                format!("session-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"))
+            });
+
+            let key_list: Option<Vec<String>> = keys.as_ref().map(|k| {
+                k.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            });
+
+            let created = lease::create_lease(&lease_name, ttl_seconds, key_list)?;
+            eprintln!("Lease created: {}", created.name);
+            eprintln!("  Expires: {}", created.expires_at);
+            if let Some(ref keys) = created.keys {
+                eprintln!("  Keys: {}", keys.join(", "));
+            } else {
+                eprintln!("  Keys: ALL");
+            }
+        }
+        LeaseAction::List => {
+            let statuses = lease::list_leases()?;
+            if statuses.is_empty() {
+                eprintln!("No leases found.");
+                return Ok(());
+            }
+            println!(
+                "{:<25} {:<12} {:<12} {}",
+                "NAME", "STATUS", "REMAINING", "KEYS"
+            );
+            println!("{}", "-".repeat(65));
+            for s in &statuses {
+                let status = if s.revoked {
+                    "REVOKED"
+                } else if s.expired {
+                    "EXPIRED"
+                } else {
+                    "ACTIVE"
+                };
+                let remaining = if s.expired || s.revoked {
+                    "-".to_string()
+                } else {
+                    format_duration_short(s.remaining_seconds)
+                };
+                let keys = match s.key_count {
+                    Some(n) => format!("{} key(s)", n),
+                    None => "ALL".to_string(),
+                };
+                println!("{:<25} {:<12} {:<12} {}", s.name, status, remaining, keys);
+            }
+        }
+        LeaseAction::Cleanup => {
+            let removed = lease::cleanup_expired()?;
+            eprintln!("Cleaned up {} expired/revoked lease(s).", removed);
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_revoke(all: bool, name: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::lease;
+
+    if all {
+        let count = lease::revoke_all_leases()?;
+        eprintln!("KILLSWITCH: {} lease(s) revoked and removed.", count);
+    } else if let Some(lease_name) = name {
+        if lease::revoke_lease(lease_name)? {
+            eprintln!("Revoked lease: {}", lease_name);
+        } else {
+            eprintln!("Lease not found: {}", lease_name);
+        }
+    } else {
+        return Err(
+            "Specify --all or a lease name. Usage: envforge revoke --all OR envforge revoke <name>"
+                .into(),
+        );
+    }
+
+    Ok(())
+}
+
+fn format_duration_short(seconds: i64) -> String {
+    if seconds <= 0 {
+        return "expired".to_string();
+    }
+    let hours = seconds / 3600;
+    let mins = (seconds % 3600) / 60;
+    if hours > 0 {
+        format!("{}h {}m", hours, mins)
+    } else {
+        format!("{}m", mins)
+    }
 }
 
 fn shellexpand(path: &str) -> std::path::PathBuf {

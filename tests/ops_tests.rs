@@ -333,3 +333,173 @@ fn test_clipboard_provider_name() {
     let name = clipboard_provider_name();
     assert!(!name.is_empty());
 }
+
+// ═══════════════════════════════════════════════════════════════
+// AI-Safe Context Emission Tests
+// ═══════════════════════════════════════════════════════════════
+
+#[test]
+fn test_emit_ai_context_with_schema() {
+    use envforge::ops::schema::{emit_ai_context, parse_schema_content};
+
+    let toml = r#"
+[DATABASE_URL]
+type = "url"
+required = true
+description = "PostgreSQL connection string"
+sensitive = false
+pattern = "^postgres://"
+
+[API_KEY]
+type = "string"
+required = true
+sensitive = true
+
+[PORT]
+type = "port"
+required = true
+default = "3000"
+
+[LOG_LEVEL]
+type = "enum"
+values = ["debug", "info", "warn", "error"]
+default = "info"
+"#;
+    let schema = parse_schema_content(toml).unwrap();
+    let output = emit_ai_context(Some(&schema), &[]);
+
+    // Header
+    assert!(output.contains("# Environment Variables (AI Context)"));
+    assert!(output.contains("Safe for AI tools"));
+
+    // Schema fields present
+    assert!(output.contains("## DATABASE_URL"));
+    assert!(output.contains("- **Type**: url"));
+    assert!(output.contains("- **Required**: yes"));
+    assert!(output.contains("- **Description**: PostgreSQL connection string"));
+    assert!(output.contains("- **Pattern**: ^postgres://"));
+
+    assert!(output.contains("## API_KEY"));
+    // API_KEY: sensitive=true in schema AND pattern match
+    assert!(output.contains("- **Sensitive**: YES"));
+
+    assert!(output.contains("## PORT"));
+    assert!(output.contains("- **Default**: 3000"));
+
+    assert!(output.contains("## LOG_LEVEL"));
+    assert!(output.contains("- **Values**: debug, info, warn, error"));
+
+    // NEVER include actual values (pattern metadata like ^postgres:// is fine)
+    assert!(!output.contains("postgres://localhost"));
+}
+
+#[test]
+fn test_emit_ai_context_with_inference() {
+    use envforge::ops::schema::emit_ai_context;
+
+    let entries = vec![
+        ("DATABASE_URL".to_string(), "postgres://localhost/db".to_string()),
+        ("API_SECRET".to_string(), "super-secret-123".to_string()),
+        ("PORT".to_string(), "8080".to_string()),
+        ("DEBUG".to_string(), "true".to_string()),
+        ("ADMIN_EMAIL".to_string(), "admin@example.com".to_string()),
+        ("MAX_RETRIES".to_string(), "5".to_string()),
+    ];
+
+    let output = emit_ai_context(None, &entries);
+
+    // Verify inferred types
+    assert!(output.contains("## DATABASE_URL"));
+    assert!(output.contains("- **Type**: url"));
+
+    assert!(output.contains("## API_SECRET"));
+    assert!(output.contains("- **Sensitive**: YES"));
+
+    assert!(output.contains("## DEBUG"));
+    assert!(output.contains("- **Type**: bool"));
+
+    assert!(output.contains("## ADMIN_EMAIL"));
+    assert!(output.contains("- **Type**: email"));
+
+    assert!(output.contains("## MAX_RETRIES"));
+    assert!(output.contains("- **Type**: number"));
+
+    // NEVER include actual values
+    assert!(!output.contains("postgres://localhost"));
+    assert!(!output.contains("super-secret-123"));
+    assert!(!output.contains("admin@example.com"));
+}
+
+#[test]
+fn test_emit_ai_context_sensitive_detection() {
+    use envforge::ops::schema::emit_ai_context;
+
+    let entries = vec![
+        ("MY_PASSWORD".to_string(), "hunter2".to_string()),
+        ("AUTH_TOKEN".to_string(), "tok_abc".to_string()),
+        ("AWS_SECRET_KEY".to_string(), "AKIA...".to_string()),
+        ("APP_NAME".to_string(), "myapp".to_string()),
+    ];
+
+    let output = emit_ai_context(None, &entries);
+
+    // Sensitive keys detected by pattern
+    assert!(output.contains("## MY_PASSWORD"));
+    assert!(output.contains("## AUTH_TOKEN"));
+    assert!(output.contains("## AWS_SECRET_KEY"));
+
+    // Count sensitive markers — should have at least 3
+    let sensitive_count = output.matches("Sensitive**: YES").count();
+    assert!(
+        sensitive_count >= 3,
+        "Expected at least 3 sensitive markers, got {}",
+        sensitive_count
+    );
+
+    // APP_NAME should NOT be sensitive
+    let app_name_section = output.split("## APP_NAME").nth(1).unwrap();
+    let next_section = app_name_section.find("\n## ").unwrap_or(app_name_section.len());
+    let app_name_block = &app_name_section[..next_section];
+    assert!(
+        app_name_block.contains("**Sensitive**: no"),
+        "APP_NAME should not be sensitive"
+    );
+
+    // Actual values must never appear
+    assert!(!output.contains("hunter2"));
+    assert!(!output.contains("tok_abc"));
+    assert!(!output.contains("AKIA"));
+}
+
+#[test]
+fn test_emit_ai_context_schema_plus_inferred() {
+    use envforge::ops::schema::{emit_ai_context, parse_schema_content};
+
+    let toml = r#"
+[DATABASE_URL]
+type = "url"
+required = true
+description = "DB connection"
+"#;
+    let schema = parse_schema_content(toml).unwrap();
+
+    // Extra entry not in schema
+    let entries = vec![
+        ("DATABASE_URL".to_string(), "postgres://localhost/db".to_string()),
+        ("EXTRA_TOKEN".to_string(), "tok_xyz".to_string()),
+    ];
+
+    let output = emit_ai_context(Some(&schema), &entries);
+
+    // DATABASE_URL from schema
+    assert!(output.contains("## DATABASE_URL"));
+    assert!(output.contains("- **Description**: DB connection"));
+
+    // EXTRA_TOKEN inferred
+    assert!(output.contains("## EXTRA_TOKEN"));
+    assert!(output.contains("- **Sensitive**: YES")); // contains TOKEN
+
+    // No values
+    assert!(!output.contains("postgres://localhost"));
+    assert!(!output.contains("tok_xyz"));
+}

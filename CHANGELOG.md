@@ -5,6 +5,149 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-04-20
+
+### Added — AI Safety Hardening
+
+#### 3-Stage AI Guard Hooks
+- `envforge ai-guard pre-tool TOOL INPUT` — Pre-tool scanning invoked by Claude Code/Cursor hooks
+- **Sensitive file alerts**: Warns when AI agent accesses `.env`, `.pem`, `.ssh/`, `.aws/`, `credentials` files
+- **Secret-in-command detection**: Catches known secret values in Bash command inputs
+- **Post-tool output scanning**: Detects secrets leaked in tool output
+- Safe file exclusions: `.env.schema`, `.env.example`, `.env.ai.md` don't trigger alerts
+- Enhanced `envforge ai-hook install claude-code` now installs PreToolUse + PostToolUse hooks
+
+#### Session Leases with Killswitch
+- `envforge lease create --ttl 1h [--keys KEY1,KEY2] [--name SESSION]` — Time-bounded secret access
+- `envforge lease list` — Show active leases with remaining time and key scope
+- `envforge lease cleanup` — Remove expired/revoked leases
+- `envforge revoke --all` — **KILLSWITCH**: Instantly revoke all active leases
+- `envforge revoke --name SESSION` — Revoke specific lease
+- Duration formats: `30m`, `1h`, `8h`, `24h`, `7d`
+- Proxy integration: `envforge proxy --require-lease` enforces lease check per request
+
+#### Proxy Domain Allowlist
+- `envforge proxy --allow-origins api.stripe.com,api.openai.com` — Restrict which origins can call the proxy
+- Default: localhost only (127.0.0.1, ::1)
+- Denied origins logged to audit trail with 403 response
+
+#### Secret Access Audit Log (JSONL)
+- Every proxy request logged to `~/.config/envforge/access-audit.jsonl`
+- Fields: timestamp, action, key accessed, client address, granted/denied
+- **Values NEVER logged** — only key names and metadata
+- `envforge audit --access` — View proxy access audit trail
+- Append-only format for compliance
+
+#### Sensitive File Access Alerts
+- AI guard detects access to 14+ sensitive file patterns:
+  `.env`, `.pem`, `.key`, `.p12`, `.ssh/`, `.aws/`, `.gnupg/`, `credentials`, `secret`, `token`, `id_rsa`, `id_ed25519`
+- Integrated into PreToolUse hooks — alerts before AI agent reads sensitive files
+
+### Quality
+- 664 total tests (was 606), all passing
+- 58 new tests across 5 features
+- New modules: `ai_guard.rs`, `lease.rs`
+- Enhanced: `proxy.rs` (audit + allowlist), `ai_hooks.rs` (3-stage)
+- No new crate dependencies
+
+## [0.5.2] - 2026-04-20
+
+### Added — AI Safety Suite
+
+#### MCP Config Hardening
+- `envforge mcp harden` — Auto-rewrite MCP config files replacing plaintext secrets with `${VAR}` references
+- Backs up originals as `.json.bak` before modifying
+- `--dry-run` to preview changes without modifying files
+- Covers Claude Desktop, Cursor, GitHub Copilot, project `.mcp.json`
+
+#### Secret Fence
+- `envforge fence` — Create AI tool ignore rules for all supported tools in one command
+- Generates: `.envforgeignore`, `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json`
+- Idempotent: running twice doesn't duplicate rules
+- `--dry-run` to preview files that would be created
+
+#### AI Context Auto-Update
+- `.env.ai.md` automatically regenerated when `envforge set`, `envforge import`, or `envforge secrets pull` modifies variables
+- Only triggers when `.env.ai.md` already exists in project directory
+- Keeps AI context file in sync with actual env configuration
+
+#### Prompt Sanitizer
+- `envforge sanitize FILE [--output FILE]` — Replace all known secret values in any file with `${KEY}` placeholders
+- Longest-match-first replacement to avoid partial substitutions
+- Skips values shorter than 4 characters to avoid false positives
+- Works on any file type: code, configs, logs, docs
+
+#### AI Leak Report
+- `envforge audit --ai-leaks` — Scan git history for secrets leaked in AI-assisted commits
+- Detects commits co-authored by Claude, Copilot, Cursor, and other AI tools
+- Scans diffs for API key patterns, connection strings, and high-entropy tokens
+- Reports: commit hash, date, AI tool, file path, leaked patterns
+
+#### AI Coding Tool Hooks
+- `envforge ai-hook install claude-code` — Install EnvForge security hooks in Claude Code
+- `envforge ai-hook install cursor` — Add security rules to Cursor
+- `envforge ai-hook remove claude-code|cursor` — Remove hooks
+- Claude Code: PostToolUse hook scanning for secrets after Write/Edit operations
+- Cursor: Rules file with secret safety instructions
+
+#### Agent Credential Proxy
+- `envforge proxy [--port 8100] [--keys KEY1,KEY2] [--profile NAME]` — Local HTTP proxy for AI agent credential access
+- Endpoints: `GET /env` (all vars), `GET /env/KEY` (single), `GET /health`
+- `--keys` restricts which secrets are served (scoped access)
+- JSON responses with CORS headers for browser-based agents
+- Secrets served via HTTP API — never written to disk files
+
+### Quality
+- 606 total tests (was 547), all passing
+- 59 new tests across 7 AI safety features
+- New modules: `fence.rs`, `sanitize.rs`, `ai_hooks.rs`, `proxy.rs`
+- No new crate dependencies
+
+## [0.5.1] - 2026-04-20
+
+### Added
+
+#### AI-Safe Schema Emission
+- `envforge schema emit-ai [--output FILE] [--infer]` — Generate AI-agent-safe context file
+- Contains variable names, types, descriptions, sensitivity flags — **NO actual values**
+- AI coding tools get full context without seeing secrets
+- `--infer` auto-detects types from current env values when no `.env.schema` exists
+- Addresses GitGuardian 2026 finding: AI-assisted commits leak secrets at 2x baseline rate
+
+#### MCP Configuration Scanning
+- `envforge scan --mcp` — Scan AI tool config files for hardcoded credentials
+- Scans: Claude Desktop, Cursor, GitHub Copilot, project `.mcp.json`
+- Detects 23+ API key patterns (OpenAI, Stripe, AWS, GitHub, Slack, etc.)
+- Detects connection strings with embedded passwords
+- Shows masked values with fix suggestions: `→ Replace with: ${API_KEY}`
+- `--json` output for CI integration
+
+#### Docker Compose Secrets Export
+- `envforge export --format docker-secrets` — Generate Docker `/run/secrets/` file structure
+- Outputs shell script creating individual secret files + docker-compose.yml snippet
+- Ready for Docker Compose `secrets:` mount configuration
+
+#### Runtime Log Redaction
+- `envforge run --redact` — Pipe subprocess stdout/stderr through secret redaction filter
+- Automatically masks known sensitive values as `[REDACTED:KEY_NAME]`
+- Runs in parallel threads for stdout and stderr (no performance penalty)
+- Skips short values (<4 chars) to avoid false positives
+- Combinable with `--volatile`, `--resolve`, `--profiles`
+
+#### URI-Based Secret References
+- `envforge resolve-uri FILE` — Resolve provider URIs in config files to actual values
+- Supported URI schemes: `vault://`, `aws-ssm://`, `1password://`, `doppler://`, `infisical://`, `gcp://`, `azure://`
+- Regular URLs (`https://`, `postgres://`) are NOT treated as secret URIs
+- `--env` flag outputs `.env` format; default outputs shell `export` statements
+- `--output FILE` writes resolved output to file
+- Error per-URI without blocking other resolutions
+
+### Quality
+- 547 total tests (was 485), all passing
+- 62 new tests across 5 features (21 MCP scan, 29 URI resolve, 3 AI schema, 4 docker-secrets, 5 redaction)
+- New modules: `mcp_scan.rs`, `uri_resolve.rs`
+- No new crate dependencies
+
 ## [0.5.0] - 2026-04-20
 
 ### Added

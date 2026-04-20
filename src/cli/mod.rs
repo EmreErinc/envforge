@@ -133,6 +133,10 @@ pub enum Commands {
         /// Remove the envforge pre-commit hook
         #[arg(long)]
         remove_hook: bool,
+
+        /// Scan MCP config files for hardcoded credentials
+        #[arg(long)]
+        mcp: bool,
     },
 
     /// Show pending changes as a diff
@@ -233,6 +237,10 @@ pub enum Commands {
         /// AI-agent-safe mode: resolve secrets in memory only, skip .env disk files
         #[arg(long)]
         volatile: bool,
+
+        /// Redact known secret values in subprocess output
+        #[arg(long)]
+        redact: bool,
 
         /// Command and arguments to run (after --)
         #[arg(last = true, required = true)]
@@ -345,6 +353,24 @@ pub enum Commands {
         action: ShareAction,
     },
 
+    /// Resolve secret URIs in a config file (vault://path, aws-ssm://path, etc.)
+    ResolveUri {
+        /// Path to file with secret URIs
+        file: String,
+        /// Output as .env format (default: export statements)
+        #[arg(long)]
+        env: bool,
+        /// Output file (default: stdout)
+        #[arg(long)]
+        output: Option<String>,
+    },
+
+    /// Harden MCP config files — replace plaintext secrets with env var references
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+
     /// View change audit trail from sync history
     Audit {
         /// Filter by key name
@@ -359,6 +385,75 @@ pub enum Commands {
         /// Number of entries to show
         #[arg(short, long, default_value = "50")]
         n: usize,
+        /// Scan git history for secrets leaked in AI-assisted commits
+        #[arg(long)]
+        ai_leaks: bool,
+        /// Show proxy access audit log
+        #[arg(long)]
+        access: bool,
+    },
+
+    /// Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code)
+    Fence,
+
+    /// Sanitize a file by replacing secret values with ${KEY} placeholders
+    Sanitize {
+        /// File to sanitize
+        file: String,
+        /// Output file (default: stdout)
+        #[arg(long)]
+        output: Option<String>,
+    },
+
+    /// Install or remove AI coding tool security hooks
+    AiHook {
+        #[command(subcommand)]
+        action: AiHookAction,
+    },
+
+    /// AI agent guard — invoked by AI tool hooks (not for direct use)
+    #[command(hide = true)]
+    AiGuard {
+        /// Hook stage: pre-tool, post-tool
+        stage: String,
+        /// Tool name
+        tool_name: String,
+        /// Tool input (JSON string or path)
+        tool_input: Option<String>,
+    },
+
+    /// Start local credential proxy for AI agents
+    Proxy {
+        /// Port to listen on
+        #[arg(long, default_value = "8100")]
+        port: u16,
+        /// Only serve these keys (comma-separated)
+        #[arg(long)]
+        keys: Option<String>,
+        /// Profile to use
+        #[arg(long)]
+        profile: Option<String>,
+        /// Allowed origins (comma-separated, default: localhost only)
+        #[arg(long)]
+        allow_origins: Option<String>,
+        /// Require active lease for access
+        #[arg(long)]
+        require_lease: bool,
+    },
+
+    /// Manage secret access leases (time-bounded, revocable)
+    Lease {
+        #[command(subcommand)]
+        action: LeaseAction,
+    },
+
+    /// Emergency revoke all secret access
+    Revoke {
+        /// Revoke all active leases (killswitch)
+        #[arg(long)]
+        all: bool,
+        /// Specific lease name to revoke
+        name: Option<String>,
     },
 }
 
@@ -425,6 +520,15 @@ pub enum SchemaAction {
     },
     /// Output JSON Schema for .env.schema format
     JsonSchema,
+    /// Generate AI-safe context file (names and types, no values)
+    EmitAi {
+        /// Output file path (default: stdout)
+        #[arg(long)]
+        output: Option<String>,
+        /// Infer types from current env vars (when no .env.schema exists)
+        #[arg(long)]
+        infer: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -473,6 +577,26 @@ pub enum ProfileAction {
 }
 
 #[derive(Subcommand)]
+pub enum McpAction {
+    /// Replace plaintext secrets with ${VAR} env var references (backs up originals)
+    Harden,
+}
+
+#[derive(Subcommand)]
+pub enum AiHookAction {
+    /// Install hooks for an AI coding tool
+    Install {
+        /// Tool name: claude-code, cursor
+        tool: String,
+    },
+    /// Remove hooks from an AI coding tool
+    Remove {
+        /// Tool name: claude-code, cursor
+        tool: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum SnapshotAction {
     /// Create a snapshot of current environment variables
     Create {
@@ -502,4 +626,24 @@ pub enum SnapshotAction {
         /// Snapshot name (substring match)
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum LeaseAction {
+    /// Create a new time-bounded secret access lease
+    Create {
+        /// Lease name (default: auto-generated)
+        #[arg(long)]
+        name: Option<String>,
+        /// Time-to-live (e.g., "1h", "30m", "8h", "24h", "7d")
+        #[arg(long)]
+        ttl: String,
+        /// Restrict to specific keys (comma-separated)
+        #[arg(long)]
+        keys: Option<String>,
+    },
+    /// List all leases
+    List,
+    /// Clean up expired leases
+    Cleanup,
 }

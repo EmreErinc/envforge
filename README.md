@@ -1,37 +1,101 @@
 # EnvForge
 
-A powerful terminal-based environment variable manager with TUI and CLI interfaces for Linux and macOS.
+The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge safely manages environment variables in your shell configuration files (`.zshrc`, `.bashrc`, etc.) with byte-for-byte round-trip fidelity, meaning it never corrupts your existing config.
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **10+ AI safety tools**, 7 secret provider integrations, encrypted sync, and 70+ commands.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-blue.svg)
+![AI Safe](https://img.shields.io/badge/AI--Safe-Secrets%20Protected-brightgreen.svg)
 
-## Features at a Glance
+> **Why AI Safety?** GitGuardian's 2026 report found AI-assisted commits leak secrets at **2x the baseline rate**. 24,000+ credentials were found in MCP config files. EnvForge is the first env management tool built to protect secrets FROM AI agents.
+
+## AI Safety Suite
+
+EnvForge provides the most comprehensive AI-agent secret protection of any CLI tool:
+
+| Layer | Tool | Command | What It Does |
+|-------|------|---------|-------------|
+| **Prevention** | Secret Fence | `envforge fence` | Create ignore rules for Cursor, Copilot, Claude Code |
+| **Prevention** | Pre-Commit Hook | `envforge scan --install-hook` | Block commits containing secrets |
+| **Prevention** | 3-Stage AI Guard | `envforge ai-guard pre-tool` | Scan before/after AI tool execution |
+| **Prevention** | AI Hooks | `envforge ai-hook install claude-code` | PreToolUse + PostToolUse hooks |
+| **Prevention** | File Alerts | *(built into ai-guard)* | Warn on `.env`, `.pem`, `.ssh/` access |
+| **Runtime** | Volatile Mode | `envforge run --volatile` | Secrets in memory only — never on disk |
+| **Runtime** | Log Redaction | `envforge run --redact` | Mask secrets in subprocess output |
+| **Runtime** | Credential Proxy | `envforge proxy --port 8100` | HTTP API with domain allowlist + audit |
+| **Runtime** | Session Leases | `envforge lease create --ttl 1h` | Time-bounded secret access |
+| **Runtime** | Killswitch | `envforge revoke --all` | Instantly revoke all active leases |
+| **Context** | AI-Safe Schema | `envforge schema emit-ai` | Types/names without values for AI |
+| **Context** | Safe Export | `envforge export --safe` | Redacted `[REDACTED]` values |
+| **Context** | Ignore File | `.envforgeignore` | Mark files AI tools should skip |
+| **Remediation** | MCP Scan | `envforge scan --mcp` | Find creds in AI tool configs |
+| **Remediation** | MCP Harden | `envforge mcp harden` | Auto-replace with `${VAR}` references |
+| **Remediation** | Prompt Sanitizer | `envforge sanitize FILE` | Strip secrets from any file |
+| **Detection** | AI Leak Audit | `envforge audit --ai-leaks` | Scan git for AI-assisted leaks |
+| **Detection** | Access Audit | `envforge audit --access` | JSONL log of proxy access |
+
+### Quick Setup: Protect a Project in 30 Seconds
+
+```bash
+# 1. Create AI ignore rules for all tools
+envforge fence
+
+# 2. Generate AI-safe context file (names + types, no values)
+envforge schema emit-ai --infer --output .env.ai.md
+
+# 3. Install pre-commit hook
+envforge scan --install-hook
+
+# 4. Scan AI tool configs for leaked credentials
+envforge scan --mcp
+
+# 5. Auto-fix MCP configs
+envforge mcp harden
+```
+
+Done. Cursor, Copilot, and Claude Code now respect your secret boundaries. AI agents get context from `.env.ai.md` instead of reading `.env`.
+
+### Run with Maximum Protection
+
+```bash
+# Secrets in memory only + log redaction (nothing leaks)
+envforge run --volatile --redact -- npm start
+
+# Time-bounded access with credential proxy
+envforge lease create --ttl 1h --keys DB_URL,API_KEY
+envforge proxy --port 8100 --require-lease --allow-origins localhost
+
+# Emergency: revoke all access instantly
+envforge revoke --all
+```
+
+---
+
+## All Features
 
 | Category | Highlights |
 |----------|-----------|
+| **AI Safety** | 18 tools: guard, leases, killswitch, proxy+audit, fence, MCP harden, volatile, redact, hooks |
 | **Check** | `envforge check` — unified health check (doctor + validate + scan + age + drift) |
-| **Snapshots** | Backup/restore active profile state, diff, auto-prune, pre-destructive safety net |
+| **Snapshots** | Backup/restore active profile state, diff, auto-prune |
 | **Explain** | `envforge explain KEY` — X-ray view across all subsystems |
-| **Rotation** | `envforge rotate KEY` — guided rotation with `--propagate` for multi-target push |
-| **Shell Hook** | direnv-style auto-load: `eval "$(envforge hook zsh)"` — auto-detect `.envforge.toml` |
-| **Volatile Mode** | `envforge run --volatile` — AI-agent-safe, secrets in memory only, no disk I/O |
+| **Rotation** | `envforge rotate KEY --propagate` — guided rotation with multi-target push |
+| **Shell Hook** | direnv-style auto-load: `eval "$(envforge hook zsh)"` |
 | **Secure Share** | `envforge share` — age-encrypted secret sharing for team onboarding |
-| **Audit Trail** | `envforge audit` — who changed what, when, from which machine (sync git history) |
+| **Audit Trail** | `envforge audit` — who changed what, when, from which machine |
 | **CI/CD** | GitHub Action with 5 modes: validate, secrets-pull, export, run, drift |
 | **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
 | **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
-| **Export** | 7 formats: dotenv, JSON, YAML, TOML, Docker, K8s Secret, Terraform tfvars |
-| **CLI** | 70+ subcommands, `--json` output, `--dry-run` preview, shell completions |
-| **Run** | `envforge run` — subprocess injection with volatile, multi-profile, resolve |
+| **Export** | 8 formats: dotenv, JSON, YAML, TOML, Docker, Docker Secrets, K8s, tfvars |
+| **CLI** | 80+ subcommands, `--json` output, `--dry-run` preview, shell completions |
+| **Run** | Subprocess injection with volatile, redact, multi-profile, resolve |
 | **Schema** | `.env.schema` — type validation, JSON Schema, onboarding wizard, drift detection |
 | **Profiles** | Dev/staging/prod, shared files, profile diff, `--profiles` multi-merge |
-| **Encryption** | Age (X25519) encryption at rest, per-value encrypt/decrypt, encrypted sync |
-| **Remote Sync** | Git-based cross-machine sync, age-encrypted snapshots, selective keys, rollback |
-| **Secret Managers** | 7 providers, TTL credentials, offline fallback, cache management |
-| **AI Safety** | Volatile mode, safe export, `.envforgeignore`, pre-commit hooks |
+| **Encryption** | Age (X25519) encryption at rest, encrypted sync, per-value encrypt/decrypt |
+| **Remote Sync** | Git-based cross-machine sync, age-encrypted, selective keys, rollback |
+| **Secret Managers** | 7 providers, URI refs (`vault://`), TTL, offline fallback, cache |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
 | **Health Check** | `envforge doctor` + `envforge check` — 15+ checks with fix suggestions |
 | **Security** | Secret scanning, pre-commit hooks, value masking, credential TTL |
@@ -310,6 +374,7 @@ envforge run [flags] -- <cmd> [args]     # Run command with injected ENV
   --env-file PATH                        # Load .env file (repeatable)
   --override KEY=VALUE                   # Override a value (repeatable)
   --volatile                             # AI-safe: secrets in memory only
+  --redact                               # Mask secrets in subprocess output
   --profiles dev,staging                 # Merge multiple profiles (last wins)
 
 # Schema & validation
@@ -361,6 +426,13 @@ envforge duplicates                      # Find duplicate keys
 envforge scan [path] [--staged]          # Scan for leaked secrets
   --install-hook                         # Install git pre-commit hook
   --remove-hook                          # Remove pre-commit hook
+  --mcp                                  # Scan AI tool configs for credentials
+envforge mcp harden                      # Replace MCP secrets with ${VAR} refs
+envforge fence                           # Create AI ignore rules for all tools
+envforge sanitize FILE                   # Strip secrets from any file
+envforge ai-hook install claude-code     # Install AI tool security hooks
+envforge proxy [--port 8100] [--keys K]  # Local credential proxy for AI agents
+envforge audit --ai-leaks                # Scan git for AI-assisted secret leaks
 envforge diff                            # Show pending changes
 envforge doctor [--verbose]              # Health check with fix suggestions
 
@@ -506,6 +578,8 @@ envforge secrets config aws --set key=x --ttl 30d     # Expire in 30 days
 # Schema tools
 envforge schema generate [--output PATH] # Generate from current ENV
 envforge schema json-schema              # Output JSON Schema for editors
+envforge schema emit-ai [--infer]        # AI-safe context (no values)
+envforge resolve-uri FILE [--env]        # Resolve vault://, aws-ssm:// URIs
 ```
 
 **Three modes:**
@@ -698,6 +772,168 @@ Flow:
 6. Offers to push to provider and sync
 
 Handles encrypted values transparently (re-encrypts new value if original was encrypted).
+
+### AI-Safe Schema Emission
+
+Generate context for AI coding tools without exposing secret values:
+
+```bash
+# From .env.schema
+envforge schema emit-ai
+
+# Infer types from current env (no schema needed)
+envforge schema emit-ai --infer
+
+# Save for AI tools
+envforge schema emit-ai --output .env.ai.md
+```
+
+Output:
+```markdown
+## DATABASE_URL
+- **Type**: url
+- **Required**: yes
+- **Description**: PostgreSQL connection string
+- **Sensitive**: YES — do not hardcode or log
+
+## PORT
+- **Type**: port
+- **Default**: 3000
+- **Sensitive**: no
+```
+
+AI agents see names, types, descriptions — never actual values. Addresses the 2x secret leak rate with AI-assisted development (GitGuardian 2026).
+
+### MCP Configuration Scanning
+
+Scan AI tool configs for hardcoded credentials:
+
+```bash
+envforge scan --mcp
+```
+
+Output:
+```
+MCP Configuration Secret Scan
+
+~/.claude/claude_desktop_config.json
+  ⚠ mcpServers.slack.env.SLACK_TOKEN = xoxb-****5678
+    → Replace with: ${SLACK_TOKEN}
+
+~/.config/github-copilot/apps.json
+  ⚠ github.com.oauth_token = gho_****QD9
+    → Replace with: ${oauth_token}
+
+2 file(s) scanned, 2 credential(s) found
+```
+
+Scans Claude Desktop, Cursor, GitHub Copilot configs. Detects 23+ API key patterns.
+
+### URI-Based Secret References
+
+Reference secrets by provider URI in config files:
+
+```bash
+# secrets.env
+DATABASE_URL=vault://secret/myapp/DB_URL
+API_KEY=aws-ssm:///prod/api-key
+STRIPE_KEY=1password://vault/stripe/key
+PORT=3000
+
+# Resolve all URIs to actual values
+envforge resolve-uri secrets.env
+
+# Output as .env format
+envforge resolve-uri secrets.env --env --output .env
+```
+
+Supported schemes: `vault://`, `aws-ssm://`, `1password://`, `doppler://`, `infisical://`, `gcp://`, `azure://`. Regular URLs (`https://`) are not treated as secret URIs.
+
+### Runtime Log Redaction
+
+Prevent secrets from leaking in subprocess output:
+
+```bash
+# Automatically mask known secrets in stdout/stderr
+envforge run --redact -- npm start
+
+# Combine with volatile mode for maximum protection
+envforge run --volatile --redact -- npm start
+```
+
+Known sensitive values are replaced with `[REDACTED:KEY_NAME]` in real-time. Parallel stdout/stderr processing with no performance penalty.
+
+### MCP Config Hardening
+
+Auto-fix hardcoded credentials in AI tool configurations:
+
+```bash
+# Preview what would change
+envforge mcp harden --dry-run
+
+# Auto-replace secrets with ${VAR} references (backs up originals)
+envforge mcp harden
+```
+
+Rewrites Claude Desktop, Cursor, GitHub Copilot configs. Replaces `"sk-live-abc123"` with `"${API_KEY}"`.
+
+### Secret Fence
+
+One command to create AI tool ignore rules for all tools:
+
+```bash
+envforge fence
+```
+
+Creates: `.envforgeignore`, `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json`. AI tools will respect secret boundaries.
+
+### Prompt Sanitizer
+
+Strip secret values from any file:
+
+```bash
+envforge sanitize debug-output.log --output clean.log
+envforge sanitize config.json
+```
+
+Replaces known secret values with `${KEY}` placeholders. Longest-match-first for accuracy.
+
+### AI Coding Tool Hooks
+
+Install security hooks in AI coding tools:
+
+```bash
+envforge ai-hook install claude-code   # PostToolUse hook scanning for secrets
+envforge ai-hook install cursor        # Security rules in .cursorrules
+envforge ai-hook remove claude-code    # Remove hooks
+```
+
+### Agent Credential Proxy
+
+Local HTTP API for AI agents — secrets served via API, never on disk:
+
+```bash
+# Start proxy (blocks until Ctrl+C)
+envforge proxy --port 8100
+
+# Scope to specific keys only
+envforge proxy --port 8100 --keys DB_URL,API_KEY --profile prod
+```
+
+Endpoints:
+- `GET /env` — all variables (JSON)
+- `GET /env/KEY_NAME` — single variable
+- `GET /health` — health check
+
+### AI Leak Report
+
+Scan git history for secrets leaked in AI-assisted commits:
+
+```bash
+envforge audit --ai-leaks
+```
+
+Detects commits co-authored by Claude, Copilot, Cursor. Scans diffs for API keys, connection strings, tokens.
 
 ### Pre-Commit Hook
 
@@ -1026,15 +1262,31 @@ envforge git remove-merge-driver
 
 ### Security
 
+#### AI Agent Protection
+- **Volatile mode** — `envforge run --volatile` — secrets resolved in memory, never written to disk
+- **Log redaction** — `envforge run --redact` — mask secrets in subprocess output in real-time
+- **Secret fence** — `envforge fence` — create ignore rules for Cursor, Copilot, Claude Code
+- **MCP scanning** — `envforge scan --mcp` — find hardcoded creds in AI tool configs
+- **MCP hardening** — `envforge mcp harden` — auto-replace secrets with `${VAR}` references
+- **AI context** — `envforge schema emit-ai` — give AI agents context without values
+- **AI hooks** — `envforge ai-hook install claude-code` — security hooks in AI tools
+- **Credential proxy** — `envforge proxy` — HTTP API for AI agents, secrets never on disk
+- **Prompt sanitizer** — `envforge sanitize FILE` — strip secrets from any file
+- **AI leak audit** — `envforge audit --ai-leaks` — find secrets in AI-assisted commits
+
+#### Encryption & Access Control
 - **Encryption at rest** — Encrypt individual values with age (X25519): `envforge encrypt API_KEY`
-- **Process-scoped secrets** — `envforge run --resolve` injects secrets only into the child process
-- **AI-safe export** — `envforge export --safe` redacts sensitive values for AI tool consumption
-- **Secret scanning** — Detect leaked secrets in source code: `envforge scan --staged` (use as pre-commit hook)
-- **Credential storage** — Provider credentials encrypted with age in `~/.config/envforge/credentials.toml`
-- **Value masking** — Keys containing SECRET, TOKEN, PASSWORD, CREDENTIAL are masked in TUI by default
 - **Encrypted sync** — Sync snapshots age-encrypted before git push; auto-decrypt on pull
-- **No plain-text secrets in history** — Encrypted values stay encrypted in backups and sync
-- **Schema-based sensitive marking** — Schema `sensitive = true` flag for custom sensitive key patterns
+- **Credential TTL** — `--ttl 8h` on provider credentials, auto-expire
+- **Process-scoped secrets** — `envforge run --resolve` injects secrets only into the child process
+- **Credential storage** — Provider credentials encrypted with age in `~/.config/envforge/credentials.toml`
+
+#### Scanning & Prevention
+- **Secret scanning** — Detect leaked secrets in source code: `envforge scan --staged`
+- **Pre-commit hook** — `envforge scan --install-hook` blocks commits containing secrets
+- **MCP config scanning** — Find credentials in Claude, Cursor, Copilot configs
+- **Value masking** — Keys containing SECRET, TOKEN, PASSWORD masked in TUI
+- **Schema-based sensitive marking** — Schema `sensitive = true` flag
 
 ## Configuration
 
@@ -1098,36 +1350,121 @@ envforge completions fish > ~/.config/fish/completions/envforge.fish
 
 ```
 src/
-├── main.rs          # Entry point — routes to TUI or CLI
-├── lib.rs           # Module declarations
-├── model/           # Data types (LineNode, ShellFile, ExportStyle)
-├── parser/          # Shell file parser & writer (round-trip safe)
-├── config/          # App config, backup, atomic writes
-├── ops/             # Operations
-│   ├── crud.rs      # Add, edit, delete, move, toggle
-│   ├── run.rs       # Subprocess runner (envforge run)
-│   ├── schema.rs    # ENV schema parser, validation, docs, drift
-│   ├── profile.rs   # Profile management and diff
-│   ├── encrypt.rs   # Age encryption/decryption
-│   ├── duplicates.rs # Duplicate key detection
-│   ├── validation.rs # Rule-based value validation
-│   ├── scanner.rs   # Secret scanning
-│   ├── doctor.rs    # System health checks (10 checks including AI safety)
-│   ├── dotenv.rs    # .env parsing, safe export, env-example generation
-│   ├── sync/        # Remote sync (Git, push/pull, conflict, machine overrides)
-│   └── secrets/     # Secret manager integration (7 providers, credentials, cache)
-├── ui/              # Ratatui TUI (app state, rendering, dialogs)
-└── cli/             # Clap CLI (subcommands, sync, secrets, wizard)
+├── main.rs              # Entry point — routes to TUI or CLI
+├── lib.rs               # Module declarations
+├── model/               # Data types (LineNode, ShellFile, ExportStyle)
+├── parser/              # Shell file parser & writer (byte-for-byte round-trip safe)
+├── config/              # App config, backup, atomic writes
+│
+├── ops/                 # Core operations (35 modules)
+│   │
+│   │── ── Core ──────────────────────────
+│   ├── crud.rs          # Add, edit, delete, move, toggle
+│   ├── run.rs           # Subprocess runner (volatile, redact, multi-profile)
+│   ├── profile.rs       # Profile management
+│   ├── profile_diff.rs  # Profile comparison
+│   ├── encrypt.rs       # Age (X25519) encryption/decryption
+│   ├── dotenv.rs        # .env parsing, safe export, env-example
+│   ├── listing.rs       # ENV entry collection and filtering
+│   ├── validation.rs    # Rule-based value validation
+│   ├── changelog.rs     # Change tracking
+│   ├── duplicates.rs    # Duplicate key detection
+│   ├── snapshot.rs      # Environment state backup/restore
+│   ├── rotate.rs        # Secret rotation with propagation
+│   ├── explain.rs       # Key X-ray across all subsystems
+│   ├── export_format.rs # 8 formats (JSON, YAML, TOML, Docker, K8s, tfvars...)
+│   │
+│   │── ── Schema & Validation ───────────
+│   ├── schema.rs        # .env.schema parser, validation, docs, drift, AI emit
+│   ├── schema_json.rs   # JSON Schema (Draft 2020-12) output
+│   ├── check.rs         # Unified check runner (doctor+validate+scan+age+drift)
+│   ├── doctor.rs        # 15+ health checks with fix suggestions
+│   │
+│   │── ── AI Safety ────────────────────
+│   ├── mcp_scan.rs      # MCP config scanning (23+ credential patterns)
+│   ├── fence.rs         # AI tool ignore rules (Cursor, Copilot, Claude Code)
+│   ├── sanitize.rs      # Secret value stripping from any file
+│   ├── ai_hooks.rs      # AI coding tool hook installation
+│   ├── proxy.rs         # Local HTTP credential proxy for AI agents
+│   ├── audit.rs         # Git author audit trail + AI leak detection
+│   │
+│   │── ── Scanning & Security ──────────
+│   ├── scanner.rs       # Secret scanning (source code + staged files)
+│   ├── uri_resolve.rs   # URI-based secret references (vault://, aws-ssm://)
+│   │
+│   │── ── Shell Integration ────────────
+│   ├── hook.rs          # Shell auto-load hooks (zsh, bash, fish)
+│   ├── share.rs         # Age-encrypted secret sharing
+│   ├── fuzzy.rs         # Fuzzy search with highlighting
+│   ├── grouping.rs      # Variable grouping (prefix-based + custom)
+│   ├── clipboard.rs     # Clipboard integration
+│   ├── undo.rs          # Undo/redo stack
+│   │
+│   │── ── Remote Sync ──────────────────
+│   ├── sync/            # Git-based cross-machine sync
+│   │   ├── init.rs      # Sync initialization
+│   │   ├── push.rs      # Push to remote
+│   │   ├── pull.rs      # Pull from remote
+│   │   ├── encryption.rs # Age-encrypted snapshots
+│   │   ├── diff.rs      # Diff calculation
+│   │   ├── conflict.rs  # Three-way conflict detection
+│   │   ├── marking.rs   # Key sync/local marking
+│   │   ├── machine.rs   # Machine identity & overrides
+│   │   ├── history.rs   # Snapshot history & rollback
+│   │   ├── git.rs       # Git operations
+│   │   └── model.rs     # Sync data types
+│   │
+│   │── ── Secret Managers ──────────────
+│   └── secrets/         # 7 provider integrations
+│       ├── provider.rs  # SecretProvider trait & registry
+│       ├── modes.rs     # Pull/push/reference modes
+│       ├── cache.rs     # TTL cache with offline fallback
+│       ├── credentials.rs # Encrypted credential store with TTL
+│       ├── age.rs       # Secret age tracking
+│       └── providers/   # Provider implementations
+│           ├── vault.rs     # HashiCorp Vault
+│           ├── aws_ssm.rs   # AWS SSM Parameter Store
+│           ├── onepassword.rs # 1Password
+│           ├── doppler.rs   # Doppler
+│           ├── infisical.rs # Infisical
+│           ├── gcp.rs       # GCP Secret Manager
+│           └── azure.rs     # Azure Key Vault
+│
+├── ui/                  # Ratatui TUI
+│   ├── app.rs           # App state (View/Edit/Add/Search modes)
+│   ├── render.rs        # Rendering logic
+│   ├── dialogs.rs       # Modal dialogs
+│   ├── table.rs         # Table rendering
+│   ├── input.rs         # Text input handling
+│   └── mod.rs           # run_tui() entry
+│
+├── cli/                 # Clap CLI (80+ subcommands)
+│   ├── commands.rs      # Command implementations
+│   ├── mod.rs           # CLI struct, Commands enum
+│   ├── sync_cmd.rs      # Sync subcommands
+│   ├── secrets_cmd.rs   # Secrets subcommands
+│   └── wizard.rs        # First-run setup wizard
+│
+└── action/              # GitHub Action (composite)
+    ├── action.yml       # Action definition
+    ├── scripts/
+    │   ├── install.sh   # Binary installer
+    │   └── run.sh       # 5-mode runner
+    └── tests/
+        └── test_action.sh # 21 tests
 ```
 
 ### Design Principles
 
-1. **Never delete** — EnvForge never physically removes content. Soft-delete with tags.
-2. **Atomic writes** — Every write uses tempfile + rename. No partial files on crash.
-3. **Order preservation** — Line-level AST preserves exact line order and formatting.
-4. **Offset safety** — Protected zones (conda, Amazon Q blocks) are never modified.
-5. **Backup first** — Automatic backup before every write operation.
-6. **Schema-driven** — `.env.schema` as single source of truth for project ENV requirements.
+1. **AI-safe by default** — Volatile mode, redaction, fencing built into core workflows.
+2. **Never delete** — Soft-delete with tags. Nothing physically removed.
+3. **Atomic writes** — Every write uses tempfile + rename. No partial files on crash.
+4. **Order preservation** — Line-level AST preserves exact byte order and formatting.
+5. **Offset safety** — Protected zones (conda, Amazon Q blocks) never modified.
+6. **Backup first** — Automatic backup before every write operation.
+7. **Schema-driven** — `.env.schema` as single source of truth for project ENV requirements.
+8. **Offline-first** — Everything works locally. Remote sync and providers are optional.
+9. **Zero trust** — Secrets encrypted at rest, in transit (sync), and in memory (volatile).
 
 ## Contributing
 
