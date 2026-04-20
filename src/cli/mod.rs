@@ -125,6 +125,14 @@ pub enum Commands {
         /// Only scan git staged files
         #[arg(long)]
         staged: bool,
+
+        /// Install git pre-commit hook that runs envforge scan --staged
+        #[arg(long)]
+        install_hook: bool,
+
+        /// Remove the envforge pre-commit hook
+        #[arg(long)]
+        remove_hook: bool,
     },
 
     /// Show pending changes as a diff
@@ -206,6 +214,10 @@ pub enum Commands {
         #[arg(long)]
         profile: Option<String>,
 
+        /// Load and merge multiple profiles (comma-separated, last wins)
+        #[arg(long)]
+        profiles: Option<String>,
+
         /// Resolve secret references (ref:provider:path) at runtime
         #[arg(long)]
         resolve: bool,
@@ -217,6 +229,10 @@ pub enum Commands {
         /// Override a specific variable (KEY=VALUE, can be repeated)
         #[arg(long = "override", num_args = 1)]
         overrides: Vec<String>,
+
+        /// AI-agent-safe mode: resolve secrets in memory only, skip .env disk files
+        #[arg(long)]
+        volatile: bool,
 
         /// Command and arguments to run (after --)
         #[arg(last = true, required = true)]
@@ -284,6 +300,23 @@ pub enum Commands {
         /// Rotate all stale secrets interactively
         #[arg(long)]
         stale: bool,
+
+        /// Auto-push to provider and sync after rotation (no interactive prompts)
+        #[arg(long)]
+        propagate: bool,
+    },
+
+    /// Generate shell hook for auto-loading (eval "$(envforge hook zsh)")
+    Hook {
+        /// Shell type (zsh, bash, fish)
+        shell: String,
+    },
+
+    /// Output environment variables as shell export statements (for eval)
+    Env {
+        /// Directory to load from (default: current)
+        #[arg(long)]
+        dir: Option<String>,
     },
 
     /// Run health checks on EnvForge setup
@@ -304,6 +337,61 @@ pub enum Commands {
     Snapshot {
         #[command(subcommand)]
         action: SnapshotAction,
+    },
+
+    /// Share encrypted secrets with team members
+    Share {
+        #[command(subcommand)]
+        action: ShareAction,
+    },
+
+    /// View change audit trail from sync history
+    Audit {
+        /// Filter by key name
+        #[arg(long)]
+        key: Option<String>,
+        /// Filter changes since date (ISO 8601)
+        #[arg(long)]
+        since: Option<String>,
+        /// Filter by machine ID
+        #[arg(long)]
+        machine: Option<String>,
+        /// Number of entries to show
+        #[arg(short, long, default_value = "50")]
+        n: usize,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ShareAction {
+    /// Create an encrypted share file
+    Create {
+        /// Recipient's age public key (age1...)
+        #[arg(long)]
+        recipient: String,
+        /// Specific keys to share (comma-separated)
+        #[arg(long)]
+        keys: Option<String>,
+        /// Share all keys
+        #[arg(long)]
+        all: bool,
+        /// Filter by pattern
+        #[arg(long)]
+        filter: Option<String>,
+        /// Output file path (default: envforge-share.age)
+        #[arg(long, default_value = "envforge-share.age")]
+        output: String,
+        /// Expiry in hours
+        #[arg(long)]
+        expire: Option<u64>,
+    },
+    /// Receive and import a share file
+    Receive {
+        /// Path to share file
+        file: String,
+        /// Import keys into EnvForge config
+        #[arg(long)]
+        import: bool,
     },
 }
 
@@ -335,6 +423,8 @@ pub enum SchemaAction {
         #[arg(long)]
         output: Option<String>,
     },
+    /// Output JSON Schema for .env.schema format
+    JsonSchema,
 }
 
 #[derive(Subcommand)]

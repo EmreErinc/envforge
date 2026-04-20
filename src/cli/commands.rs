@@ -6,7 +6,7 @@ use crate::model::*;
 use crate::ops::*;
 use crate::parser::*;
 
-use super::{BackupAction, Commands, SnapshotAction};
+use super::{BackupAction, Commands, ShareAction, SnapshotAction};
 
 /// Execute a CLI subcommand.
 pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
@@ -40,7 +40,15 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         }
         Commands::Git { action } => cmd_git(action),
         Commands::Duplicates => cmd_duplicates(json),
-        Commands::Scan { path, staged } => cmd_scan(path.as_deref(), *staged, json),
+        Commands::Scan { path, staged, install_hook, remove_hook } => {
+            if *install_hook {
+                cmd_install_scan_hook()
+            } else if *remove_hook {
+                cmd_remove_scan_hook()
+            } else {
+                cmd_scan(path.as_deref(), *staged, json)
+            }
+        }
         Commands::Diff => cmd_diff(),
         Commands::Backup { action } => cmd_backup(action),
         Commands::Profile { action } => cmd_profile(action),
@@ -61,19 +69,33 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Config => cmd_config(),
         Commands::Run {
             profile,
+            profiles,
             resolve,
             env_files,
             overrides,
             command,
-        } => cmd_run(
-            profile.as_deref(),
-            *resolve,
-            env_files,
-            overrides,
-            command,
-            dry_run,
-            json,
-        ),
+            volatile,
+        } => {
+            if profile.is_some() && profiles.is_some() {
+                eprintln!("Error: Use --profile OR --profiles, not both");
+                process::exit(1);
+            }
+            let profile_list: Vec<String> = profiles
+                .as_deref()
+                .map(|p| p.split(',').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_default();
+            cmd_run(
+                profile.as_deref(),
+                *resolve,
+                env_files,
+                overrides,
+                command,
+                dry_run,
+                json,
+                *volatile,
+                &profile_list,
+            )
+        }
         Commands::Sync { action } => super::sync_cmd::execute_sync(action, json, dry_run),
         Commands::Secrets { action } => super::secrets_cmd::execute_secrets(action, json, dry_run),
         Commands::Docs { schema, output } => cmd_docs(schema.as_deref(), output.as_deref()),
@@ -85,10 +107,14 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Schema { action } => cmd_schema(action, json),
         Commands::Init { schema, output } => cmd_init_schema(schema.as_deref(), output),
         Commands::Explain { key } => cmd_explain(key, json),
-        Commands::Rotate { key, dry_run: dr, stale } => cmd_rotate(key, *dr || dry_run, *stale),
+        Commands::Rotate { key, dry_run: dr, stale, propagate } => cmd_rotate(key, *dr || dry_run, *stale, *propagate),
+        Commands::Hook { shell } => cmd_hook(shell),
+        Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()),
         Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
         Commands::Check { only } => cmd_check(only.as_deref(), json),
         Commands::Snapshot { action } => cmd_snapshot(action, dry_run),
+        Commands::Share { action } => cmd_share(action, dry_run),
+        Commands::Audit { key, since, machine, n } => cmd_audit(key.as_deref(), since.as_deref(), machine.as_deref(), *n, json),
     };
 
     if let Err(e) = result {
@@ -1019,6 +1045,110 @@ fn cmd_explain(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+// ── Shell auto-load hook ────────────────────────────────────
+
+fn cmd_hook(shell: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::hook::generate_hook;
+
+    match generate_hook(shell) {
+        Ok(script) => {
+            print!("{}", script);
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+// ── Pre-commit hook ─────────────────────────────────────────
+
+const HOOK_MARKER: &str = "# EnvForge secret scan";
+const HOOK_COMMAND: &str = "envforge scan --staged";
+
+/// Walk up from cwd to find the `.git` directory.
+fn find_git_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let mut dir = std::env::current_dir()?;
+    loop {
+        let git = dir.join(".git");
+        if git.is_dir() {
+            return Ok(git);
+        }
+        if !dir.pop() {
+            return Err("Not a git repository".into());
+        }
+    }
+}
+
+fn cmd_install_scan_hook() -> Result<(), Box<dyn std::error::Error>> {
+    let git_dir = find_git_dir()?;
+    let hooks_dir = git_dir.join("hooks");
+    std::fs::create_dir_all(&hooks_dir)?;
+    let hook_path = hooks_dir.join("pre-commit");
+
+    let envforge_block = format!("{}\n{}\n", HOOK_MARKER, HOOK_COMMAND);
+
+    if hook_path.exists() {
+        let content = std::fs::read_to_string(&hook_path)?;
+        if content.contains(HOOK_COMMAND) {
+            println!("Hook already installed.");
+            return Ok(());
+        }
+        // Append our block to the existing hook
+        let new_content = format!("{}\n{}", content.trim_end(), envforge_block);
+        std::fs::write(&hook_path, new_content)?;
+    } else {
+        let content = format!("#!/bin/sh\n{}", envforge_block);
+        std::fs::write(&hook_path, content)?;
+    }
+
+    // Make executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755))?;
+    }
+
+    println!("✓ Pre-commit hook installed at .git/hooks/pre-commit");
+    Ok(())
+}
+
+fn cmd_remove_scan_hook() -> Result<(), Box<dyn std::error::Error>> {
+    let git_dir = find_git_dir()?;
+    let hook_path = git_dir.join("hooks").join("pre-commit");
+
+    if !hook_path.exists() {
+        println!("No pre-commit hook found.");
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&hook_path)?;
+    if !content.contains(HOOK_MARKER) && !content.contains(HOOK_COMMAND) {
+        println!("No EnvForge hook found in pre-commit.");
+        return Ok(());
+    }
+
+    // Remove our lines (marker comment + command)
+    let filtered: String = content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            trimmed != HOOK_MARKER && trimmed != HOOK_COMMAND
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let trimmed = filtered.trim();
+
+    // If only shebang (or empty) remains, delete the file
+    if trimmed.is_empty() || trimmed == "#!/bin/sh" || trimmed == "#!/bin/bash" {
+        std::fs::remove_file(&hook_path)?;
+    } else {
+        std::fs::write(&hook_path, format!("{}\n", trimmed))?;
+    }
+
+    println!("✓ Pre-commit hook removed");
+    Ok(())
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 fn parse_assignment(s: &str) -> Result<(String, String), Box<dyn std::error::Error>> {
@@ -1344,6 +1474,10 @@ fn cmd_schema(action: &super::SchemaAction, _json: bool) -> Result<(), Box<dyn s
                 print!("{}", schema);
             }
         }
+        super::SchemaAction::JsonSchema => {
+            let schema = crate::ops::schema_json::generate_json_schema();
+            println!("{}", serde_json::to_string_pretty(&schema)?);
+        }
     }
     Ok(())
 }
@@ -1440,13 +1574,26 @@ fn cmd_run(
     command: &[String],
     dry_run: bool,
     json: bool,
+    volatile: bool,
+    profiles: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::dotenv::is_sensitive_key;
     use crate::ops::run::{collect_env, spawn_process, RunConfig};
 
     if command.is_empty() {
         return Err(
             "No command specified. Usage: envforge run [flags] -- <command> [args...]".into(),
         );
+    }
+
+    let mut resolve = resolve;
+
+    if volatile {
+        eprintln!("Volatile mode: secrets resolved in memory only");
+        resolve = true; // always resolve in volatile mode
+        if !env_files.is_empty() {
+            eprintln!("Warning: --volatile ignores --env-file (no disk file reads for secrets)");
+        }
     }
 
     let override_pairs: Vec<(String, String)> = overrides
@@ -1463,8 +1610,13 @@ fn cmd_run(
 
     let run_config = RunConfig {
         profile: profile.map(String::from),
+        profiles: profiles.to_vec(),
         resolve,
-        env_files: env_files.iter().map(std::path::PathBuf::from).collect(),
+        env_files: if volatile {
+            Vec::new() // volatile mode skips .env disk files
+        } else {
+            env_files.iter().map(std::path::PathBuf::from).collect()
+        },
         overrides: override_pairs,
     };
 
@@ -1474,14 +1626,25 @@ fn cmd_run(
         if json {
             let map: serde_json::Value = env
                 .iter()
-                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                .map(|(k, v)| {
+                    let display_value = if volatile && is_sensitive_key(k) {
+                        "****".to_string()
+                    } else {
+                        v.clone()
+                    };
+                    (k.clone(), serde_json::Value::String(display_value))
+                })
                 .collect();
             println!("{}", serde_json::to_string_pretty(&map)?);
         } else {
             let mut keys: Vec<&String> = env.keys().collect();
             keys.sort();
             for key in keys {
-                println!("{}={}", key, env[key]);
+                if volatile && is_sensitive_key(key) {
+                    println!("{}=****", key);
+                } else {
+                    println!("{}={}", key, env[key]);
+                }
             }
         }
         return Ok(());
@@ -1670,7 +1833,7 @@ fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn cmd_rotate(key: &str, dry_run: bool, stale: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_rotate(key: &str, dry_run: bool, stale: bool, propagate: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::rotate::{apply_rotation, mask_value, plan_rotation};
     use crate::ops::secrets::age::get_age_report;
     use std::io::{self, BufRead, Write};
@@ -1738,9 +1901,15 @@ fn cmd_rotate(key: &str, dry_run: bool, stale: bool) -> Result<(), Box<dyn std::
 
             let result = apply_rotation(&entry.key, new_value, &plan)?;
             println!(
-                "  Rotated {} (local={}, age_reset={}, logged={})\n",
+                "  Rotated {} (local={}, age_reset={}, logged={})",
                 result.key, result.local_updated, result.age_reset, result.logged
             );
+
+            if propagate {
+                propagate_rotation(&entry.key, new_value, &plan);
+            }
+
+            println!();
         }
 
         println!("Stale rotation complete.");
@@ -1795,32 +1964,52 @@ fn cmd_rotate(key: &str, dry_run: bool, stale: bool) -> Result<(), Box<dyn std::
 
     let result = apply_rotation(key, new_value, &plan)?;
 
-    // Optionally push to provider
-    if plan.has_provider {
-        eprint!(
-            "Push to {}? [y/N]: ",
-            plan.provider_name.as_deref().unwrap_or("provider")
-        );
-        io::stderr().flush()?;
-        let mut push_input = String::new();
-        io::stdin().lock().read_line(&mut push_input)?;
-        if push_input.trim().eq_ignore_ascii_case("y") {
-            println!(
-                "  Hint: envforge secrets push --to {} --keys {}",
-                plan.provider_name.as_deref().unwrap_or("provider"),
-                key
-            );
-        }
-    }
+    let mut vault_status = "skipped";
+    let mut sync_status = "skipped";
 
-    // Optionally push to sync
-    if plan.is_synced {
-        eprint!("Push to sync? [y/N]: ");
-        io::stderr().flush()?;
-        let mut sync_input = String::new();
-        io::stdin().lock().read_line(&mut sync_input)?;
-        if sync_input.trim().eq_ignore_ascii_case("y") {
-            println!("  Hint: envforge sync push");
+    if propagate {
+        // Auto-push to provider
+        if plan.has_provider {
+            match propagate_to_provider(key, new_value, &plan) {
+                Ok(_) => vault_status = "\u{2713}",
+                Err(_) => vault_status = "\u{26a0} (failed)",
+            }
+        }
+
+        // Auto-push to sync
+        if plan.is_synced {
+            match propagate_to_sync(key, new_value) {
+                Ok(_) => sync_status = "\u{2713}",
+                Err(_) => sync_status = "\u{26a0} (failed)",
+            }
+        }
+    } else {
+        // Interactive prompt behavior (existing)
+        if plan.has_provider {
+            eprint!(
+                "Push to {}? [y/N]: ",
+                plan.provider_name.as_deref().unwrap_or("provider")
+            );
+            io::stderr().flush()?;
+            let mut push_input = String::new();
+            io::stdin().lock().read_line(&mut push_input)?;
+            if push_input.trim().eq_ignore_ascii_case("y") {
+                println!(
+                    "  Hint: envforge secrets push --to {} --keys {}",
+                    plan.provider_name.as_deref().unwrap_or("provider"),
+                    key
+                );
+            }
+        }
+
+        if plan.is_synced {
+            eprint!("Push to sync? [y/N]: ");
+            io::stderr().flush()?;
+            let mut sync_input = String::new();
+            io::stdin().lock().read_line(&mut sync_input)?;
+            if sync_input.trim().eq_ignore_ascii_case("y") {
+                println!("  Hint: envforge sync push");
+            }
         }
     }
 
@@ -1832,7 +2021,89 @@ fn cmd_rotate(key: &str, dry_run: bool, stale: bool) -> Result<(), Box<dyn std::
     println!("  Age reset:     {}", result.age_reset);
     println!("  Logged:        {}", result.logged);
 
+    if propagate {
+        println!(
+            "\nRotated: local \u{2713}, vault {}, sync {}",
+            vault_status, sync_status
+        );
+    }
+
     Ok(())
+}
+
+/// Auto-propagate rotation to provider and sync (used with --propagate).
+fn propagate_rotation(
+    key: &str,
+    new_value: &str,
+    plan: &crate::ops::rotate::RotationPlan,
+) {
+    if plan.has_provider {
+        match propagate_to_provider(key, new_value, plan) {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+
+    if plan.is_synced {
+        match propagate_to_sync(key, new_value) {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+}
+
+/// Push a rotated secret to its provider. Returns Ok on success.
+fn propagate_to_provider(
+    key: &str,
+    new_value: &str,
+    plan: &crate::ops::rotate::RotationPlan,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::secrets::providers::create_default_registry;
+    use crate::ops::secrets::modes::push_secrets;
+
+    let provider_name = plan.provider_name.as_deref().unwrap_or("?");
+    let provider_path = plan.provider_path.as_deref().unwrap_or("");
+
+    let registry = create_default_registry();
+    let secrets = vec![(key.to_string(), new_value.to_string())];
+
+    match push_secrets(&registry, provider_name, provider_path, &secrets, None) {
+        Ok(result) => {
+            println!("  \u{2713} Pushed to {} ({} keys)", provider_name, result.keys_pushed);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("  \u{26a0} Provider push failed: {}", e);
+            Err(e.into())
+        }
+    }
+}
+
+/// Push a rotated secret to sync. Returns Ok on success.
+fn propagate_to_sync(
+    key: &str,
+    new_value: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::sync::{sync_dir, is_initialized};
+    use crate::ops::sync::push::push as sync_push;
+
+    let sync_path = sync_dir()?;
+    if !is_initialized(&sync_path) {
+        eprintln!("  \u{26a0} Sync not initialized");
+        return Err("sync not initialized".into());
+    }
+
+    let entries = vec![(key.to_string(), new_value.to_string())];
+    match sync_push(&sync_path, &entries, Some("rotated secret"), false) {
+        Ok(_) => {
+            println!("  \u{2713} Pushed to sync");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("  \u{26a0} Sync push failed: {}", e);
+            Err(e.into())
+        }
+    }
 }
 
 fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -2058,6 +2329,207 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
             snapshot::delete_snapshot(name)?;
             println!("Deleted snapshot '{}'", name);
         }
+    }
+
+    Ok(())
+}
+
+fn cmd_share(action: &ShareAction, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::share::{create_share, receive_share, is_expired};
+
+    match action {
+        ShareAction::Create {
+            recipient,
+            keys,
+            all,
+            filter,
+            output,
+            expire,
+        } => {
+            let (_config, shell_files) = load_context()?;
+            let all_entries = collect_all_entries(&shell_files);
+
+            // Filter entries based on flags
+            let selected: Vec<(String, String)> = if let Some(key_list) = keys {
+                let requested: Vec<&str> = key_list.split(',').map(|s| s.trim()).collect();
+                all_entries
+                    .iter()
+                    .filter(|e| e.location != EntryLocation::Commented)
+                    .filter(|e| requested.contains(&e.key.as_str()))
+                    .map(|e| (e.key.clone(), e.value.clone()))
+                    .collect()
+            } else if *all {
+                all_entries
+                    .iter()
+                    .filter(|e| e.location != EntryLocation::Commented)
+                    .map(|e| (e.key.clone(), e.value.clone()))
+                    .collect()
+            } else if let Some(pattern) = filter {
+                let pattern_lower = pattern.to_lowercase();
+                all_entries
+                    .iter()
+                    .filter(|e| e.location != EntryLocation::Commented)
+                    .filter(|e| e.key.to_lowercase().contains(&pattern_lower))
+                    .map(|e| (e.key.clone(), e.value.clone()))
+                    .collect()
+            } else {
+                return Err("Specify --keys, --all, or --filter to select entries to share".into());
+            };
+
+            if selected.is_empty() {
+                return Err("No entries matched the selection criteria".into());
+            }
+
+            if dry_run {
+                println!("Would create share file with {} key(s):", selected.len());
+                for (k, _) in &selected {
+                    println!("  {}", k);
+                }
+                return Ok(());
+            }
+
+            let encrypted = create_share(&selected, recipient, *expire)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+            std::fs::write(output, &encrypted)?;
+
+            let pubkey_display = if recipient.len() > 20 {
+                format!("{}...", &recipient[..20])
+            } else {
+                recipient.clone()
+            };
+
+            println!("✓ Share file created: {} ({} keys)", output, selected.len());
+            println!("  Recipient: {}", pubkey_display);
+            println!("  Send this file to your team member");
+        }
+
+        ShareAction::Receive { file, import } => {
+            let data = std::fs::read(file)
+                .map_err(|e| format!("Cannot read file '{}': {}", file, e))?;
+
+            let package = receive_share(&data)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+            // Show summary
+            println!("Share received:");
+            println!("  From:    {}", package.metadata.created_by);
+            println!("  Date:    {}", package.metadata.created_at);
+            println!("  Keys:    {}", package.metadata.key_count);
+
+            if is_expired(&package) {
+                println!("  \x1b[33m⚠ This share has expired ({})\x1b[0m",
+                    package.metadata.expires_at.as_deref().unwrap_or("?"));
+            }
+
+            println!();
+
+            if *import {
+                if dry_run {
+                    println!("Would import {} key(s):", package.entries.len());
+                    for key in package.entries.keys() {
+                        println!("  {}", key);
+                    }
+                    return Ok(());
+                }
+
+                let (config, mut shell_files) = load_context()?;
+                if shell_files.is_empty() {
+                    return Err("No shell config files found".into());
+                }
+
+                let sf = &mut shell_files[0];
+                let mut imported = 0;
+
+                for (key, value) in &package.entries {
+                    match edit_entry(sf, key, value) {
+                        Ok(()) => {
+                            println!("  Updated: {}", key);
+                        }
+                        Err(OpsError::KeyNotFound { .. }) => {
+                            add_entry(
+                                sf,
+                                key,
+                                value,
+                                ExportStyle::Export,
+                                QuoteStyle::Double,
+                                config.offsets.header_protected_lines,
+                                config.offsets.footer_protected_lines,
+                            )?;
+                            println!("  Added:   {}", key);
+                        }
+                        Err(e) => {
+                            eprintln!("  Failed:  {} ({})", key, e);
+                            continue;
+                        }
+                    }
+                    imported += 1;
+                }
+
+                let content = serialize_shell_file(sf);
+                safe_write(&sf.path, &content, Some(sf.hash))?;
+                println!("\nImported {} key(s)", imported);
+            } else {
+                // Print keys as KEY=VALUE
+                for (key, value) in &package.entries {
+                    println!("{}={}", key, value);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_audit(
+    key: Option<&str>,
+    since: Option<&str>,
+    machine: Option<&str>,
+    n: usize,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::audit::get_audit_trail;
+    use crate::ops::sync::{sync_dir, is_initialized};
+
+    let sync_path = sync_dir()?;
+    if !is_initialized(&sync_path) {
+        return Err("Sync not initialized. Run `envforge sync init` first.".into());
+    }
+
+    let entries = get_audit_trail(&sync_path, key, since, machine, n)?;
+
+    if entries.is_empty() {
+        println!("No sync history. Push changes first.");
+        return Ok(());
+    }
+
+    if json {
+        let json_entries: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "timestamp": e.timestamp,
+                    "machine": e.machine_id,
+                    "action": e.action,
+                    "key": e.key,
+                    "commit": e.commit_hash,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&json_entries)?);
+    } else {
+        println!(
+            "{:<25} {:<18} {:<10} {:<30} {}",
+            "TIMESTAMP", "MACHINE", "ACTION", "KEY", "COMMIT"
+        );
+        println!("{}", "-".repeat(100));
+        for e in &entries {
+            println!(
+                "{:<25} {:<18} {:<10} {:<30} {}",
+                e.timestamp, e.machine_id, e.action, e.key, e.commit_hash
+            );
+        }
+        println!("\n{} entries shown.", entries.len());
     }
 
     Ok(())

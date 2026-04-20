@@ -1,6 +1,7 @@
 use clap::Subcommand;
 use serde_json::json;
 
+use crate::ops::secrets::cache;
 use crate::ops::secrets::credentials;
 use crate::ops::secrets::modes;
 use crate::ops::secrets::providers::create_default_registry;
@@ -89,6 +90,10 @@ pub enum SecretsAction {
         /// Remove all credentials for this provider
         #[arg(long)]
         remove: bool,
+
+        /// Set TTL for the credential (e.g., "8h", "24h", "7d", "30d"). Used with --set.
+        #[arg(long)]
+        ttl: Option<String>,
     },
 
     /// List available providers and their status
@@ -121,6 +126,24 @@ pub enum SecretsAction {
         /// Filter keys by glob pattern
         #[arg(long)]
         filter: Option<String>,
+    },
+
+    /// Manage secret reference cache
+    Cache {
+        #[command(subcommand)]
+        action: CacheAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CacheAction {
+    /// List all cached secrets
+    List,
+    /// Clear cache
+    Clear {
+        /// Only clear cache for a specific provider
+        #[arg(long)]
+        provider: Option<String>,
     },
 }
 
@@ -156,7 +179,8 @@ pub fn execute_secrets(
             set,
             show,
             remove,
-        } => cmd_secrets_config(provider, set.as_deref(), *show, *remove, json),
+            ttl,
+        } => cmd_secrets_config(provider, set.as_deref(), *show, *remove, ttl.as_deref(), json),
         SecretsAction::Providers => cmd_secrets_providers(json),
         SecretsAction::Status => cmd_secrets_status(json),
         SecretsAction::Age {
@@ -166,6 +190,7 @@ pub fn execute_secrets(
         SecretsAction::Diff { from, path, filter } => {
             cmd_secrets_diff(from, path, filter.as_deref(), json)
         }
+        SecretsAction::Cache { action } => cmd_secrets_cache(action, json),
     }
 }
 
@@ -429,6 +454,7 @@ fn cmd_secrets_config(
     set: Option<&str>,
     show: bool,
     remove: bool,
+    ttl: Option<&str>,
     json_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if remove {
@@ -447,10 +473,44 @@ fn cmd_secrets_config(
         match credentials::read_all_credentials(provider) {
             Ok(creds) => {
                 if json_output {
-                    println!("{}", serde_json::to_string_pretty(&creds)?);
+                    let mut items: Vec<serde_json::Value> = Vec::new();
+                    for (key, value) in &creds {
+                        let ttl_info = credentials::get_ttl_remaining(provider, key)
+                            .ok()
+                            .flatten();
+                        let mut item = json!({
+                            "key": key,
+                            "value_preview": format!("{}***", &value[..value.len().min(4)]),
+                        });
+                        if let Some((expires_at, remaining)) = ttl_info {
+                            item["expires_at"] = json!(expires_at);
+                            item["ttl_remaining_secs"] = json!(remaining);
+                            item["ttl_display"] =
+                                json!(credentials::format_ttl_remaining(remaining));
+                        }
+                        items.push(item);
+                    }
+                    println!("{}", serde_json::to_string_pretty(&json!({
+                        "provider": provider,
+                        "credentials": items,
+                    }))?);
                 } else {
                     for (key, value) in &creds {
-                        println!("  {} = {}***", key, &value[..value.len().min(4)]);
+                        let ttl_info = credentials::get_ttl_remaining(provider, key)
+                            .ok()
+                            .flatten();
+                        let ttl_display = match ttl_info {
+                            Some((_, remaining)) => {
+                                format!(" ({})", credentials::format_ttl_remaining(remaining))
+                            }
+                            None => String::new(),
+                        };
+                        println!(
+                            "  {} = {}***{}",
+                            key,
+                            &value[..value.len().min(4)],
+                            ttl_display
+                        );
                     }
                 }
             }
@@ -471,19 +531,37 @@ fn cmd_secrets_config(
         if parts.len() != 2 {
             return Err("Format: --set key=value".into());
         }
-        credentials::store_credential(provider, parts[0], parts[1])?;
+
+        // Validate TTL format early if provided
+        if let Some(ttl_str) = ttl {
+            credentials::parse_duration(ttl_str)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+        }
+
+        credentials::store_credential_with_ttl(provider, parts[0], parts[1], ttl)?;
+
         if json_output {
-            println!(
-                "{}",
-                json!({"stored": true, "provider": provider, "key": parts[0]})
-            );
+            let mut result = json!({"stored": true, "provider": provider, "key": parts[0]});
+            if let Some(ttl_str) = ttl {
+                result["ttl"] = json!(ttl_str);
+            }
+            println!("{}", result);
         } else {
+            let ttl_msg = match ttl {
+                Some(t) => format!(", expires in {}", t),
+                None => String::new(),
+            };
             println!(
-                "Credential '{}' stored for '{}' (encrypted)",
-                parts[0], provider
+                "Credential '{}' stored for '{}' (encrypted{})",
+                parts[0], provider, ttl_msg
             );
         }
         return Ok(());
+    }
+
+    // TTL without --set is invalid
+    if ttl.is_some() {
+        return Err("--ttl requires --set key=value".into());
     }
 
     // Show help for this provider
@@ -550,14 +628,35 @@ fn cmd_secrets_status(json_output: bool) -> Result<(), Box<dyn std::error::Error
     let configured = credentials::list_configured_providers().unwrap_or_default();
 
     if json_output {
-        println!("{}", json!({"configured_providers": configured}));
+        let mut provider_info: Vec<serde_json::Value> = Vec::new();
+        for p in &configured {
+            let expired = credentials::check_all_expiry(p).unwrap_or_default();
+            let mut info = json!({"name": p, "configured": true});
+            if !expired.is_empty() {
+                info["expired_credentials"] = json!(expired.iter().map(|(k, t)| {
+                    json!({"key": k, "expired_at": t})
+                }).collect::<Vec<_>>());
+            }
+            provider_info.push(info);
+        }
+        println!("{}", serde_json::to_string_pretty(&json!({"providers": provider_info}))?);
     } else if configured.is_empty() {
         println!("No secret managers configured.");
         println!("Run `envforge secrets config <provider> --set token=<value>` to get started.");
     } else {
         println!("Configured providers:");
         for p in &configured {
-            println!("  ✓ {}", p);
+            let expired = credentials::check_all_expiry(p).unwrap_or_default();
+            if expired.is_empty() {
+                println!("  \u{2713} {}", p);
+            } else {
+                let keys: Vec<String> = expired.iter().map(|(k, _)| k.clone()).collect();
+                println!(
+                    "  \u{26a0} {} (expired: {})",
+                    p,
+                    keys.join(", ")
+                );
+            }
         }
     }
 
@@ -815,6 +914,111 @@ fn cmd_secrets_diff(
             only_local.len(),
             only_remote.len()
         );
+    }
+
+    Ok(())
+}
+
+fn cmd_secrets_cache(
+    action: &CacheAction,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        CacheAction::List => cmd_secrets_cache_list(json_output),
+        CacheAction::Clear { provider } => {
+            cmd_secrets_cache_clear(provider.as_deref(), json_output)
+        }
+    }
+}
+
+fn cmd_secrets_cache_list(json_output: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let entries = cache::list_all_cached().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+    if entries.is_empty() {
+        if json_output {
+            println!("{}", json!({"entries": [], "total": 0}));
+        } else {
+            println!("No cached secrets.");
+        }
+        return Ok(());
+    }
+
+    if json_output {
+        let items: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| {
+                json!({
+                    "provider": e.provider,
+                    "key": e.key,
+                    "fetched_at": e.fetched_at,
+                    "ttl_secs": e.ttl_secs,
+                    "expired": e.expired,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "entries": items,
+                "total": entries.len(),
+            }))?
+        );
+    } else {
+        println!(
+            "{:<20} {:<20} {:<25} {:<10}",
+            "PROVIDER", "KEY", "FETCHED", "STATUS"
+        );
+        println!("{}", "-".repeat(75));
+
+        for e in &entries {
+            let status = if e.expired {
+                "\x1b[33mexpired\x1b[0m"
+            } else {
+                "\x1b[32mfresh\x1b[0m"
+            };
+
+            // Format fetched_at for display
+            let fetched = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&e.fetched_at) {
+                dt.format("%Y-%m-%d %H:%M:%S").to_string()
+            } else {
+                e.fetched_at.clone()
+            };
+
+            println!("{:<20} {:<20} {:<25} {}", e.provider, e.key, fetched, status);
+        }
+
+        let expired_count = entries.iter().filter(|e| e.expired).count();
+        let fresh_count = entries.len() - expired_count;
+        println!(
+            "\n{} cached entries ({} fresh, {} expired)",
+            entries.len(),
+            fresh_count,
+            expired_count
+        );
+    }
+
+    Ok(())
+}
+
+fn cmd_secrets_cache_clear(
+    provider: Option<&str>,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(p) = provider {
+        cache::invalidate_provider_cache(p)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        if json_output {
+            println!("{}", json!({"cleared": true, "provider": p}));
+        } else {
+            println!("Cache cleared for provider '{}'", p);
+        }
+    } else {
+        cache::clear_all_cache().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        if json_output {
+            println!("{}", json!({"cleared": true, "provider": "all"}));
+        } else {
+            println!("All secret cache cleared.");
+        }
     }
 
     Ok(())

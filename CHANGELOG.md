@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-20
+
+### Added
+
+#### Pre-Commit Hook Integration
+- `envforge scan --install-hook` — Auto-install git pre-commit hook running `envforge scan --staged`
+- Appends to existing pre-commit hooks (doesn't overwrite)
+- `envforge scan --remove-hook` — Clean removal of EnvForge hook lines
+- Hook blocks commits when secrets detected (non-zero exit)
+
+#### Shell Auto-Load Hook
+- `eval "$(envforge hook zsh)"` — direnv-style auto-load on directory change
+- Supports zsh (chpwd), bash (PROMPT_COMMAND), and fish (--on-variable PWD)
+- Auto-detects `.envforge.toml` or `.env.schema` in directory
+- Auto-unloads when leaving directory (restores previous env)
+- `envforge env [--dir PATH]` — Output shell export statements for eval
+- `.envforge.toml` project config with `profile` field
+
+#### Volatile Mode (AI Agent Safety)
+- `envforge run --volatile` — Secrets resolved in memory only, no disk I/O for secret values
+- Forces `--resolve` mode automatically
+- Ignores `--env-file` flags (no .env disk reads in volatile mode)
+- `--dry-run` masks sensitive values as `****`
+- Protects against AI agent file scanning (Claude Code, Cursor, Copilot)
+
+#### Secure Secret Sharing
+- `envforge share create --recipient <AGE_PUBKEY> [--keys|--all|--filter]` — Create encrypted share file
+- `envforge share receive FILE [--import]` — Decrypt and import shared secrets
+- Encrypted with recipient's age public key (not sender's)
+- `--expire HOURS` — Soft expiry metadata (warns on receive after expiry)
+- Self-contained `.age` file format with sender metadata
+
+#### JSON Schema for `.env.schema`
+- `envforge schema json-schema` — Output JSON Schema (Draft 2020-12) for `.env.schema` format
+- Covers all fields: type, required, default, description, example, sensitive, pattern, values, min, max
+- Environment override sub-objects supported
+- Enables VSCode/JetBrains autocomplete and validation
+
+#### Rotate with Propagation
+- `envforge rotate KEY --propagate` — Auto-push to provider AND sync after local rotation
+- No interactive prompts in propagate mode
+- Graceful failure: provider/sync errors don't roll back local change
+- Summary: `Rotated: local ✓, vault ✓, sync ✓`
+- Works with `--stale --propagate` for bulk rotation
+
+#### Git Author Audit Trail
+- `envforge audit` — Per-variable change history with author attribution from sync git history
+- `--key NAME` — Filter by variable name
+- `--since DATE` — Filter changes after date
+- `--machine ID` — Filter by machine
+- `--json` — Machine-readable output
+- Shows action type: added, modified, removed
+
+#### Token TTL (Credential Expiry)
+- `envforge secrets config PROVIDER --set key=value --ttl 8h` — Set credential expiry
+- Duration formats: `8h`, `24h`, `7d`, `30d`
+- Expired credentials rejected with clear message and renewal hint
+- `envforge secrets status` shows TTL remaining per provider
+- `envforge doctor` warns about credentials expiring within 24h
+- TTL metadata stored in `_meta` sections of `credentials.toml`
+
+#### Offline Fallback & Cache Management
+- `envforge run --resolve` now falls back to stale cached values when provider unreachable
+- Warning on stderr: "Using cached value for KEY (provider unreachable)"
+- `envforge secrets cache list` — Show all cached secrets with provider, age, fresh/expired status
+- `envforge secrets cache clear [--provider NAME]` — Clear cache (all or per-provider)
+
+#### Multi-Profile Merge
+- `envforge run --profiles dev,staging,custom` — Load and merge multiple profiles
+- Left-to-right precedence (last profile wins on conflicts)
+- Each profile overlaid on shared vars
+- Compatible with `--env-file` and `--override` (highest precedence)
+- Error if both `--profile` and `--profiles` used
+
+### Quality
+- 485 total tests (was 444), all passing
+- 41 new tests across 10 features
+- New modules: `hook.rs`, `share.rs`, `schema_json.rs`, `audit.rs`
+- No new crate dependencies
+- Clippy: 0 errors, 11 style warnings
+
 ## [0.4.3] - 2026-04-20
 
 ### Added

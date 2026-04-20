@@ -202,24 +202,128 @@ pub fn invalidate_provider_cache(provider: &str) -> Result<(), SecretsError> {
     Ok(())
 }
 
+/// Information about a single cached entry (for listing).
+#[derive(Debug, Clone, Serialize)]
+pub struct CachedEntryInfo {
+    pub provider: String,
+    pub key: String,
+    pub fetched_at: String,
+    pub ttl_secs: u64,
+    pub expired: bool,
+}
+
+/// List all cached entries across all providers.
+pub fn list_all_cached() -> Result<Vec<CachedEntryInfo>, SecretsError> {
+    let dir = cache_dir()?;
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = Vec::new();
+    let providers =
+        std::fs::read_dir(&dir).map_err(|e| SecretsError::IoError { path: dir, source: e })?;
+
+    for provider_entry in providers {
+        let provider_entry = provider_entry.map_err(|e| SecretsError::CacheError(e.to_string()))?;
+        let provider_path = provider_entry.path();
+        if !provider_path.is_dir() {
+            continue;
+        }
+        let provider_name = provider_entry.file_name().to_string_lossy().to_string();
+
+        let files = std::fs::read_dir(&provider_path)
+            .map_err(|e| SecretsError::IoError {
+                path: provider_path.clone(),
+                source: e,
+            })?;
+
+        for file_entry in files {
+            let file_entry = file_entry.map_err(|e| SecretsError::CacheError(e.to_string()))?;
+            let file_path = file_entry.path();
+            let file_name = file_entry.file_name().to_string_lossy().to_string();
+            if !file_name.ends_with(".cache") {
+                continue;
+            }
+
+            let key = file_name.trim_end_matches(".cache").to_string();
+
+            let content = match std::fs::read_to_string(&file_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let cache_entry: CacheEntry = match toml::from_str(&content) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            let expired =
+                if let Ok(fetched) = chrono::DateTime::parse_from_rfc3339(&cache_entry.fetched_at)
+                {
+                    let now = chrono::Utc::now();
+                    let elapsed = now.signed_duration_since(fetched).num_seconds() as u64;
+                    elapsed > cache_entry.ttl_secs
+                } else {
+                    true
+                };
+
+            entries.push(CachedEntryInfo {
+                provider: provider_name.clone(),
+                key,
+                fetched_at: cache_entry.fetched_at,
+                ttl_secs: cache_entry.ttl_secs,
+                expired,
+            });
+        }
+    }
+
+    entries.sort_by(|a, b| a.provider.cmp(&b.provider).then(a.key.cmp(&b.key)));
+    Ok(entries)
+}
+
+/// Clear all cached entries.
+pub fn clear_all_cache() -> Result<(), SecretsError> {
+    let dir = cache_dir()?;
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| SecretsError::IoError {
+            path: dir,
+            source: e,
+        })?;
+    }
+    Ok(())
+}
+
 /// Resolve a secret reference: try cache first, then fetch from provider.
+/// Falls back to stale cache if the provider is unreachable.
 pub fn resolve_reference(
     secret_ref: &SecretRef,
     provider: &dyn super::provider::SecretProvider,
     credentials: &HashMap<String, String>,
 ) -> Result<String, SecretsError> {
-    // Try cache first
+    // Try fresh cache first
     if let Some(cached) = read_cache(&secret_ref.provider, &secret_ref.key)? {
         return Ok(cached);
     }
 
-    // Fetch from provider
-    let value = provider.get(credentials, &secret_ref.path, &secret_ref.key)?;
-
-    // Cache the result
-    write_cache(&secret_ref.provider, &secret_ref.key, &value, None)?;
-
-    Ok(value)
+    // Try provider
+    match provider.get(credentials, &secret_ref.path, &secret_ref.key) {
+        Ok(value) => {
+            write_cache(&secret_ref.provider, &secret_ref.key, &value, None)?;
+            Ok(value)
+        }
+        Err(e) => {
+            // Fallback to stale cache
+            if let Some(stale) = read_cache_stale(&secret_ref.provider, &secret_ref.key)? {
+                eprintln!(
+                    "warning: using cached value for {} (provider unreachable: {})",
+                    secret_ref.key, e
+                );
+                Ok(stale)
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

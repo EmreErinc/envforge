@@ -92,9 +92,21 @@ pub trait SecretProvider: Send + Sync {
         }
     }
 
-    /// Authenticate with the provider. Validates credentials and checks connectivity.
+    /// Authenticate with the provider. Validates credentials, checks for expired tokens,
+    /// and verifies binary availability.
     fn authenticate(&self, credentials: &HashMap<String, String>) -> Result<(), SecretsError> {
         self.validate_config(credentials)?;
+
+        // Check for expired credentials
+        for field in self.credential_fields() {
+            if let Ok(Some(expired_at)) = super::credentials::check_expiry(self.name(), field) {
+                return Err(SecretsError::CredentialError(format!(
+                    "Token '{}' expired at {}. Run: envforge secrets config {} --set {}=<value>",
+                    field, expired_at, self.name(), field
+                )));
+            }
+        }
+
         self.check_binary()?;
         Ok(())
     }

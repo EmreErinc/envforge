@@ -14,6 +14,7 @@ use crate::parser::parse_shell_file;
 #[derive(Debug, Clone)]
 pub struct RunConfig {
     pub profile: Option<String>,
+    pub profiles: Vec<String>,
     pub resolve: bool,
     pub env_files: Vec<PathBuf>,
     pub overrides: Vec<(String, String)>,
@@ -67,20 +68,35 @@ pub fn collect_env(run_config: &RunConfig) -> Result<HashMap<String, String>, Ru
         merge_shell_file(&mut env, &shared_path);
     }
 
-    // Layer 3: Profile file
-    let profile_name = run_config
-        .profile
-        .as_deref()
-        .unwrap_or(&config.profiles.active);
+    // Layer 3: Profile file(s)
+    if !run_config.profiles.is_empty() {
+        // Multi-profile mode: iterate each profile, last wins
+        for profile_name in &run_config.profiles {
+            let profile = config.profiles.entries.get(profile_name).ok_or_else(|| {
+                let available = config.profiles.profile_names().join(", ");
+                RunError::ProfileNotFound(profile_name.to_string(), available)
+            })?;
+            let profile_path = shellexpand(&profile.file);
+            if profile_path.exists() {
+                merge_shell_file(&mut env, &profile_path);
+            }
+        }
+    } else {
+        // Single-profile mode (default)
+        let profile_name = run_config
+            .profile
+            .as_deref()
+            .unwrap_or(&config.profiles.active);
 
-    if !profile_name.is_empty() {
-        let profile = config.profiles.entries.get(profile_name).ok_or_else(|| {
-            let available = config.profiles.profile_names().join(", ");
-            RunError::ProfileNotFound(profile_name.to_string(), available)
-        })?;
-        let profile_path = shellexpand(&profile.file);
-        if profile_path.exists() {
-            merge_shell_file(&mut env, &profile_path);
+        if !profile_name.is_empty() {
+            let profile = config.profiles.entries.get(profile_name).ok_or_else(|| {
+                let available = config.profiles.profile_names().join(", ");
+                RunError::ProfileNotFound(profile_name.to_string(), available)
+            })?;
+            let profile_path = shellexpand(&profile.file);
+            if profile_path.exists() {
+                merge_shell_file(&mut env, &profile_path);
+            }
         }
     }
 

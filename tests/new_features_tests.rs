@@ -632,6 +632,7 @@ fn test_run_collect_env_includes_shell_vars() {
 
     let config = RunConfig {
         profile: None,
+        profiles: vec![],
         resolve: false,
         env_files: vec![],
         overrides: vec![],
@@ -654,6 +655,7 @@ fn test_run_overrides_take_priority() {
 
     let config = RunConfig {
         profile: None,
+        profiles: vec![],
         resolve: false,
         env_files: vec![],
         overrides: vec![("ENVFORGE_OVERRIDE_TEST".into(), "overridden".into())],
@@ -674,6 +676,7 @@ fn test_run_invalid_profile_error() {
 
     let config = RunConfig {
         profile: Some("nonexistent_profile_xyz".into()),
+        profiles: vec![],
         resolve: false,
         env_files: vec![],
         overrides: vec![],
@@ -691,6 +694,7 @@ fn test_run_missing_env_file_error() {
 
     let config = RunConfig {
         profile: None,
+        profiles: vec![],
         resolve: false,
         env_files: vec![std::path::PathBuf::from("/tmp/nonexistent_file_xyz.env")],
         overrides: vec![],

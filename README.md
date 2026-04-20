@@ -15,22 +15,26 @@ EnvForge safely manages environment variables in your shell configuration files 
 | **Check** | `envforge check` — unified health check (doctor + validate + scan + age + drift) |
 | **Snapshots** | Backup/restore active profile state, diff, auto-prune, pre-destructive safety net |
 | **Explain** | `envforge explain KEY` — X-ray view across all subsystems |
-| **Rotation** | `envforge rotate KEY` — guided secret rotation with provider push |
+| **Rotation** | `envforge rotate KEY` — guided rotation with `--propagate` for multi-target push |
+| **Shell Hook** | direnv-style auto-load: `eval "$(envforge hook zsh)"` — auto-detect `.envforge.toml` |
+| **Volatile Mode** | `envforge run --volatile` — AI-agent-safe, secrets in memory only, no disk I/O |
+| **Secure Share** | `envforge share` — age-encrypted secret sharing for team onboarding |
+| **Audit Trail** | `envforge audit` — who changed what, when, from which machine (sync git history) |
 | **CI/CD** | GitHub Action with 5 modes: validate, secrets-pull, export, run, drift |
 | **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
 | **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
 | **Export** | 7 formats: dotenv, JSON, YAML, TOML, Docker, K8s Secret, Terraform tfvars |
-| **CLI** | 50+ subcommands, `--json` output, `--dry-run` preview, shell completions |
-| **Run** | `envforge run` — subprocess ENV injection with profile, resolve, .env file support |
-| **Schema** | `.env.schema` — type validation, onboarding wizard, docs generation, drift detection |
-| **Profiles** | Dev/staging/prod environments, shared + profile-specific files, profile diff |
-| **Encryption** | Age (X25519) encryption at rest, per-value encrypt/decrypt |
+| **CLI** | 70+ subcommands, `--json` output, `--dry-run` preview, shell completions |
+| **Run** | `envforge run` — subprocess injection with volatile, multi-profile, resolve |
+| **Schema** | `.env.schema` — type validation, JSON Schema, onboarding wizard, drift detection |
+| **Profiles** | Dev/staging/prod, shared files, profile diff, `--profiles` multi-merge |
+| **Encryption** | Age (X25519) encryption at rest, per-value encrypt/decrypt, encrypted sync |
 | **Remote Sync** | Git-based cross-machine sync, age-encrypted snapshots, selective keys, rollback |
-| **Secret Managers** | 7 providers (Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure) |
-| **AI Safety** | Safe export with redaction, `.envforgeignore`, AI-aware doctor checks |
+| **Secret Managers** | 7 providers, TTL credentials, offline fallback, cache management |
+| **AI Safety** | Volatile mode, safe export, `.envforgeignore`, pre-commit hooks |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
-| **Health Check** | `envforge doctor` with 10 checks and actionable fix suggestions |
-| **Security** | Secret scanning, value masking, encrypted credential storage |
+| **Health Check** | `envforge doctor` + `envforge check` — 15+ checks with fix suggestions |
+| **Security** | Secret scanning, pre-commit hooks, value masking, credential TTL |
 
 ## Installation
 
@@ -305,6 +309,8 @@ envforge run [flags] -- <cmd> [args]     # Run command with injected ENV
   --resolve                              # Resolve secrets and decrypt
   --env-file PATH                        # Load .env file (repeatable)
   --override KEY=VALUE                   # Override a value (repeatable)
+  --volatile                             # AI-safe: secrets in memory only
+  --profiles dev,staging                 # Merge multiple profiles (last wins)
 
 # Schema & validation
 envforge validate                        # Validate against config rules
@@ -332,10 +338,29 @@ envforge snapshot delete NAME            # Remove a snapshot
 envforge rotate KEY                      # Interactive secret rotation
   --dry-run                              # Preview without changes
   --stale                                # Rotate all stale secrets (>90 days)
+  --propagate                            # Auto-push to provider + sync
+
+# Shell hook
+envforge hook zsh|bash|fish              # Generate auto-load hook (for eval)
+envforge env [--dir PATH]                # Output export statements
+
+# Secure sharing
+envforge share create --recipient KEY    # Create encrypted share file
+  --keys K1,K2 | --all | --filter PAT   # Select keys
+  --expire HOURS                         # Optional expiry
+envforge share receive FILE [--import]   # Decrypt and import
+
+# Audit
+envforge audit [--key K] [--since DATE]  # Change audit trail from sync
+  --machine ID                           # Filter by machine
+envforge secrets cache list              # Show cached secrets
+envforge secrets cache clear             # Clear cache
 
 # Analysis
 envforge duplicates                      # Find duplicate keys
 envforge scan [path] [--staged]          # Scan for leaked secrets
+  --install-hook                         # Install git pre-commit hook
+  --remove-hook                          # Remove pre-commit hook
 envforge diff                            # Show pending changes
 envforge doctor [--verbose]              # Health check with fix suggestions
 
@@ -473,6 +498,14 @@ envforge secrets age [--threshold N]             # Show secret ages, flag stale
 envforge secrets age --stale-only                # Only stale secrets
 envforge secrets diff --from vault --path PATH   # Compare local vs provider
 envforge secrets diff --from aws-ssm --filter P  # Diff with filter
+
+# Credential TTL
+envforge secrets config vault --set token=x --ttl 8h  # Expire in 8 hours
+envforge secrets config aws --set key=x --ttl 30d     # Expire in 30 days
+
+# Schema tools
+envforge schema generate [--output PATH] # Generate from current ENV
+envforge schema json-schema              # Output JSON Schema for editors
 ```
 
 **Three modes:**
@@ -665,6 +698,149 @@ Flow:
 6. Offers to push to provider and sync
 
 Handles encrypted values transparently (re-encrypts new value if original was encrypted).
+
+### Pre-Commit Hook
+
+Auto-install a git pre-commit hook to catch leaked secrets before they reach your repo:
+
+```bash
+# Install hook
+envforge scan --install-hook
+
+# Remove hook
+envforge scan --remove-hook
+```
+
+The hook runs `envforge scan --staged` before each commit. If secrets are found, the commit is blocked. Appends to existing pre-commit hooks (doesn't overwrite).
+
+### Shell Auto-Load (direnv-style)
+
+Auto-load environment variables when entering a project directory:
+
+```bash
+# Add to ~/.zshrc
+eval "$(envforge hook zsh)"
+
+# Add to ~/.bashrc
+eval "$(envforge hook bash)"
+
+# Add to ~/.config/fish/config.fish
+envforge hook fish | source
+```
+
+Create `.envforge.toml` in your project root:
+```toml
+profile = "dev"
+```
+
+When you `cd` into a directory with `.envforge.toml` or `.env.schema`, your profile auto-loads. When you leave, it auto-unloads and restores previous values.
+
+### Volatile Mode (AI Agent Safety)
+
+Protect secrets from AI coding agents that scan files on disk:
+
+```bash
+# Secrets resolved in memory only — never written to .env on disk
+envforge run --volatile -- npm start
+
+# Combine with profile
+envforge run --volatile --profile prod -- npm start
+
+# Preview (sensitive values masked as ****)
+envforge run --volatile --dry-run -- npm start
+```
+
+In volatile mode:
+- `--resolve` is forced on (refs and encryption resolved in memory)
+- `--env-file` flags are ignored (no disk .env reads)
+- Dry-run masks sensitive values as `****`
+
+### Secure Secret Sharing
+
+Share secrets with team members using age public-key encryption:
+
+```bash
+# Sender: create encrypted share file
+envforge share create --recipient age1abc... --all --output secrets.age
+
+# Share specific keys with expiry
+envforge share create --recipient age1abc... --keys DB_URL,API_KEY --expire 24
+
+# Recipient: decrypt and view
+envforge share receive secrets.age
+
+# Recipient: decrypt and import into EnvForge
+envforge share receive secrets.age --import
+```
+
+Share files are encrypted with the recipient's age public key — only they can decrypt. Self-contained `.age` files with sender metadata and optional expiry.
+
+### Git Author Audit Trail
+
+Track who changed what variable on which machine:
+
+```bash
+envforge audit                          # Full audit trail
+envforge audit --key DB_URL             # Filter by key
+envforge audit --since 2026-04-01       # Changes since date
+envforge audit --machine macbook-a1b2   # Filter by machine
+envforge audit --json                   # Machine-readable
+```
+
+Output:
+```
+TIMESTAMP                 MACHINE      ACTION   KEY          COMMIT
+2026-04-20T17:00:00Z      macbook-a1   modified DB_HOST      abc1234
+2026-04-19T10:30:00Z      workstation  added    API_KEY      def5678
+```
+
+Reads from sync git history — no separate audit store needed.
+
+### Token TTL (Credential Expiry)
+
+Set expiry on provider credentials for security hygiene:
+
+```bash
+# Store with 8-hour TTL
+envforge secrets config vault --set token=hvs.xxx --ttl 8h
+
+# Supported durations: 8h, 24h, 7d, 30d
+envforge secrets config aws-ssm --set access_key=AKIA... --ttl 30d
+
+# Check TTL status
+envforge secrets status
+```
+
+Expired credentials are rejected with a clear message. `envforge doctor` warns about credentials expiring within 24 hours.
+
+### Offline Fallback & Cache
+
+Secrets work even when providers are unreachable:
+
+```bash
+# Automatic: falls back to cached values when provider down
+envforge run --resolve -- npm start
+# stderr: ⚠ Using cached value for DB_URL (provider unreachable)
+
+# Manage cache
+envforge secrets cache list              # Show all cached secrets
+envforge secrets cache clear             # Clear all
+envforge secrets cache clear --provider vault  # Clear specific provider
+```
+
+### Multi-Profile Merge
+
+Load and merge multiple profiles in a single process:
+
+```bash
+# Merge dev + custom profiles (custom wins on conflicts)
+envforge run --profiles dev,custom -- npm start
+
+# Merge three profiles with overrides
+envforge run --profiles base,staging,hotfix --override DEBUG=true -- npm test
+```
+
+Precedence: shared → profiles (left-to-right, last wins) → env-files → overrides.
 
 ### Multi-Format Export
 

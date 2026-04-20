@@ -4,7 +4,7 @@ use crate::ops::duplicates::detect_duplicates;
 use crate::ops::encrypt::{age_key_path, is_encrypted};
 use crate::ops::listing::EnvEntry;
 use crate::ops::secrets::cache::is_reference;
-use crate::ops::secrets::credentials::list_configured_providers;
+use crate::ops::secrets::credentials::{self, list_configured_providers};
 use crate::ops::secrets::providers::create_default_registry;
 use crate::ops::sync::{is_initialized as sync_is_initialized, sync_dir};
 use crate::ops::validation::validate_entries;
@@ -449,7 +449,35 @@ fn check_provider_credentials() -> HealthCheck {
                 }
             }
 
-            if problem_providers.is_empty() {
+            // Check for credentials expiring within 24 hours
+            let mut expiring_soon = Vec::new();
+            let mut already_expired = Vec::new();
+            for name in &ok_providers {
+                if let Ok(creds) = credentials::read_all_credentials(name) {
+                    for key in creds.keys() {
+                        if let Ok(Some((expires_at, remaining))) =
+                            credentials::get_ttl_remaining(name, key)
+                        {
+                            if remaining < 0 {
+                                already_expired
+                                    .push(format!("{}/{} expired at {}", name, key, expires_at));
+                            } else if remaining < 86400 {
+                                expiring_soon.push(format!(
+                                    "{}/{} expires in {}",
+                                    name,
+                                    key,
+                                    credentials::format_ttl_remaining(remaining)
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if problem_providers.is_empty()
+                && already_expired.is_empty()
+                && expiring_soon.is_empty()
+            {
                 HealthCheck {
                     name: "Credentials".into(),
                     status: CheckStatus::Ok,
@@ -457,24 +485,47 @@ fn check_provider_credentials() -> HealthCheck {
                     details: ok_providers,
                     hint: None,
                 }
-            } else {
-                let hint_cmds: Vec<String> = problem_names
+            } else if !already_expired.is_empty() || !problem_providers.is_empty() {
+                let mut details = problem_providers;
+                details.extend(already_expired);
+                details.extend(expiring_soon);
+
+                let mut hint_parts: Vec<String> = problem_names
                     .iter()
                     .map(|n| format!("envforge secrets config {}", n))
                     .collect();
+                if hint_parts.is_empty() {
+                    hint_parts.push(
+                        "Renew expired credentials with: envforge secrets config <provider> --set <key>=<value>"
+                            .into(),
+                    );
+                }
                 HealthCheck {
                     name: "Credentials".into(),
                     status: CheckStatus::Warning,
                     message: format!(
                         "{} OK, {} with issues",
                         ok_providers.len(),
-                        problem_providers.len()
+                        details.len()
                     ),
-                    details: problem_providers,
-                    hint: Some(format!(
-                        "Run: {} to see required fields",
-                        hint_cmds.join(", ")
-                    )),
+                    details,
+                    hint: Some(hint_parts.join(", ")),
+                }
+            } else {
+                // Only expiring soon warnings
+                HealthCheck {
+                    name: "Credentials".into(),
+                    status: CheckStatus::Warning,
+                    message: format!(
+                        "{} provider(s) configured, {} credential(s) expiring soon",
+                        ok_providers.len(),
+                        expiring_soon.len()
+                    ),
+                    details: expiring_soon,
+                    hint: Some(
+                        "Renew expiring credentials with: envforge secrets config <provider> --set <key>=<value> --ttl <duration>"
+                            .into(),
+                    ),
                 }
             }
         }
