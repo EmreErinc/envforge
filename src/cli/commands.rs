@@ -125,9 +125,11 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Sanitize { file, output } => cmd_sanitize(file, output.as_deref()),
         Commands::AiHook { action } => cmd_ai_hook(action),
         Commands::AiGuard { stage, tool_name, tool_input } => cmd_ai_guard(stage, tool_name, tool_input.as_deref()),
-        Commands::Proxy { port, keys, profile, allow_origins, require_lease } => cmd_proxy(*port, keys.as_deref(), profile.as_deref(), allow_origins.as_deref(), *require_lease),
+        Commands::Proxy { port, keys, profile, allow_origins, require_lease, require_approval } => cmd_proxy(*port, keys.as_deref(), profile.as_deref(), allow_origins.as_deref(), *require_lease, *require_approval),
         Commands::Lease { action } => cmd_lease(action),
+        Commands::Canary { action } => cmd_canary(action),
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref()),
+        Commands::Deps { key, source } => cmd_deps(key, *source),
     };
 
     if let Err(e) = result {
@@ -3045,6 +3047,7 @@ fn cmd_proxy(
     profile: Option<&str>,
     allow_origins: Option<&str>,
     require_lease: bool,
+    require_approval: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::proxy::start_proxy;
     use crate::ops::run::{collect_env, RunConfig};
@@ -3077,8 +3080,79 @@ fn cmd_proxy(
     if require_lease {
         eprintln!("Lease enforcement: ON (requests require an active lease)");
     }
+    if require_approval {
+        eprintln!("Human approval: ON (each secret access requires approval)");
+    }
 
-    start_proxy(port, &env, allowed_keys.as_deref(), allowed_origins.as_deref(), require_lease)?;
+    start_proxy(port, &env, allowed_keys.as_deref(), allowed_origins.as_deref(), require_lease, require_approval)?;
+
+    Ok(())
+}
+
+// ─── Canary Commands ──────────────────────────────────────────
+
+fn cmd_canary(action: &super::CanaryAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::canary;
+
+    match action {
+        super::CanaryAction::Create { key, pattern } => {
+            let canary = canary::create_canary(key, pattern)?;
+            println!("Canary created: {}", canary.key);
+            println!("  Fake value: {}", canary.fake_value);
+            println!("  Pattern: {}", canary.pattern);
+            println!();
+            println!("Add to your .env: {}={}", canary.key, canary.fake_value);
+            println!("If this value appears in logs, git, or API calls \u{2014} an agent leaked it.");
+        }
+        super::CanaryAction::List => {
+            let canaries = canary::list_canaries()?;
+            if canaries.is_empty() {
+                println!("No canary secrets configured.");
+                println!("Create one with: envforge canary create KEY --pattern generic");
+                return Ok(());
+            }
+            println!("{:<25} {:<15} {:<10} {:<8}", "KEY", "PATTERN", "TRIGGERED", "COUNT");
+            println!("{}", "-".repeat(60));
+            for c in &canaries {
+                println!(
+                    "{:<25} {:<15} {:<10} {:<8}",
+                    c.key,
+                    c.pattern,
+                    if c.triggered { "YES" } else { "no" },
+                    c.trigger_count,
+                );
+            }
+            println!("\nTotal: {} canary secret(s)", canaries.len());
+        }
+        super::CanaryAction::Check => {
+            let triggered = canary::check_canaries()?;
+            if triggered.is_empty() {
+                println!("No canaries have been triggered. All clear.");
+                return Ok(());
+            }
+            println!("\u{1f6a8} {} canary secret(s) TRIGGERED:\n", triggered.len());
+            for c in &triggered {
+                println!("  {} (pattern: {}, triggered {} time(s))", c.key, c.pattern, c.trigger_count);
+            }
+
+            // Show recent alerts
+            let alerts = canary::read_alerts()?;
+            if !alerts.is_empty() {
+                println!("\nRecent alerts:");
+                let start = if alerts.len() > 10 { alerts.len() - 10 } else { 0 };
+                for alert in &alerts[start..] {
+                    println!("  [{}] {} via {} - {}", alert.timestamp, alert.key, alert.source, alert.details);
+                }
+            }
+        }
+        super::CanaryAction::Delete { key } => {
+            if canary::delete_canary(key)? {
+                println!("Canary deleted: {}", key);
+            } else {
+                println!("Canary not found: {}", key);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -3257,3 +3331,72 @@ fn shellexpand(path: &str) -> std::path::PathBuf {
     }
     std::path::PathBuf::from(path)
 }
+
+// ─── Deps command ─────────────────────────────────────────
+
+fn cmd_deps(key: &str, include_source: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::deps::{find_dependencies, group_by_type};
+    use std::collections::HashSet;
+
+    let config = load_or_create_default()?;
+    let project_dir = std::env::current_dir()?;
+
+    // Collect EnvForge managed files
+    let mut managed_files = Vec::new();
+    managed_files.push(shellexpand(&config.files.primary));
+    if config.files.use_reference_file {
+        managed_files.push(shellexpand(&config.files.reference));
+    }
+    managed_files.push(shellexpand(&config.profiles.shared_file));
+    for (_name, entry) in &config.profiles.entries {
+        managed_files.push(shellexpand(&entry.file));
+    }
+
+    let refs = find_dependencies(key, &project_dir, include_source, &managed_files)?;
+
+    if refs.is_empty() {
+        println!("No references found for {}", key);
+        return Ok(());
+    }
+
+    println!("Dependencies for {}\n", key);
+
+    let grouped = group_by_type(&refs);
+    let mut total_files = HashSet::new();
+
+    for (ref_type, items) in &grouped {
+        println!("{}:", ref_type);
+        for dep in items {
+            // Show relative path if possible
+            let display_path = dep
+                .file
+                .strip_prefix(&project_dir)
+                .unwrap_or(&dep.file);
+            println!(
+                "  {}:{}  {}",
+                display_path.display(),
+                dep.line,
+                truncate_context(&dep.context, 60)
+            );
+            total_files.insert(dep.file.clone());
+        }
+        println!();
+    }
+
+    println!(
+        "Total: {} references across {} files",
+        refs.len(),
+        total_files.len()
+    );
+
+    Ok(())
+}
+
+fn truncate_context(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max])
+    }
+}
+

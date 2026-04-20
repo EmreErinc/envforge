@@ -439,12 +439,21 @@ pub enum Commands {
         /// Require active lease for access
         #[arg(long)]
         require_lease: bool,
+        /// Require human approval for each secret access
+        #[arg(long)]
+        require_approval: bool,
     },
 
     /// Manage secret access leases (time-bounded, revocable)
     Lease {
         #[command(subcommand)]
         action: LeaseAction,
+    },
+
+    /// Manage canary secrets (honeypot credentials for exfiltration detection)
+    Canary {
+        #[command(subcommand)]
+        action: CanaryAction,
     },
 
     /// Emergency revoke all secret access
@@ -454,6 +463,15 @@ pub enum Commands {
         all: bool,
         /// Specific lease name to revoke
         name: Option<String>,
+    },
+
+    /// Show where an environment variable is referenced across your project
+    Deps {
+        /// Variable name
+        key: String,
+        /// Include source code scanning (slower)
+        #[arg(long)]
+        source: bool,
     },
 }
 
@@ -646,4 +664,24 @@ pub enum LeaseAction {
     List,
     /// Clean up expired leases
     Cleanup,
+}
+
+#[derive(Subcommand)]
+pub enum CanaryAction {
+    /// Create a canary secret
+    Create {
+        /// Key name (e.g., AWS_SECRET_KEY)
+        key: String,
+        /// Pattern: aws_key, github_token, stripe_key, slack_token, gitlab_token, generic
+        #[arg(long, default_value = "generic")]
+        pattern: String,
+    },
+    /// List all canary secrets
+    List,
+    /// Check for triggered canaries
+    Check,
+    /// Delete a canary
+    Delete {
+        key: String,
+    },
 }

@@ -1,6 +1,8 @@
 pub mod ai_guard;
 pub mod ai_hooks;
 pub mod audit;
+pub mod canary;
+pub mod deps;
 pub mod changelog;
 pub mod check;
 mod clipboard;

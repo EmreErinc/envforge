@@ -33,8 +33,12 @@ EnvForge provides the most comprehensive AI-agent secret protection of any CLI t
 | **Remediation** | MCP Scan | `envforge scan --mcp` | Find creds in AI tool configs |
 | **Remediation** | MCP Harden | `envforge mcp harden` | Auto-replace with `${VAR}` references |
 | **Remediation** | Prompt Sanitizer | `envforge sanitize FILE` | Strip secrets from any file |
+| **Detection** | Canary Secrets | `envforge canary create KEY` | Honeypot credentials — alert on exfiltration |
 | **Detection** | AI Leak Audit | `envforge audit --ai-leaks` | Scan git for AI-assisted leaks |
 | **Detection** | Access Audit | `envforge audit --access` | JSONL log of proxy access |
+| **Governance** | Approval Flow | `envforge proxy --require-approval` | Human approves each secret access |
+| **Governance** | Dependency Map | `envforge deps KEY --source` | What breaks if this secret rotates? |
+| **Governance** | External Scanner | `ENVFORGE_EXTERNAL_SCANNER=ggshield` | Delegate to 500+ detector engine |
 
 ### Quick Setup: Protect a Project in 30 Seconds
 
@@ -77,7 +81,7 @@ envforge revoke --all
 
 | Category | Highlights |
 |----------|-----------|
-| **AI Safety** | 18 tools: guard, leases, killswitch, proxy+audit, fence, MCP harden, volatile, redact, hooks |
+| **AI Safety** | 22 tools: canary, approval flow, guard, leases, killswitch, proxy, fence, MCP harden, deps |
 | **Check** | `envforge check` — unified health check (doctor + validate + scan + age + drift) |
 | **Snapshots** | Backup/restore active profile state, diff, auto-prune |
 | **Explain** | `envforge explain KEY` — X-ray view across all subsystems |

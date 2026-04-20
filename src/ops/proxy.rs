@@ -351,6 +351,21 @@ fn build_audit_entry(
     }
 }
 
+/// Prompt the human operator on stderr/stdin for approval.
+/// Returns true if approved, false otherwise.
+fn prompt_approval(description: &str, client_addr: &str) -> bool {
+    use std::io::BufRead;
+    eprint!("\u{1f512} Secret access request: {} from {}\n   Approve? [y/N]: ", description, client_addr);
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    if stdin.lock().read_line(&mut line).is_ok() {
+        let trimmed = line.trim().to_lowercase();
+        trimmed == "y" || trimmed == "yes"
+    } else {
+        false
+    }
+}
+
 /// Start a local credential proxy server.
 ///
 /// This blocks until the process is interrupted (Ctrl+C).
@@ -360,6 +375,7 @@ pub fn start_proxy(
     allowed_keys: Option<&[String]>,
     allowed_origins: Option<&[String]>,
     require_lease: bool,
+    require_approval: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
     eprintln!(
@@ -457,6 +473,64 @@ pub fn start_proxy(
                     };
                     log_audit(&entry);
                     continue;
+                }
+
+                // Approval check
+                if require_approval && (path == "/env" || path.starts_with("/env/")) {
+                    let description = if path == "/env" {
+                        let count = if let Some(keys) = allowed_keys {
+                            env.iter()
+                                .filter(|(k, _)| keys.iter().any(|ak| ak == *k))
+                                .count()
+                        } else {
+                            env.len()
+                        };
+                        format!("ALL ({} keys)", count)
+                    } else {
+                        path[5..].to_string()
+                    };
+
+                    if !prompt_approval(&description, &client_addr) {
+                        let body = r#"{"error":"access denied by human"}"#;
+                        let response = format_response("403 Forbidden", body);
+                        let _ = stream.write_all(response.as_bytes());
+
+                        let entry = AuditEntry {
+                            timestamp: chrono::Local::now()
+                                .format("%Y-%m-%dT%H:%M:%S%z")
+                                .to_string(),
+                            action: "denied_by_human".to_string(),
+                            key: if path.starts_with("/env/") {
+                                Some(path[5..].to_string())
+                            } else {
+                                None
+                            },
+                            keys_served: None,
+                            client_addr: client_addr.clone(),
+                            user_agent: user_agent.clone(),
+                            granted: false,
+                        };
+                        log_audit(&entry);
+                        continue;
+                    }
+
+                    // Log approval
+                    let entry = AuditEntry {
+                        timestamp: chrono::Local::now()
+                            .format("%Y-%m-%dT%H:%M:%S%z")
+                            .to_string(),
+                        action: "approved".to_string(),
+                        key: if path.starts_with("/env/") {
+                            Some(path[5..].to_string())
+                        } else {
+                            None
+                        },
+                        keys_served: None,
+                        client_addr: client_addr.clone(),
+                        user_agent: user_agent.clone(),
+                        granted: true,
+                    };
+                    log_audit(&entry);
                 }
 
                 let (status, body) = route_request(method, path, env, allowed_keys);

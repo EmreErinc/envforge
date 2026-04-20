@@ -109,6 +109,36 @@ pub fn run_guard(
                         break;
                     }
                 }
+
+                // 2. Canary value detection in tool output
+                if let Ok(canaries) = super::canary::load_canaries() {
+                    for (canary_key, canary) in &canaries.canaries {
+                        if input.contains(canary.fake_value.as_str()) {
+                            warnings.push(format!(
+                                "\u{1f6a8} EnvForge: CANARY SECRET detected in tool output (key: {})",
+                                canary_key
+                            ));
+                            let _ = super::canary::trigger_canary(
+                                canary_key,
+                                "ai_guard",
+                                "detected in tool output",
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // External scanner integration
+    if let Some(input) = tool_input {
+        if let Some(findings) = run_external_scanner(input) {
+            for finding in findings {
+                warnings.push(format!(
+                    "\u{26a0} EnvForge: External scanner: {}",
+                    finding
+                ));
             }
         }
     }
@@ -116,6 +146,46 @@ pub fn run_guard(
     GuardResult {
         blocked: false, // advisory only
         warnings,
+    }
+}
+
+/// Run external scanner if configured via ENVFORGE_EXTERNAL_SCANNER env var.
+///
+/// The scanner receives a temp file path as argument. If it exits non-zero,
+/// stdout+stderr lines are returned as findings. If it exits zero, no findings.
+pub fn run_external_scanner(content: &str) -> Option<Vec<String>> {
+    let scanner_cmd = match std::env::var("ENVFORGE_EXTERNAL_SCANNER") {
+        Ok(cmd) if !cmd.is_empty() => cmd,
+        _ => return None,
+    };
+    run_external_scanner_with_cmd(&scanner_cmd, content)
+}
+
+/// Run a specific scanner command on the given content.
+fn run_external_scanner_with_cmd(scanner_cmd: &str, content: &str) -> Option<Vec<String>> {
+    let tmp = tempfile::NamedTempFile::new().ok()?;
+    std::fs::write(tmp.path(), content).ok()?;
+
+    let output = std::process::Command::new("sh")
+        .args(["-c", &format!("{} {}", scanner_cmd, tmp.path().display())])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        None // No findings
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let findings: Vec<String> = format!("{}{}", stdout, stderr)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect();
+        if findings.is_empty() {
+            None
+        } else {
+            Some(findings)
+        }
     }
 }
 
@@ -349,5 +419,45 @@ mod tests {
     fn test_extract_path_json_with_path_key() {
         let input = r#"{"path": "/some/file.rs"}"#;
         assert_eq!(extract_path_from_input(input), "/some/file.rs");
+    }
+
+    // ─── External scanner ─────────────────────────────────────
+
+    #[test]
+    fn test_external_scanner_success_command_returns_none() {
+        // A command that exits 0 means "no findings" -> None
+        let result = run_external_scanner_with_cmd("cat", "some content");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_external_scanner_with_echo_command() {
+        // A scanner that always "finds" something (exit 1 + output)
+        let cmd = "sh -c 'echo \"found secret in\" && exit 1' #";
+        let result = run_external_scanner_with_cmd(cmd, "test content");
+
+        assert!(result.is_some());
+        let findings = result.unwrap();
+        assert!(!findings.is_empty());
+        assert!(findings[0].contains("found secret in"));
+    }
+
+    #[test]
+    fn test_external_scanner_success_returns_none() {
+        // A scanner that exits 0 means no findings
+        let result = run_external_scanner_with_cmd("true", "safe content");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_external_scanner_findings_collected() {
+        // Scanner that outputs multiple lines on failure
+        let cmd = "sh -c 'echo line1 && echo line2 && exit 1' #";
+        let result = run_external_scanner_with_cmd(cmd, "content");
+        assert!(result.is_some());
+        let findings = result.unwrap();
+        assert_eq!(findings.len(), 2);
+        assert_eq!(findings[0], "line1");
+        assert_eq!(findings[1], "line2");
     }
 }

@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-04-20
+
+### Added — Advanced AI Safety
+
+#### Canary Secrets (Honeypot Credentials)
+- `envforge canary create KEY [--pattern aws_key|github_token|stripe_key|slack_token|gitlab_token|generic]` — Plant fake credentials
+- `envforge canary list` — Show all canary secrets with trigger status
+- `envforge canary check` — Check for triggered canaries (exfiltration detected)
+- `envforge canary delete KEY` — Remove a canary
+- Generates plausible-looking fake values per pattern type
+- Integrated into AI guard: canary values in tool output trigger alerts
+- JSONL alert log at `~/.config/envforge/canary-alerts.jsonl`
+
+#### Zero-Access Approval Flow
+- `envforge proxy --require-approval` — Human must approve each secret access request
+- Agent request triggers terminal prompt: `🔒 Secret access request: KEY from 127.0.0.1`
+- Human types `y` to approve, anything else denies
+- Denied requests return 403 and are logged to audit trail
+- Combinable with `--require-lease` for layered security
+
+#### Secret Dependency Mapping
+- `envforge deps KEY [--source]` — Find all references to an env var across project
+- Scans: EnvForge managed files, .env files, config files (docker-compose, terraform, k8s, GitHub Actions)
+- `--source` enables source code scanning (9 languages: JS, Python, Rust, Go, Java, Ruby, PHP, C, Shell)
+- Skips `.git`, `node_modules`, `target`, `vendor`, `__pycache__`
+- Grouped output by reference type with file:line context
+- Answers: "If I rotate DB_PASSWORD, what breaks?"
+
+#### External Scanner Hook
+- Set `ENVFORGE_EXTERNAL_SCANNER="ggshield secret scan"` to delegate detection to external tools
+- AI guard automatically calls external scanner on tool inputs/outputs
+- Integrates with ggshield (500+ secret detectors) without competing
+- Fallback: if external scanner not set, uses built-in pattern matching
+
+### Quality
+- 683 total tests (was 664), all passing
+- 19 new tests (canary, deps, external scanner)
+- New modules: `canary.rs`, `deps.rs`
+- No new crate dependencies
+
 ## [0.5.3] - 2026-04-20
 
 ### Added — AI Safety Hardening
