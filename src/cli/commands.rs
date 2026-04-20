@@ -6,7 +6,7 @@ use crate::model::*;
 use crate::ops::*;
 use crate::parser::*;
 
-use super::{BackupAction, Commands};
+use super::{BackupAction, Commands, SnapshotAction};
 
 /// Execute a CLI subcommand.
 pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
@@ -84,7 +84,11 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         } => cmd_drift(schema.as_deref(), environment.as_deref(), env_files, json),
         Commands::Schema { action } => cmd_schema(action, json),
         Commands::Init { schema, output } => cmd_init_schema(schema.as_deref(), output),
+        Commands::Explain { key } => cmd_explain(key, json),
+        Commands::Rotate { key, dry_run: dr, stale } => cmd_rotate(key, *dr || dry_run, *stale),
         Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
+        Commands::Check { only } => cmd_check(only.as_deref(), json),
+        Commands::Snapshot { action } => cmd_snapshot(action, dry_run),
     };
 
     if let Err(e) = result {
@@ -996,6 +1000,25 @@ fn cmd_config() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn cmd_explain(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::explain::{explain_key, explanation_to_json, format_explanation};
+
+    let explanation = explain_key(key);
+
+    if json {
+        let json_val = explanation_to_json(&explanation);
+        println!("{}", serde_json::to_string_pretty(&json_val)?);
+    } else {
+        print!("{}", format_explanation(&explanation));
+    }
+
+    if !explanation.found {
+        process::exit(1);
+    }
+
+    Ok(())
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 fn parse_assignment(s: &str) -> Result<(String, String), Box<dyn std::error::Error>> {
@@ -1551,6 +1574,34 @@ fn cmd_profile_diff(
     Ok(())
 }
 
+fn cmd_check(only: Option<&str>, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::check::{parse_category_filter, print_report, report_to_json, run_checks};
+
+    let filter = if let Some(only_str) = only {
+        Some(
+            parse_category_filter(only_str)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?,
+        )
+    } else {
+        None
+    };
+
+    let report = run_checks(filter.as_deref());
+
+    if json {
+        let json_val = report_to_json(&report);
+        println!("{}", serde_json::to_string_pretty(&json_val)?);
+    } else {
+        print_report(&report);
+    }
+
+    if report.has_errors() {
+        process::exit(1);
+    }
+
+    Ok(())
+}
+
 fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::doctor::{run_doctor, CheckStatus};
 
@@ -1615,6 +1666,399 @@ fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error
         report.warning_count(),
         report.error_count()
     );
+
+    Ok(())
+}
+
+fn cmd_rotate(key: &str, dry_run: bool, stale: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::rotate::{apply_rotation, mask_value, plan_rotation};
+    use crate::ops::secrets::age::get_age_report;
+    use std::io::{self, BufRead, Write};
+
+    if stale {
+        // Rotate all stale secrets interactively
+        let entries = get_age_report(90)?;
+        let stale_entries: Vec<_> = entries.into_iter().filter(|e| e.stale).collect();
+
+        if stale_entries.is_empty() {
+            println!("All secrets within 90-day threshold. Nothing to rotate.");
+            return Ok(());
+        }
+
+        println!(
+            "Found {} stale secret(s) (>90 days old):\n",
+            stale_entries.len()
+        );
+
+        for entry in &stale_entries {
+            println!("--- {} ({} days old, from {})", entry.key, entry.age_days, entry.provider);
+
+            let plan = match plan_rotation(&entry.key) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("  Cannot plan rotation for {}: {}", entry.key, e);
+                    continue;
+                }
+            };
+
+            println!("  Current value: {}", plan.current_masked);
+            println!("  Source: {}", plan.source_file.display());
+
+            if dry_run {
+                println!("  [dry-run] Would rotate {}", entry.key);
+                println!();
+                continue;
+            }
+
+            eprint!("  Rotate / Skip / Quit? [r/s/q]: ");
+            io::stderr().flush()?;
+            let mut input = String::new();
+            io::stdin().lock().read_line(&mut input)?;
+            let choice = input.trim().to_lowercase();
+
+            if choice == "q" {
+                println!("Rotation cancelled.");
+                return Ok(());
+            }
+            if choice != "r" {
+                println!("  Skipped.\n");
+                continue;
+            }
+
+            eprint!("  New value: ");
+            io::stderr().flush()?;
+            let mut new_value = String::new();
+            io::stdin().lock().read_line(&mut new_value)?;
+            let new_value = new_value.trim();
+
+            if new_value.is_empty() {
+                println!("  Empty value, skipping.\n");
+                continue;
+            }
+
+            let result = apply_rotation(&entry.key, new_value, &plan)?;
+            println!(
+                "  Rotated {} (local={}, age_reset={}, logged={})\n",
+                result.key, result.local_updated, result.age_reset, result.logged
+            );
+        }
+
+        println!("Stale rotation complete.");
+        return Ok(());
+    }
+
+    // Single key rotation
+    let plan = plan_rotation(key)?;
+
+    println!("Rotating: {}", key);
+    println!("  Current value: {}", plan.current_masked);
+    println!("  Source file:   {}", plan.source_file.display());
+    if plan.is_encrypted {
+        println!("  Encrypted:     yes");
+    }
+    if plan.has_provider {
+        println!(
+            "  Provider:      {} ({})",
+            plan.provider_name.as_deref().unwrap_or("?"),
+            plan.provider_path.as_deref().unwrap_or("")
+        );
+    }
+    if plan.is_synced {
+        println!("  Synced:        yes");
+    }
+
+    if dry_run {
+        println!("\n[dry-run] Would rotate {}. No changes made.", key);
+        return Ok(());
+    }
+
+    eprint!("\nNew value: ");
+    io::stderr().flush()?;
+    let mut new_value = String::new();
+    io::stdin().lock().read_line(&mut new_value)?;
+    let new_value = new_value.trim();
+
+    if new_value.is_empty() {
+        println!("Empty value. Rotation cancelled.");
+        return Ok(());
+    }
+
+    // Confirm
+    eprint!("Replace {}? [y/N]: ", key);
+    io::stderr().flush()?;
+    let mut confirm = String::new();
+    io::stdin().lock().read_line(&mut confirm)?;
+    if !confirm.trim().eq_ignore_ascii_case("y") {
+        println!("Rotation cancelled.");
+        return Ok(());
+    }
+
+    let result = apply_rotation(key, new_value, &plan)?;
+
+    // Optionally push to provider
+    if plan.has_provider {
+        eprint!(
+            "Push to {}? [y/N]: ",
+            plan.provider_name.as_deref().unwrap_or("provider")
+        );
+        io::stderr().flush()?;
+        let mut push_input = String::new();
+        io::stdin().lock().read_line(&mut push_input)?;
+        if push_input.trim().eq_ignore_ascii_case("y") {
+            println!(
+                "  Hint: envforge secrets push --to {} --keys {}",
+                plan.provider_name.as_deref().unwrap_or("provider"),
+                key
+            );
+        }
+    }
+
+    // Optionally push to sync
+    if plan.is_synced {
+        eprint!("Push to sync? [y/N]: ");
+        io::stderr().flush()?;
+        let mut sync_input = String::new();
+        io::stdin().lock().read_line(&mut sync_input)?;
+        if sync_input.trim().eq_ignore_ascii_case("y") {
+            println!("  Hint: envforge sync push");
+        }
+    }
+
+    // Summary
+    println!("\nRotation complete:");
+    println!("  Key:           {}", result.key);
+    println!("  New value:     {}", mask_value(new_value));
+    println!("  Local updated: {}", result.local_updated);
+    println!("  Age reset:     {}", result.age_reset);
+    println!("  Logged:        {}", result.logged);
+
+    Ok(())
+}
+
+fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::snapshot;
+
+    match action {
+        SnapshotAction::Create { name } => {
+            let config = load_or_create_default()?;
+            let (_cfg, shell_files) = load_context()?;
+            let entries = collect_all_entries(&shell_files);
+
+            let active_entries: Vec<(String, String)> = entries
+                .iter()
+                .filter(|e| e.location != EntryLocation::Commented)
+                .map(|e| (e.key.clone(), e.value.clone()))
+                .collect();
+
+            let snap_name = name
+                .clone()
+                .unwrap_or_else(|| chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
+
+            if dry_run {
+                println!(
+                    "Would create snapshot '{}' with {} variables",
+                    snap_name,
+                    active_entries.len()
+                );
+                return Ok(());
+            }
+
+            let path = snapshot::create_snapshot(
+                &snap_name,
+                &active_entries,
+                &config.profiles.active,
+            )?;
+            println!(
+                "Snapshot '{}' created ({} variables)\n  {}",
+                snap_name,
+                active_entries.len(),
+                path.display()
+            );
+        }
+
+        SnapshotAction::List => {
+            let metas = snapshot::list_snapshots()?;
+
+            if metas.is_empty() {
+                println!("No snapshots found.");
+                return Ok(());
+            }
+
+            println!(
+                "{:<25} {:<12} {:<15} {:<6}",
+                "NAME", "PROFILE", "MACHINE", "VARS"
+            );
+            println!("{}", "-".repeat(60));
+            for m in &metas {
+                println!(
+                    "{:<25} {:<12} {:<15} {:<6}",
+                    m.name, m.profile, m.machine_id, m.var_count
+                );
+            }
+            println!("\n{} snapshot(s)", metas.len());
+        }
+
+        SnapshotAction::Restore { name, last } => {
+            let identifier = if *last {
+                "last".to_string()
+            } else {
+                name.clone().ok_or("Specify a snapshot name or use --last")?
+            };
+
+            let snap = snapshot::load_snapshot(&identifier)?;
+
+            if dry_run {
+                println!(
+                    "Would restore {} variables from snapshot '{}'",
+                    snap.entries.len(),
+                    snap.metadata.name
+                );
+                return Ok(());
+            }
+
+            // Auto-backup current state before restoring
+            let config = load_or_create_default()?;
+            let (_cfg, shell_files) = load_context()?;
+            let current_entries: Vec<(String, String)> = collect_all_entries(&shell_files)
+                .iter()
+                .filter(|e| e.location != EntryLocation::Commented)
+                .map(|e| (e.key.clone(), e.value.clone()))
+                .collect();
+
+            snapshot::create_snapshot("pre-restore", &current_entries, &config.profiles.active)?;
+
+            // Load fresh context for writing
+            let (_cfg, mut shell_files) = load_context()?;
+            if shell_files.is_empty() {
+                return Err("No shell config files found".into());
+            }
+
+            let sf = &mut shell_files[0];
+
+            for (key, value) in &snap.entries {
+                match edit_entry(sf, key, value) {
+                    Ok(()) => {}
+                    Err(OpsError::KeyNotFound { .. }) => {
+                        add_entry(
+                            sf,
+                            key,
+                            value,
+                            ExportStyle::Export,
+                            QuoteStyle::Double,
+                            config.offsets.header_protected_lines,
+                            config.offsets.footer_protected_lines,
+                        )?;
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+
+            let content = serialize_shell_file(sf);
+            safe_write(&sf.path, &content, Some(sf.hash))?;
+
+            println!(
+                "Restored {} variables from snapshot '{}'",
+                snap.entries.len(),
+                snap.metadata.name
+            );
+            println!("  (pre-restore backup created automatically)");
+        }
+
+        SnapshotAction::Diff { name, last } => {
+            let identifier = if *last {
+                "last".to_string()
+            } else {
+                name.clone().ok_or("Specify a snapshot name or use --last")?
+            };
+
+            let snap = snapshot::load_snapshot(&identifier)?;
+
+            let (_cfg, shell_files) = load_context()?;
+            let current: Vec<(String, String)> = collect_all_entries(&shell_files)
+                .iter()
+                .filter(|e| e.location != EntryLocation::Commented)
+                .map(|e| (e.key.clone(), e.value.clone()))
+                .collect();
+
+            let diff = snapshot::diff_snapshot(&snap, &current);
+            let changes: Vec<_> = diff
+                .iter()
+                .filter(|d| d.status != snapshot::DiffStatus::Same)
+                .collect();
+
+            if changes.is_empty() {
+                println!(
+                    "No differences between snapshot '{}' and current environment.",
+                    snap.metadata.name
+                );
+                return Ok(());
+            }
+
+            println!("Diff: snapshot '{}' vs current\n", snap.metadata.name);
+
+            for entry in &changes {
+                match entry.status {
+                    snapshot::DiffStatus::Added => {
+                        println!(
+                            "  \x1b[32m+ {:<30} = {}\x1b[0m",
+                            entry.key,
+                            entry.current_value.as_deref().unwrap_or("")
+                        );
+                    }
+                    snapshot::DiffStatus::Removed => {
+                        println!(
+                            "  \x1b[31m- {:<30} = {}\x1b[0m",
+                            entry.key,
+                            entry.snapshot_value.as_deref().unwrap_or("")
+                        );
+                    }
+                    snapshot::DiffStatus::Changed => {
+                        println!(
+                            "  \x1b[33m~ {:<30}\x1b[0m",
+                            entry.key
+                        );
+                        println!(
+                            "    \x1b[31m- {}\x1b[0m",
+                            entry.snapshot_value.as_deref().unwrap_or("")
+                        );
+                        println!(
+                            "    \x1b[32m+ {}\x1b[0m",
+                            entry.current_value.as_deref().unwrap_or("")
+                        );
+                    }
+                    snapshot::DiffStatus::Same => {}
+                }
+            }
+
+            let added = changes
+                .iter()
+                .filter(|d| d.status == snapshot::DiffStatus::Added)
+                .count();
+            let removed = changes
+                .iter()
+                .filter(|d| d.status == snapshot::DiffStatus::Removed)
+                .count();
+            let changed = changes
+                .iter()
+                .filter(|d| d.status == snapshot::DiffStatus::Changed)
+                .count();
+
+            println!(
+                "\nSummary: {} added, {} removed, {} changed",
+                added, removed, changed
+            );
+        }
+
+        SnapshotAction::Delete { name } => {
+            if dry_run {
+                println!("Would delete snapshot '{}'", name);
+                return Ok(());
+            }
+
+            snapshot::delete_snapshot(name)?;
+            println!("Deleted snapshot '{}'", name);
+        }
+    }
 
     Ok(())
 }

@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-04-20
+
+### Added
+
+#### Unified Check (`envforge check`)
+- `envforge check` — Single command running all health/safety checks: doctor, validate, scan, age, drift
+- Grouped output by category with colored pass/fail/warning indicators
+- Interactive fix hints per failure (`→ Run: envforge <fix command>`)
+- `--only doctor,scan,age` — Run subset of categories
+- `--json` — Machine-readable output for CI/CD
+- Graceful skip when prerequisites missing (no schema → skip validate/drift)
+- Non-zero exit on errors, zero on warnings-only
+
+#### Encrypted Sync
+- Sync snapshots now encrypted with age (X25519) before git commit
+- Transparent auto-decrypt on `sync pull` — no extra flags needed
+- Backward compatible: `read_snapshot` auto-detects encrypted vs plaintext
+- `encrypted` config field in sync settings (default: `true` for new repos)
+- Old unencrypted repos work without migration — next push encrypts automatically
+- Clear error on key mismatch: "Cannot decrypt sync data. Key mismatch or corrupted."
+
+#### Environment Snapshots (`envforge snapshot`)
+- `envforge snapshot create [NAME]` — Capture active profile env state
+- `envforge snapshot list` — Show all snapshots with name, date, variable count
+- `envforge snapshot restore [NAME|--last]` — Restore with auto-backup before write
+- `envforge snapshot diff [NAME|--last]` — Color-coded diff (added/removed/changed)
+- `envforge snapshot delete NAME` — Remove snapshot with confirmation
+- Auto-prune: keeps last 20 snapshots, oldest pruned on create
+- Snapshots stored in `~/.config/envforge/snapshots/` as TOML
+
+#### Key Explain (`envforge explain`)
+- `envforge explain KEY` — Unified X-ray showing all known info about a key
+- **Source**: file path, line number, export style, active/commented status
+- **Profile**: which profile defines it (shared/profile-specific)
+- **Schema**: type, required, description, sensitive flag (if `.env.schema` exists)
+- **Encryption**: plaintext or encrypted status
+- **Reference**: secret reference provider/path (if `ref:` value)
+- **Sync**: synced/local/untracked status
+- **Age**: days since last pull, stale flag
+- `--json` — Full structured JSON output
+- Similar key suggestions when key not found (substring + Levenshtein matching)
+
+#### Secret Rotation (`envforge rotate`)
+- `envforge rotate KEY` — Interactive 3-step flow: show masked current → prompt new → confirm
+- Masked value display (`sk-ab****56` format)
+- Atomic local update with backup before write
+- Auto-resets secret age to 0 after rotation
+- Logs rotation event to changelog
+- Optional provider push: `Push to vault? [y/N]`
+- Optional sync push: `Push to sync? [y/N]`
+- `--dry-run` — Preview rotation plan without changes
+- `--stale` — Bulk rotate all secrets older than 90 days (rotate/skip/quit per key)
+- Handles encrypted values transparently (re-encrypts new value)
+
+### Quality
+- 444 total tests (was 398), all passing
+- 46 new tests across 5 features
+- No new crate dependencies
+- Clippy clean
+
 ## [0.4.2] - 2026-04-20
 
 ### Added

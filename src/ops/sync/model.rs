@@ -61,6 +61,12 @@ pub enum SyncError {
 
     #[error("pattern '{pattern}' matched no keys")]
     PatternMatchesNothing { pattern: String },
+
+    #[error("Cannot decrypt sync data. Key mismatch or corrupted.")]
+    DecryptionFailed,
+
+    #[error("encryption failed: {message}")]
+    EncryptionFailed { message: String },
 }
 
 // ─── Snapshot Types ──────────────────────────────────────────
@@ -114,6 +120,12 @@ pub struct SyncSettings {
     pub auto_push: bool,
     #[serde(default = "default_conflict_strategy")]
     pub conflict_strategy: ConflictStrategy,
+    #[serde(default = "default_encrypted")]
+    pub encrypted: bool,
+}
+
+fn default_encrypted() -> bool {
+    true
 }
 
 /// Strategy for resolving sync conflicts.
@@ -249,6 +261,7 @@ impl SyncConfig {
                 default_sync: false,
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
+                encrypted: true,
             },
             manifest: ManifestConfig::default(),
         }

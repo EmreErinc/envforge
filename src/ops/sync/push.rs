@@ -59,8 +59,8 @@ pub fn push(
     // Build new snapshot
     let new_snapshot = export_to_snapshot(&sync_entries, &config.sync.machine_id);
 
-    // Write snapshot atomically
-    write_snapshot(&snapshot_path, &new_snapshot)?;
+    // Write snapshot atomically (encrypted if config says so)
+    write_snapshot_encrypted(&snapshot_path, &new_snapshot, config.sync.encrypted)?;
 
     // Git operations
     let git = GitCommandRunner::new(sync_path.to_path_buf());
@@ -135,6 +135,7 @@ mod tests {
                 default_sync: false,
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
+                encrypted: true,
             },
             manifest: ManifestConfig {
                 sync_keys: vec!["SYNC_KEY".to_string()],

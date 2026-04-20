@@ -212,6 +212,7 @@ mod tests {
                 default_sync: false,
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
+                encrypted: true,
             },
             manifest: ManifestConfig {
                 sync_keys: vec!["DB_URL".to_string()],
@@ -234,6 +235,7 @@ mod tests {
                 default_sync: false,
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
+                encrypted: true,
             },
             manifest: ManifestConfig {
                 sync_keys: vec![],
@@ -258,6 +260,7 @@ mod tests {
                 default_sync: true,
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
+                encrypted: true,
             },
             manifest: ManifestConfig::default(),
         };

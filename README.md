@@ -12,6 +12,10 @@ EnvForge safely manages environment variables in your shell configuration files 
 
 | Category | Highlights |
 |----------|-----------|
+| **Check** | `envforge check` — unified health check (doctor + validate + scan + age + drift) |
+| **Snapshots** | Backup/restore active profile state, diff, auto-prune, pre-destructive safety net |
+| **Explain** | `envforge explain KEY` — X-ray view across all subsystems |
+| **Rotation** | `envforge rotate KEY` — guided secret rotation with provider push |
 | **CI/CD** | GitHub Action with 5 modes: validate, secrets-pull, export, run, drift |
 | **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
 | **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
@@ -21,7 +25,7 @@ EnvForge safely manages environment variables in your shell configuration files 
 | **Schema** | `.env.schema` — type validation, onboarding wizard, docs generation, drift detection |
 | **Profiles** | Dev/staging/prod environments, shared + profile-specific files, profile diff |
 | **Encryption** | Age (X25519) encryption at rest, per-value encrypt/decrypt |
-| **Remote Sync** | Git-based cross-machine sync, selective keys, machine overrides, rollback |
+| **Remote Sync** | Git-based cross-machine sync, age-encrypted snapshots, selective keys, rollback |
 | **Secret Managers** | 7 providers (Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure) |
 | **AI Safety** | Safe export with redaction, `.envforgeignore`, AI-aware doctor checks |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
@@ -312,6 +316,23 @@ envforge docs --schema PATH              # Generate Markdown docs
 envforge drift --envs FILE1 FILE2 ...    # Compare environments
 envforge init --schema PATH              # Interactive onboarding
 
+# Unified check
+envforge check                           # Run all checks (doctor+validate+scan+age+drift)
+  --only doctor,scan                     # Run specific categories
+envforge explain KEY                     # Show all info about a key
+
+# Snapshots
+envforge snapshot create [NAME]          # Backup active profile state
+envforge snapshot list                   # List all snapshots
+envforge snapshot restore [NAME|--last]  # Restore from snapshot
+envforge snapshot diff [NAME|--last]     # Compare current vs snapshot
+envforge snapshot delete NAME            # Remove a snapshot
+
+# Secret rotation
+envforge rotate KEY                      # Interactive secret rotation
+  --dry-run                              # Preview without changes
+  --stale                                # Rotate all stale secrets (>90 days)
+
 # Analysis
 envforge duplicates                      # Find duplicate keys
 envforge scan [path] [--staged]          # Scan for leaked secrets
@@ -400,9 +421,11 @@ envforge sync machine                           # Show machine identity
 
 **How it works:**
 - Sync data lives in `~/.envforge/sync/` — a separate Git repo that never touches your shell config.
+- **Encrypted at rest**: snapshots are age-encrypted before git commit; auto-decrypted on pull.
 - You choose which keys to sync (`--sync`) and which stay local (`--local`).
 - Each machine has a unique ID and can set overrides that take precedence over shared values.
 - Offline-first: everything works locally, remote sync is optional.
+- Backward compatible: unencrypted repos auto-encrypt on next push.
 
 ### Secret Manager Integration
 
@@ -521,6 +544,127 @@ credentials.toml
 ⚠ AI safety — .env found but no .envforgeignore — secrets may leak to AI tools
   → Create .envforgeignore or run: envforge export --safe for redacted output
 ```
+
+### Unified Check (`envforge check`)
+
+Run all health and safety checks in one command:
+
+```bash
+# Run all checks
+envforge check
+
+# Run specific categories only
+envforge check --only doctor,scan,age
+
+# JSON output for CI/CD
+envforge check --json
+```
+
+Output:
+```
+── Doctor ──────────────────────────────────────────
+✓ Config              — loaded OK
+⚠ Encryption key      — no age key yet
+                        → Run: envforge encrypt <KEY>
+✓ Shell files         — 3 file(s) parsed, 112 entries
+
+── Validate ────────────────────────────────────────
+✓ Schema validation   — 12 variables checked, all valid
+
+── Scan ────────────────────────────────────────────
+✓ Secret scan         — no secrets found in source
+
+── Age (skipped) ───────────────────────────────────
+  No tracked secrets. Pull secrets to start tracking.
+
+════════════════════════════════════════════════════
+  5 categories: 3 run, 2 skipped
+  8 checks: 7 ok, 1 warning(s), 0 error(s)
+```
+
+Categories: `doctor`, `validate`, `scan`, `age`, `drift`. Missing prerequisites (no schema, no age data) skip gracefully. Exit code 1 on errors.
+
+### Environment Snapshots
+
+Backup and restore your active profile environment state:
+
+```bash
+# Create a snapshot before making changes
+envforge snapshot create before-upgrade
+
+# List all snapshots
+envforge snapshot list
+
+# See what changed since a snapshot
+envforge snapshot diff --last
+
+# Restore to a previous state (auto-backup before restore)
+envforge snapshot restore before-upgrade
+
+# Delete a snapshot
+envforge snapshot delete before-upgrade
+```
+
+Snapshots capture all variables from the active profile (shared + profile-specific). Stored in `~/.config/envforge/snapshots/`. Auto-prunes to 20 most recent.
+
+### Key Explain
+
+Deep dive into everything known about a single key:
+
+```bash
+envforge explain DATABASE_URL
+envforge explain API_KEY --json
+```
+
+Output:
+```
+── KEY: DATABASE_URL ──────────────────────────────
+
+Source
+  File:    ~/.env_managed.dev:15
+  Style:   export "..."
+  Status:  active
+
+Profile
+  Profile: dev (profile-specific)
+
+Schema
+  Type:    url
+  Required: yes
+  Description: PostgreSQL connection string
+
+Encryption: plaintext
+Reference:  none
+Sync:       synced
+Age:        45 days (✓ ok)
+```
+
+Shows: source file/line, profile context, schema info, encryption status, secret reference, sync marking, and age tracking. Graceful N/A for missing subsystems.
+
+### Secret Rotation
+
+Guided interactive secret rotation:
+
+```bash
+# Rotate a single secret
+envforge rotate API_KEY
+
+# Preview without changes
+envforge rotate API_KEY --dry-run
+
+# Rotate all stale secrets (>90 days)
+envforge rotate --stale
+```
+
+Flow:
+1. Shows masked current value (`sk-ab****56`)
+2. Prompts for new value
+3. Confirms before applying
+4. Updates locally with atomic write + backup
+5. Resets secret age to 0
+6. Offers to push to provider and sync
+
+Handles encrypted values transparently (re-encrypts new value if original was encrypted).
 
 ### Multi-Format Export
 
@@ -712,6 +856,7 @@ envforge git remove-merge-driver
 - **Secret scanning** — Detect leaked secrets in source code: `envforge scan --staged` (use as pre-commit hook)
 - **Credential storage** — Provider credentials encrypted with age in `~/.config/envforge/credentials.toml`
 - **Value masking** — Keys containing SECRET, TOKEN, PASSWORD, CREDENTIAL are masked in TUI by default
+- **Encrypted sync** — Sync snapshots age-encrypted before git push; auto-decrypt on pull
 - **No plain-text secrets in history** — Encrypted values stay encrypted in backups and sync
 - **Schema-based sensitive marking** — Schema `sensitive = true` flag for custom sensitive key patterns
 

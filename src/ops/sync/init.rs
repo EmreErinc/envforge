@@ -107,23 +107,46 @@ fn random_hex_suffix() -> String {
 
 // ─── Snapshot I/O ────────────────────────────────────────────
 
-/// Read a sync snapshot from a TOML file.
+/// Read a sync snapshot from a file. Auto-detects encrypted vs plaintext.
 pub fn read_snapshot(path: &Path) -> Result<SyncSnapshot, SyncError> {
     let content = std::fs::read_to_string(path).map_err(|e| SyncError::IoError {
         path: path.to_path_buf(),
         source: e,
     })?;
 
-    toml::from_str(&content).map_err(|e| SyncError::SnapshotParseError {
+    // Auto-detect and decrypt if needed (backward compatible with plaintext)
+    let toml_content = super::encryption::decrypt_snapshot(&content)?;
+
+    toml::from_str(&toml_content).map_err(|e| SyncError::SnapshotParseError {
         message: e.to_string(),
     })
 }
 
-/// Write a sync snapshot to a TOML file atomically.
+/// Write a sync snapshot to a TOML file atomically (plaintext).
 pub fn write_snapshot(path: &Path, snapshot: &SyncSnapshot) -> Result<(), SyncError> {
     let content = toml::to_string_pretty(snapshot).map_err(|e| SyncError::SnapshotParseError {
         message: e.to_string(),
     })?;
+
+    atomic_write(path, &content)
+}
+
+/// Write a sync snapshot, optionally encrypting it with age.
+pub fn write_snapshot_encrypted(
+    path: &Path,
+    snapshot: &SyncSnapshot,
+    encrypted: bool,
+) -> Result<(), SyncError> {
+    let toml_content =
+        toml::to_string_pretty(snapshot).map_err(|e| SyncError::SnapshotParseError {
+            message: e.to_string(),
+        })?;
+
+    let content = if encrypted {
+        super::encryption::encrypt_snapshot(&toml_content)?
+    } else {
+        toml_content
+    };
 
     atomic_write(path, &content)
 }
@@ -471,6 +494,7 @@ mod tests {
                 default_sync: false,
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::KeepLocal,
+                encrypted: true,
             },
             manifest: ManifestConfig::default(),
         };

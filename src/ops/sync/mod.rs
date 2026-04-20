@@ -1,5 +1,6 @@
 pub mod conflict;
 pub mod diff;
+pub mod encryption;
 mod git;
 pub mod history;
 mod init;

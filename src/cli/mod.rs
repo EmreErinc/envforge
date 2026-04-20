@@ -266,11 +266,44 @@ pub enum Commands {
         output: String,
     },
 
+    /// Show all known info about a single environment variable
+    Explain {
+        /// Variable name to explain
+        key: String,
+    },
+
+    /// Rotate a secret: update value, reset age, optionally push
+    Rotate {
+        /// Variable name to rotate
+        key: String,
+
+        /// Preview rotation without making changes
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Rotate all stale secrets interactively
+        #[arg(long)]
+        stale: bool,
+    },
+
     /// Run health checks on EnvForge setup
     Doctor {
         /// Show detailed output for each check
         #[arg(long)]
         verbose: bool,
+    },
+
+    /// Run all checks: doctor + validate + scan + age + drift
+    Check {
+        /// Only run specific categories (comma-separated: doctor,validate,scan,age,drift)
+        #[arg(long)]
+        only: Option<String>,
+    },
+
+    /// Manage environment snapshots (backup/restore of active profile)
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotAction,
     },
 }
 
@@ -346,5 +379,37 @@ pub enum ProfileAction {
 
         /// Second profile name
         b: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SnapshotAction {
+    /// Create a snapshot of current environment variables
+    Create {
+        /// Snapshot name (default: auto-generated timestamp)
+        name: Option<String>,
+    },
+    /// List all snapshots
+    List,
+    /// Restore environment variables from a snapshot
+    Restore {
+        /// Snapshot name (substring match)
+        name: Option<String>,
+        /// Restore the most recent snapshot
+        #[arg(long)]
+        last: bool,
+    },
+    /// Show diff between a snapshot and current environment
+    Diff {
+        /// Snapshot name (substring match)
+        name: Option<String>,
+        /// Diff against the most recent snapshot
+        #[arg(long)]
+        last: bool,
+    },
+    /// Delete a snapshot
+    Delete {
+        /// Snapshot name (substring match)
+        name: String,
     },
 }

@@ -36,17 +36,24 @@ pub fn rollback_to(sync_path: &Path, commit_hash: &str) -> Result<PathBuf, SyncE
     // Backup current snapshot
     let backup_path = backup_current_snapshot(sync_path)?;
 
-    // Read snapshot content at target commit
+    // Read snapshot content at target commit (may be encrypted)
     let git = GitCommandRunner::new(sync_path.to_path_buf());
     let old_content = git.show(commit_hash, SNAPSHOT_FILE)?;
 
-    // Verify it's valid TOML before writing
+    // Decrypt if needed, then verify it's valid TOML before writing
+    let toml_content =
+        super::encryption::decrypt_snapshot(&old_content).map_err(|_| {
+            SyncError::SnapshotParseError {
+                message: format!("snapshot at commit {} could not be decrypted", commit_hash),
+            }
+        })?;
+
     let _: SyncSnapshot =
-        toml::from_str(&old_content).map_err(|e| SyncError::SnapshotParseError {
+        toml::from_str(&toml_content).map_err(|e| SyncError::SnapshotParseError {
             message: format!("snapshot at commit {} is invalid: {}", commit_hash, e),
         })?;
 
-    // Write restored snapshot
+    // Write restored snapshot (keep as-is — preserves encryption state from that commit)
     std::fs::write(&snapshot_path, &old_content).map_err(|e| SyncError::IoError {
         path: snapshot_path,
         source: e,

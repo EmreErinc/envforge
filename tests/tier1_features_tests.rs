@@ -1,8 +1,12 @@
 use std::path::PathBuf;
 
+use envforge::ops::check::{
+    parse_category_filter, report_to_json, run_checks, CheckCategory, CheckReport, CheckResult,
+    CheckStatus,
+};
 use envforge::ops::export_format::{export_as, ExportFormat};
-use envforge::ops::{EntryLocation, EnvEntry};
 use envforge::ops::secrets::age::{SecretAge, SecretSources};
+use envforge::ops::{EntryLocation, EnvEntry};
 use envforge::model::{ExportStyle, QuoteStyle};
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -378,4 +382,149 @@ fn test_format_extensions() {
     assert_eq!(ExportFormat::Docker.extension(), ".env");
     assert_eq!(ExportFormat::K8s.extension(), ".yaml");
     assert_eq!(ExportFormat::Tfvars.extension(), ".tfvars");
+}
+
+// ─── Check Runner Tests ─────────────────────────────────────────
+
+#[test]
+fn test_check_category_parse_all() {
+    assert_eq!(CheckCategory::parse("doctor").unwrap(), CheckCategory::Doctor);
+    assert_eq!(CheckCategory::parse("validate").unwrap(), CheckCategory::Validate);
+    assert_eq!(CheckCategory::parse("scan").unwrap(), CheckCategory::Scan);
+    assert_eq!(CheckCategory::parse("age").unwrap(), CheckCategory::Age);
+    assert_eq!(CheckCategory::parse("drift").unwrap(), CheckCategory::Drift);
+    assert!(CheckCategory::parse("invalid").is_none());
+}
+
+#[test]
+fn test_check_category_all_count() {
+    assert_eq!(CheckCategory::all().len(), 5);
+}
+
+#[test]
+fn test_check_parse_filter_valid() {
+    let cats = parse_category_filter("doctor,scan,age").unwrap();
+    assert_eq!(cats.len(), 3);
+    assert_eq!(cats[0], CheckCategory::Doctor);
+    assert_eq!(cats[1], CheckCategory::Scan);
+    assert_eq!(cats[2], CheckCategory::Age);
+}
+
+#[test]
+fn test_check_parse_filter_invalid_rejects() {
+    assert!(parse_category_filter("doctor,bogus").is_err());
+    assert!(parse_category_filter("").is_err());
+}
+
+#[test]
+fn test_check_report_counts() {
+    let report = CheckReport {
+        results: vec![
+            CheckResult {
+                category: CheckCategory::Doctor,
+                status: CheckStatus::Ok,
+                message: "ok".into(),
+                hint: None,
+            },
+            CheckResult {
+                category: CheckCategory::Doctor,
+                status: CheckStatus::Warning,
+                message: "warn".into(),
+                hint: Some("fix".into()),
+            },
+            CheckResult {
+                category: CheckCategory::Validate,
+                status: CheckStatus::Error,
+                message: "fail".into(),
+                hint: Some("fix".into()),
+            },
+        ],
+        skipped: vec![(CheckCategory::Age, "no data".into())],
+    };
+    assert_eq!(report.ok_count(), 1);
+    assert_eq!(report.warning_count(), 1);
+    assert_eq!(report.error_count(), 1);
+    assert!(report.has_errors());
+}
+
+#[test]
+fn test_check_report_no_errors() {
+    let report = CheckReport {
+        results: vec![
+            CheckResult {
+                category: CheckCategory::Doctor,
+                status: CheckStatus::Ok,
+                message: "ok".into(),
+                hint: None,
+            },
+            CheckResult {
+                category: CheckCategory::Scan,
+                status: CheckStatus::Warning,
+                message: "warn".into(),
+                hint: None,
+            },
+        ],
+        skipped: vec![],
+    };
+    assert!(!report.has_errors());
+}
+
+#[test]
+fn test_check_report_json_structure() {
+    let report = CheckReport {
+        results: vec![CheckResult {
+            category: CheckCategory::Doctor,
+            status: CheckStatus::Ok,
+            message: "Config loaded".into(),
+            hint: None,
+        }],
+        skipped: vec![(CheckCategory::Drift, "no schema".into())],
+    };
+    let json = report_to_json(&report);
+    assert_eq!(json["summary"]["total"], 1);
+    assert_eq!(json["summary"]["ok"], 1);
+    assert_eq!(json["summary"]["warnings"], 0);
+    assert_eq!(json["summary"]["errors"], 0);
+    assert_eq!(json["categories_skipped"][0]["category"], "drift");
+    assert_eq!(json["categories_skipped"][0]["reason"], "no schema");
+    assert_eq!(json["results"][0]["category"], "doctor");
+    assert_eq!(json["results"][0]["status"], "ok");
+}
+
+#[test]
+fn test_check_run_doctor_only() {
+    // Run only doctor category — should always succeed
+    let report = run_checks(Some(&[CheckCategory::Doctor]));
+    // Doctor should produce results (config check at minimum)
+    assert!(!report.results.is_empty());
+    // All results should be Doctor category
+    for r in &report.results {
+        assert_eq!(r.category, CheckCategory::Doctor);
+    }
+}
+
+#[test]
+fn test_check_run_skips_missing_prerequisites() {
+    // Run all checks — validate/drift/age may be skipped depending on env
+    let report = run_checks(None);
+    // Doctor always runs, so we should have some results
+    assert!(!report.results.is_empty() || !report.skipped.is_empty());
+}
+
+#[test]
+fn test_check_category_names() {
+    assert_eq!(CheckCategory::Doctor.name(), "doctor");
+    assert_eq!(CheckCategory::Validate.name(), "validate");
+    assert_eq!(CheckCategory::Scan.name(), "scan");
+    assert_eq!(CheckCategory::Age.name(), "age");
+    assert_eq!(CheckCategory::Drift.name(), "drift");
+}
+
+#[test]
+fn test_check_category_display_names() {
+    assert_eq!(CheckCategory::Doctor.display_name(), "Doctor");
+    assert_eq!(CheckCategory::Validate.display_name(), "Validate");
+    assert_eq!(CheckCategory::Scan.display_name(), "Scan");
+    assert_eq!(CheckCategory::Age.display_name(), "Age");
+    assert_eq!(CheckCategory::Drift.display_name(), "Drift");
 }
