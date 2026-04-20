@@ -1,0 +1,67 @@
+# Example workflow demonstrating EnvForge GitHub Action usage.
+# Copy and adapt for your own projects.
+#
+# For real usage, reference as: emreerinc/envforge/action@v1
+
+name: EnvForge Example
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.env*'
+      - '.env.schema'
+
+jobs:
+  # ── Validate .env against schema ──────────────────────────────
+  validate:
+    name: Validate ENV Schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate environment
+        uses: ./action
+        with:
+          mode: validate
+          schema: .env.schema
+          env-file: .env
+
+  # ── Detect drift across environments ──────────────────────────
+  drift:
+    name: Drift Detection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check drift
+        id: drift
+        uses: ./action
+        with:
+          mode: drift
+          schema: .env.schema
+          drift-envs: |
+            .env.development
+            .env.staging
+            .env.production
+
+      - name: Report drift
+        if: steps.drift.outputs.drift-result == 'drift'
+        run: echo "::warning::Environment drift detected across .env files"
+
+  # ── Run tests with managed env vars ───────────────────────────
+  test:
+    name: Test with EnvForge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tests
+        uses: ./action
+        with:
+          mode: run
+          command: cargo test
+          overrides: |
+            DATABASE_URL=postgres://localhost/test
+            ENVIRONMENT=ci

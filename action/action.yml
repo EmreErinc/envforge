@@ -1,0 +1,106 @@
+name: 'EnvForge'
+description: 'Manage environment variables and secrets in CI/CD with EnvForge'
+author: 'Emre Erinc'
+
+branding:
+  icon: 'lock'
+  color: 'green'
+
+inputs:
+  mode:
+    description: 'Operation mode: validate, secrets-pull, export, run, drift'
+    required: true
+  version:
+    description: 'EnvForge version to install (e.g. 0.4.0). Defaults to latest.'
+    required: false
+    default: 'latest'
+  profile:
+    description: 'EnvForge profile to use'
+    required: false
+  schema:
+    description: 'Path to .env.schema file'
+    required: false
+  provider:
+    description: 'Secret provider name (vault, aws-ssm, 1password, doppler, infisical, gcp, azure)'
+    required: false
+  provider-path:
+    description: 'Secret path in the provider'
+    required: false
+    default: ''
+  env-file:
+    description: 'Path to .env file (for validate/export modes)'
+    required: false
+  environment:
+    description: 'Environment name for schema overrides (e.g. production, staging)'
+    required: false
+  command:
+    description: 'Command to run (for run mode)'
+    required: false
+  filter:
+    description: 'Filter pattern for keys'
+    required: false
+  resolve-secrets:
+    description: 'Resolve secret references at runtime (for run/export modes)'
+    required: false
+    default: 'false'
+  export-env:
+    description: 'Export variables to GITHUB_ENV (for secrets-pull/export modes)'
+    required: false
+    default: 'true'
+  mask-values:
+    description: 'Mask exported values in GitHub Actions logs'
+    required: false
+    default: 'true'
+  env-files:
+    description: 'Additional .env files to load (newline or comma separated, for run/export modes)'
+    required: false
+  overrides:
+    description: 'Variable overrides as KEY=VALUE (newline or comma separated)'
+    required: false
+  drift-envs:
+    description: 'Paths to .env files for drift comparison (newline or comma separated)'
+    required: false
+
+outputs:
+  variables:
+    description: 'JSON object of exported variables (keys and values)'
+    value: ${{ steps.envforge.outputs.variables }}
+  count:
+    description: 'Number of variables processed'
+    value: ${{ steps.envforge.outputs.count }}
+  validation-result:
+    description: 'Validation result: pass or fail'
+    value: ${{ steps.envforge.outputs.validation-result }}
+  drift-result:
+    description: 'Drift detection result: clean or drift'
+    value: ${{ steps.envforge.outputs.drift-result }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install EnvForge
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: ${{ github.action_path }}/scripts/install.sh
+
+    - name: Run EnvForge
+      id: envforge
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_SCHEMA: ${{ inputs.schema }}
+        INPUT_PROVIDER: ${{ inputs.provider }}
+        INPUT_PROVIDER_PATH: ${{ inputs.provider-path }}
+        INPUT_ENV_FILE: ${{ inputs.env-file }}
+        INPUT_ENVIRONMENT: ${{ inputs.environment }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_FILTER: ${{ inputs.filter }}
+        INPUT_RESOLVE_SECRETS: ${{ inputs.resolve-secrets }}
+        INPUT_EXPORT_ENV: ${{ inputs.export-env }}
+        INPUT_MASK_VALUES: ${{ inputs.mask-values }}
+        INPUT_ENV_FILES: ${{ inputs.env-files }}
+        INPUT_OVERRIDES: ${{ inputs.overrides }}
+        INPUT_DRIFT_ENVS: ${{ inputs.drift-envs }}
+      run: ${{ github.action_path }}/scripts/run.sh

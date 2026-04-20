@@ -12,6 +12,7 @@ EnvForge safely manages environment variables in your shell configuration files 
 
 | Category | Highlights |
 |----------|-----------|
+| **CI/CD** | GitHub Action with 5 modes: validate, secrets-pull, export, run, drift |
 | **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
 | **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
 | **CLI** | 50+ subcommands, `--json` output, `--dry-run` preview, shell completions |
@@ -512,6 +513,59 @@ credentials.toml
 ⚠ AI safety — .env found but no .envforgeignore — secrets may leak to AI tools
   → Create .envforgeignore or run: envforge export --safe for redacted output
 ```
+
+### GitHub Action (CI/CD)
+
+Use EnvForge in your CI/CD pipelines with the official GitHub Action:
+
+```yaml
+# Validate .env against schema on every PR
+- uses: emreerinc/envforge/action@v1
+  with:
+    mode: validate
+    schema: .env.schema
+    env-file: .env
+
+# Pull secrets from any provider into your workflow
+- uses: emreerinc/envforge/action@v1
+  with:
+    mode: secrets-pull
+    provider: aws-ssm
+    provider-path: /myapp/production
+
+# Run tests with process-scoped secrets (never leak to other steps)
+- uses: emreerinc/envforge/action@v1
+  with:
+    mode: run
+    command: npm test
+    resolve-secrets: 'true'
+
+# Detect drift across environment files
+- uses: emreerinc/envforge/action@v1
+  with:
+    mode: drift
+    drift-envs: |
+      .env.development
+      .env.staging
+      .env.production
+```
+
+**5 modes:**
+
+| Mode | Description |
+|------|-------------|
+| `validate` | Check `.env` against `.env.schema`, fail on errors |
+| `secrets-pull` | Pull from 7 providers → `GITHUB_ENV` (masked by default) |
+| `export` | Export EnvForge-managed vars into workflow |
+| `run` | Process-scoped injection — secrets don't persist |
+| `drift` | Compare `.env` files, detect config drift |
+
+**Security features:**
+- Values masked in Actions logs by default (`mask-values: true`)
+- `run` mode = process-scoped, no `GITHUB_ENV` leak
+- `export-env: false` option to prevent secrets leaking to subsequent steps
+
+See [action/README.md](action/README.md) for full documentation (all inputs, outputs, and examples).
 
 ### Git Merge Driver
 

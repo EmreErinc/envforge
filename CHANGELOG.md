@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-20
+
+### Added
+
+#### GitHub Action (`action/`)
+- **Composite GitHub Action** for CI/CD integration — manage ENV vars and secrets in pipelines
+- 5 operation modes: `validate`, `secrets-pull`, `export`, `run`, `drift`
+- **validate** — Check `.env` files against `.env.schema`, fail step on validation errors
+- **secrets-pull** — Pull secrets from any of 7 providers (Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure) into `GITHUB_ENV`
+- **export** — Export EnvForge-managed variables into workflow environment
+- **run** — Execute commands with process-scoped secret injection (secrets never persist in `GITHUB_ENV`)
+- **drift** — Detect configuration drift across `.env` files in PRs
+- Automatic binary installation from GitHub Releases (Linux x86_64/aarch64, macOS x86_64/aarch64)
+- Version pinning (`version` input) or auto-resolve latest release
+- Value masking in GitHub Actions logs by default (`mask-values: true`)
+- Multiline-safe `GITHUB_ENV` export using heredoc delimiters
+- All 4 outputs wired: `variables`, `count`, `validation-result`, `drift-result`
+- Example workflow (`.github/workflows/envforge-example.yml`)
+- Comprehensive test suite (`action/tests/test_action.sh`) — 21 tests covering syntax, input validation, integration, structure, and permissions
+
+#### Usage
+```yaml
+# Validate .env on PRs
+- uses: emreerinc/envforge/action@v1
+  with:
+    mode: validate
+    schema: .env.schema
+    env-file: .env
+
+# Pull secrets from AWS SSM
+- uses: emreerinc/envforge/action@v1
+  with:
+    mode: secrets-pull
+    provider: aws-ssm
+    provider-path: /myapp/production
+
+# Run tests with injected secrets
+- uses: emreerinc/envforge/action@v1
+  with:
+    mode: run
+    command: cargo test
+    resolve-secrets: 'true'
+```
+
+### Quality
+- 21 action tests, all passing
+- Shell scripts pass `bash -n` syntax validation
+- Action outputs correctly wired to composite step
+
 ## [0.4.0] - 2026-04-17
 
 ### Added
