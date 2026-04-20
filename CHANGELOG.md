@@ -5,9 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - 2026-04-20
+## [0.4.2] - 2026-04-20
 
 ### Added
+
+#### Multi-Format Export
+- `envforge export --format <fmt>` — Export env vars in 7 formats: `dotenv`, `json`, `yaml`, `toml`, `docker`, `k8s`, `tfvars`
+- **JSON** — `{"KEY": "VALUE"}` object, valid JSON
+- **YAML** — Properly quoted booleans (`true`/`false`), numbers, and YAML-special values (`null`, `~`, `yes`, `no`)
+- **TOML** — All values quoted, backslash and quote escaping
+- **Docker** — Bare `KEY=VALUE` for `--env-file`, no quotes or comments
+- **Kubernetes Secret** — Full manifest with base64-encoded `data:` section
+  - `--k8s-name NAME` — Set Secret name (default: `envforge-secrets`)
+  - `--k8s-namespace NS` — Set namespace (default: `default`)
+- **Terraform tfvars** — Lowercase keys, quoted values
+- Works with existing `--filter` flag
+
+#### Secret Age Tracking
+- `envforge secrets age [--threshold DAYS] [--stale-only]` — Show age of all tracked secrets
+- Automatically tracks when secrets are pulled from providers
+- Flags stale secrets exceeding threshold (default: 90 days)
+- Color-coded output: green ✓ for fresh, red ⚠ for stale
+- `--json` output with age_days, stale flag, provider info
+- Persistent tracking in `~/.config/envforge/secret-sources.toml`
+
+#### Provider Diff
+- `envforge secrets diff --from <provider> --path <path> [--filter PATTERN]` — Compare local ENV vs provider state
+- Shows 4 categories: same, changed, only-local, only-remote
+- Color-coded diff output with truncated values
+- `--json` output for CI/CD integration
+- Works with all 7 secret providers
 
 #### GitHub Action (`action/`)
 - **Composite GitHub Action** for CI/CD integration — manage ENV vars and secrets in pipelines
@@ -50,6 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ```
 
 ### Quality
+- 398 total tests (was 357), all passing
+- 27 new Tier 1 feature tests (export formats, secret age, edge cases)
 - 21 action tests, all passing
 - Shell scripts pass `bash -n` syntax validation
 - Action outputs correctly wired to composite step

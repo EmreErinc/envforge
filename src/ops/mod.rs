@@ -4,6 +4,7 @@ mod conflict;
 mod crud;
 pub mod doctor;
 pub mod dotenv;
+pub mod export_format;
 pub mod duplicates;
 pub mod encrypt;
 pub mod fuzzy;

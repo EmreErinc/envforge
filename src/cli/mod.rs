@@ -94,6 +94,18 @@ pub enum Commands {
         /// Only export entries matching this query
         #[arg(long)]
         filter: Option<String>,
+
+        /// Output format: dotenv, json, yaml, toml, docker, k8s, tfvars
+        #[arg(long)]
+        format: Option<String>,
+
+        /// Kubernetes Secret name (for k8s format, default: envforge-secrets)
+        #[arg(long)]
+        k8s_name: Option<String>,
+
+        /// Kubernetes namespace (for k8s format, default: default)
+        #[arg(long)]
+        k8s_namespace: Option<String>,
     },
 
     /// Manage Git merge driver for .env files

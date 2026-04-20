@@ -1,3 +1,4 @@
+pub mod age;
 pub mod cache;
 pub mod credentials;
 pub mod modes;

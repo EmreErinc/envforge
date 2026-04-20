@@ -96,6 +96,32 @@ pub enum SecretsAction {
 
     /// Show which keys come from which provider
     Status,
+
+    /// Show age of tracked secrets, flag stale ones
+    Age {
+        /// Stale threshold in days (default: 90)
+        #[arg(long, default_value = "90")]
+        threshold: i64,
+
+        /// Only show stale secrets
+        #[arg(long)]
+        stale_only: bool,
+    },
+
+    /// Compare local ENV vars vs provider state
+    Diff {
+        /// Provider name
+        #[arg(long)]
+        from: String,
+
+        /// Secret path in the provider
+        #[arg(long, default_value = "")]
+        path: String,
+
+        /// Filter keys by glob pattern
+        #[arg(long)]
+        filter: Option<String>,
+    },
 }
 
 pub fn execute_secrets(
@@ -133,6 +159,13 @@ pub fn execute_secrets(
         } => cmd_secrets_config(provider, set.as_deref(), *show, *remove, json),
         SecretsAction::Providers => cmd_secrets_providers(json),
         SecretsAction::Status => cmd_secrets_status(json),
+        SecretsAction::Age {
+            threshold,
+            stale_only,
+        } => cmd_secrets_age(*threshold, *stale_only, json),
+        SecretsAction::Diff { from, path, filter } => {
+            cmd_secrets_diff(from, path, filter.as_deref(), json)
+        }
     }
 }
 
@@ -148,6 +181,12 @@ fn cmd_secrets_pull(
 
     let (entries, result, _sources) =
         modes::pull_secrets(&registry, provider_name, path, filter, &existing)?;
+
+    // Track secret ages (skip on dry-run)
+    if !dry_run {
+        let all_keys: Vec<String> = entries.iter().map(|(k, _)| k.clone()).collect();
+        let _ = crate::ops::secrets::age::record_pull(&all_keys, provider_name, path);
+    }
 
     if json_output {
         println!(
@@ -520,6 +559,262 @@ fn cmd_secrets_status(json_output: bool) -> Result<(), Box<dyn std::error::Error
         for p in &configured {
             println!("  ✓ {}", p);
         }
+    }
+
+    Ok(())
+}
+
+fn cmd_secrets_age(
+    threshold: i64,
+    stale_only: bool,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::secrets::age::get_age_report;
+
+    let entries = get_age_report(threshold)?;
+
+    if entries.is_empty() {
+        if json_output {
+            println!("{}", json!({"secrets": [], "stale_count": 0}));
+        } else {
+            println!("No tracked secrets. Pull secrets to start tracking age.");
+        }
+        return Ok(());
+    }
+
+    let filtered: Vec<_> = if stale_only {
+        entries.into_iter().filter(|e| e.stale).collect()
+    } else {
+        entries
+    };
+
+    let stale_count = filtered.iter().filter(|e| e.stale).count();
+
+    if json_output {
+        let items: Vec<serde_json::Value> = filtered
+            .iter()
+            .map(|e| {
+                json!({
+                    "key": e.key,
+                    "provider": e.provider,
+                    "path": e.path,
+                    "updated_at": e.updated_at,
+                    "age_days": e.age_days,
+                    "stale": e.stale,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "secrets": items,
+                "stale_count": stale_count,
+                "threshold_days": threshold,
+            }))?
+        );
+    } else {
+        println!(
+            "{:<30} {:<12} {:<8} {:<12}",
+            "KEY", "PROVIDER", "AGE", "STATUS"
+        );
+        println!("{}", "-".repeat(65));
+
+        for e in &filtered {
+            let age_str = if e.age_days < 0 {
+                "unknown".to_string()
+            } else if e.age_days == 0 {
+                "today".to_string()
+            } else if e.age_days == 1 {
+                "1 day".to_string()
+            } else {
+                format!("{} days", e.age_days)
+            };
+
+            let status = if e.stale {
+                "\x1b[31m⚠ STALE\x1b[0m"
+            } else {
+                "\x1b[32m✓ ok\x1b[0m"
+            };
+
+            println!("{:<30} {:<12} {:<8} {}", e.key, e.provider, age_str, status);
+        }
+
+        println!();
+        if stale_count > 0 {
+            println!(
+                "{} secret(s) older than {} days. Consider rotating them.",
+                stale_count, threshold
+            );
+        } else {
+            println!("All {} secrets within {} day threshold.", filtered.len(), threshold);
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_secrets_diff(
+    provider_name: &str,
+    path: &str,
+    filter: Option<&str>,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let registry = create_default_registry();
+
+    // Pull remote secrets
+    let existing = std::collections::HashMap::new();
+    let (remote_entries, _, _) =
+        modes::pull_secrets(&registry, provider_name, path, filter, &existing)?;
+    let remote: std::collections::BTreeMap<String, String> =
+        remote_entries.into_iter().collect();
+
+    // Load local entries
+    let config = crate::config::load_or_create_default()?;
+    let mut shell_files = Vec::new();
+    let primary = shellexpand(&config.files.primary);
+    if primary.exists() {
+        shell_files.push(crate::parser::parse_shell_file(&primary)?);
+    }
+    let ref_path = shellexpand(&config.files.reference);
+    if config.files.use_reference_file && ref_path.exists() {
+        shell_files.push(crate::parser::parse_shell_file(&ref_path)?);
+    }
+
+    // Load profile files
+    if !config.profiles.active.is_empty() {
+        if let Some(profile) = config.profiles.entries.get(&config.profiles.active) {
+            let profile_path = shellexpand(&profile.file);
+            if profile_path.exists() {
+                shell_files.push(crate::parser::parse_shell_file(&profile_path)?);
+            }
+        }
+    }
+    let shared = shellexpand(&config.profiles.shared_file);
+    if shared.exists() {
+        shell_files.push(crate::parser::parse_shell_file(&shared)?);
+    }
+
+    let all_entries = crate::ops::collect_all_entries(&shell_files);
+    let local: std::collections::BTreeMap<String, String> = all_entries
+        .iter()
+        .filter(|e| e.location != crate::ops::EntryLocation::Commented)
+        .map(|e| (e.key.clone(), e.value.clone()))
+        .collect();
+
+    // Apply filter to local keys too
+    let local: std::collections::BTreeMap<String, String> = if let Some(pattern) = filter {
+        local
+            .into_iter()
+            .filter(|(k, _)| modes::glob_match(pattern, k))
+            .collect()
+    } else {
+        local
+    };
+
+    // Compute diff
+    let mut all_keys: Vec<String> = Vec::new();
+    for k in remote.keys().chain(local.keys()) {
+        if !all_keys.contains(k) {
+            all_keys.push(k.clone());
+        }
+    }
+    all_keys.sort();
+
+    let mut only_remote = Vec::new();
+    let mut only_local = Vec::new();
+    let mut changed = Vec::new();
+    let mut same = Vec::new();
+
+    for key in &all_keys {
+        match (local.get(key), remote.get(key)) {
+            (Some(lv), Some(rv)) => {
+                if lv == rv {
+                    same.push(key.clone());
+                } else {
+                    changed.push((key.clone(), lv.clone(), rv.clone()));
+                }
+            }
+            (None, Some(_rv)) => {
+                only_remote.push(key.clone());
+            }
+            (Some(_lv), None) => {
+                only_local.push(key.clone());
+            }
+            (None, None) => {}
+        }
+    }
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "provider": provider_name,
+                "path": path,
+                "same": same.len(),
+                "changed": changed.iter().map(|(k, l, r)| json!({"key": k, "local": l, "remote": r})).collect::<Vec<_>>(),
+                "only_local": only_local,
+                "only_remote": only_remote,
+            }))?
+        );
+    } else {
+        println!(
+            "Diff: local vs {} ({})\n",
+            provider_name,
+            if path.is_empty() { "/" } else { path }
+        );
+
+        if !changed.is_empty() {
+            println!(
+                "\x1b[33m~~~ Changed: {} key(s)\x1b[0m",
+                changed.len()
+            );
+            for (key, local_val, remote_val) in &changed {
+                println!("  \x1b[33m~ {}\x1b[0m", key);
+                let lv = if local_val.len() > 40 {
+                    format!("{}...", &local_val[..37])
+                } else {
+                    local_val.clone()
+                };
+                let rv = if remote_val.len() > 40 {
+                    format!("{}...", &remote_val[..37])
+                } else {
+                    remote_val.clone()
+                };
+                println!("    \x1b[31m- local:  {}\x1b[0m", lv);
+                println!("    \x1b[32m+ remote: {}\x1b[0m", rv);
+            }
+            println!();
+        }
+
+        if !only_local.is_empty() {
+            println!(
+                "\x1b[31m--- Only local: {} key(s)\x1b[0m",
+                only_local.len()
+            );
+            for key in &only_local {
+                println!("  - {}", key);
+            }
+            println!();
+        }
+
+        if !only_remote.is_empty() {
+            println!(
+                "\x1b[32m+++ Only remote: {} key(s)\x1b[0m",
+                only_remote.len()
+            );
+            for key in &only_remote {
+                println!("  + {}", key);
+            }
+            println!();
+        }
+
+        println!(
+            "Summary: {} same, {} changed, {} only local, {} only remote",
+            same.len(),
+            changed.len(),
+            only_local.len(),
+            only_remote.len()
+        );
     }
 
     Ok(())

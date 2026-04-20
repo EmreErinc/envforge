@@ -24,11 +24,16 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             safe,
             env_example,
             filter,
+            format,
+            k8s_name,
+            k8s_namespace,
         } => {
             if *safe {
                 cmd_export_safe(path.as_deref())
             } else if *env_example {
                 cmd_export_env_example(path.as_deref())
+            } else if let Some(fmt) = format {
+                cmd_export_format(path.as_deref(), fmt, filter.as_deref(), k8s_name.as_deref(), k8s_namespace.as_deref())
             } else {
                 cmd_export(path.as_deref(), *exclude_sensitive, filter.as_deref())
             }
@@ -339,6 +344,40 @@ fn cmd_export(
             }
             std::fs::write(out_path, &output)?;
             println!("Exported {} entries to {}", entries.len(), p);
+        }
+        None => {
+            print!("{}", output);
+        }
+    }
+    Ok(())
+}
+
+fn cmd_export_format(
+    path: Option<&str>,
+    format_name: &str,
+    filter_query: Option<&str>,
+    k8s_name: Option<&str>,
+    k8s_namespace: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::export_format::{export_as, ExportFormat};
+
+    let format = ExportFormat::parse(format_name).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+    let (_config, shell_files) = load_context()?;
+    let entries = collect_all_entries(&shell_files);
+
+    let filtered = if let Some(query) = filter_query {
+        filter_entries(&entries, query)
+    } else {
+        entries.to_vec()
+    };
+
+    let output = export_as(&filtered, &format, k8s_name, k8s_namespace);
+
+    match path {
+        Some(p) => {
+            std::fs::write(p, &output)?;
+            println!("Exported {} entries to {} ({})", filtered.iter().filter(|e| e.location != EntryLocation::Commented).count(), p, format_name);
         }
         None => {
             print!("{}", output);

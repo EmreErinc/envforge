@@ -15,6 +15,7 @@ EnvForge safely manages environment variables in your shell configuration files 
 | **CI/CD** | GitHub Action with 5 modes: validate, secrets-pull, export, run, drift |
 | **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
 | **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
+| **Export** | 7 formats: dotenv, JSON, YAML, TOML, Docker, K8s Secret, Terraform tfvars |
 | **CLI** | 50+ subcommands, `--json` output, `--dry-run` preview, shell completions |
 | **Run** | `envforge run` — subprocess ENV injection with profile, resolve, .env file support |
 | **Schema** | `.env.schema` — type validation, onboarding wizard, docs generation, drift detection |
@@ -290,6 +291,9 @@ envforge export [path]                   # Export to .env format
   --safe                                 # Redact sensitive values as [REDACTED]
   --env-example                          # Generate .env.example from schema
   --filter PATTERN                       # Only matching keys
+  --format FMT                           # json, yaml, toml, docker, k8s, tfvars
+  --k8s-name NAME                        # K8s Secret name (default: envforge-secrets)
+  --k8s-namespace NS                     # K8s namespace (default: default)
 
 # Run
 envforge run [flags] -- <cmd> [args]     # Run command with injected ENV
@@ -442,6 +446,10 @@ envforge run --resolve -- npm start
 envforge secrets providers                      # List all 7 with status
 envforge secrets status                         # Show configured providers
 envforge secrets config vault --show            # Show stored credentials
+envforge secrets age [--threshold N]             # Show secret ages, flag stale
+envforge secrets age --stale-only                # Only stale secrets
+envforge secrets diff --from vault --path PATH   # Compare local vs provider
+envforge secrets diff --from aws-ssm --filter P  # Diff with filter
 ```
 
 **Three modes:**
@@ -512,6 +520,111 @@ credentials.toml
 ```
 ⚠ AI safety — .env found but no .envforgeignore — secrets may leak to AI tools
   → Create .envforgeignore or run: envforge export --safe for redacted output
+```
+
+### Multi-Format Export
+
+Export your environment variables in any format your infrastructure needs:
+
+```bash
+# JSON (for config files, APIs)
+envforge export --format json
+
+# YAML (for docker-compose, Ansible)
+envforge export --format yaml
+
+# TOML (for Rust, Python config)
+envforge export --format toml
+
+# Docker env-file (bare KEY=VALUE)
+envforge export --format docker
+
+# Kubernetes Secret manifest (base64-encoded)
+envforge export --format k8s
+envforge export --format k8s --k8s-name my-secrets --k8s-namespace production
+
+# Terraform tfvars
+envforge export --format tfvars
+
+# Combine with filter
+envforge export --format json --filter "DB_*"
+
+# Save to file
+envforge export --format k8s --k8s-name app-secrets -o secrets.yaml
+```
+
+**Supported formats:**
+
+| Format | Alias | Output |
+|--------|-------|--------|
+| `dotenv` | `env`, `.env` | `KEY=VALUE` with quoting |
+| `json` | — | `{"KEY": "VALUE"}` |
+| `yaml` | `yml` | YAML with proper quoting |
+| `toml` | — | `KEY = "VALUE"` |
+| `docker` | `docker-env` | Bare `KEY=VALUE` |
+| `k8s` | `kubernetes` | K8s Secret manifest |
+| `tfvars` | `terraform`, `tf` | Terraform variables |
+
+### Secret Age Tracking
+
+Track when secrets were last pulled and flag stale ones:
+
+```bash
+# Show age of all tracked secrets
+envforge secrets age
+
+# Flag secrets older than 30 days
+envforge secrets age --threshold 30
+
+# Only show stale secrets
+envforge secrets age --stale-only
+
+# JSON output for CI
+envforge secrets age --json
+```
+
+Output:
+```
+KEY                            PROVIDER     AGE      STATUS
+-----------------------------------------------------------------
+API_KEY                        vault        120 days ⚠ STALE
+DB_PASSWORD                    aws-ssm      45 days  ✓ ok
+STRIPE_KEY                     doppler      2 days   ✓ ok
+
+1 secret(s) older than 90 days. Consider rotating them.
+```
+
+### Provider Diff
+
+Compare your local environment against a secret provider to find drift:
+
+```bash
+# Compare local vs Vault
+envforge secrets diff --from vault --path secret/myapp
+
+# Compare with filter
+envforge secrets diff --from aws-ssm --path /prod --filter "DB_*"
+
+# JSON output
+envforge secrets diff --from doppler --json
+```
+
+Output:
+```
+Diff: local vs vault (secret/myapp)
+
+~~~ Changed: 2 key(s)
+  ~ DB_HOST
+    - local:  localhost
+    + remote: prod-db.internal
+
+--- Only local: 1 key(s)
+  - DEBUG
+
++++ Only remote: 1 key(s)
+  + NEW_FEATURE_FLAG
+
+Summary: 5 same, 2 changed, 1 only local, 1 only remote
 ```
 
 ### GitHub Action (CI/CD)
