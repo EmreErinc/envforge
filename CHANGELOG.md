@@ -57,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Status bar with variable count
   - Syntax highlighting for `.env` and `.env.schema` files
   - Search in API documentation (`/` or `Cmd+K`)
-- **IntelliJ IDEA plugin** — [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.envforge.intellij)
+- **IntelliJ IDEA plugin** — [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.envforge.ide)
   - Same LSP features via LSP4IJ (diagnostics, hover, completions, go-to-definition)
   - Tool window with Variables + Profiles panels
   - Prefix grouping toggle, sensitive value masking

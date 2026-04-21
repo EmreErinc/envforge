@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>com.envforge.intellij</id>
+    <id>com.envforge.ide</id>
     <name>EnvForge</name>
     <version>0.1.0</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>

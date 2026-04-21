@@ -1424,7 +1424,7 @@ EnvForge includes a built-in Language Server (`envforge lsp`) and extensions for
 ext install emreerinc.envforge-env-manager
 ```
 
-**IntelliJ IDEA** — [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.envforge.intellij)
+**IntelliJ IDEA** — [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.envforge.ide)
 
 ```
 Settings > Plugins > Marketplace > Search "EnvForge"
