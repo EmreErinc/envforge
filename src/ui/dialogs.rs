@@ -346,6 +346,7 @@ fn help_page_shortcuts() -> Vec<Line<'static>> {
         help_shortcut("r", "Restore deleted variable"),
         help_shortcut("u", "Undo last operation"),
         help_shortcut("c", "Copy value to clipboard"),
+        help_shortcut("K", "Copy key name to clipboard"),
         help_shortcut("C", "Copy KEY=VALUE to clipboard"),
         help_shortcut("m", "Move to reference file"),
         Line::from(""),

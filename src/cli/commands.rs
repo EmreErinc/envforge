@@ -15,7 +15,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Get { key } => cmd_get(key, json),
         Commands::Set { assignment } => cmd_set(assignment, dry_run),
         Commands::Delete { key } => cmd_delete(key, dry_run),
-        Commands::Copy { key } => cmd_copy(key),
+        Commands::Copy { key, key_only } => cmd_copy(key, *key_only),
         Commands::Move { key } => cmd_move(key, dry_run),
         Commands::Import { path, force } => cmd_import(path, *force, dry_run),
         Commands::Export {
@@ -131,6 +131,10 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref()),
         Commands::Deps { key, source } => cmd_deps(key, *source),
         Commands::Man { command } => cmd_man(command),
+        Commands::Lsp => {
+            crate::lsp::run_lsp();
+            return;
+        }
     };
 
     if let Err(e) = result {
@@ -266,7 +270,7 @@ fn cmd_delete(key: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-fn cmd_copy(key: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_copy(key: &str, key_only: bool) -> Result<(), Box<dyn std::error::Error>> {
     let (_config, shell_files) = load_context()?;
     let entries = collect_all_entries(&shell_files);
 
@@ -275,8 +279,13 @@ fn cmd_copy(key: &str) -> Result<(), Box<dyn std::error::Error>> {
         .find(|e| e.key == key && e.location != EntryLocation::Commented)
         .ok_or_else(|| format!("Key '{}' not found", key))?;
 
-    copy_value(entry)?;
-    println!("Copied value of {}", key);
+    if key_only {
+        crate::ops::copy_key(entry)?;
+        println!("Copied key: {}", key);
+    } else {
+        copy_value(entry)?;
+        println!("Copied value of {}", key);
+    }
     Ok(())
 }
 

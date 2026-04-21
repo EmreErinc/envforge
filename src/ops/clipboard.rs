@@ -32,6 +32,11 @@ pub fn copy_value(entry: &EnvEntry) -> Result<(), ClipboardError> {
     copy_to_clipboard(&entry.value)
 }
 
+/// Copy just the key name of an ENV entry to the clipboard.
+pub fn copy_key(entry: &EnvEntry) -> Result<(), ClipboardError> {
+    copy_to_clipboard(&entry.key)
+}
+
 /// Copy KEY=VALUE of an ENV entry to the clipboard.
 pub fn copy_key_value(entry: &EnvEntry) -> Result<(), ClipboardError> {
     let text = format!("{}={}", entry.key, entry.value);

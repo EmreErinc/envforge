@@ -56,6 +56,9 @@ pub enum Commands {
     Copy {
         /// Variable name
         key: String,
+        /// Copy key name instead of value
+        #[arg(long)]
+        key_only: bool,
     },
 
     /// Move a variable to the reference file
@@ -482,6 +485,9 @@ pub enum Commands {
         /// Command name (e.g., "list", "sync push", "secrets pull")
         command: Vec<String>,
     },
+
+    /// Start Language Server Protocol server (for IDE extensions)
+    Lsp,
 }
 
 #[derive(Subcommand)]

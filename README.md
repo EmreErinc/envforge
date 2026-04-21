@@ -100,6 +100,7 @@ envforge revoke --all
 | **Encryption** | Age (X25519) encryption at rest, encrypted sync, per-value encrypt/decrypt |
 | **Remote Sync** | Git-based cross-machine sync, age-encrypted, selective keys, rollback |
 | **Secret Managers** | 7 providers, URI refs (`vault://`), TTL, offline fallback, cache |
+| **IDE Extensions** | VS Code + IntelliJ — LSP diagnostics, hover, completions, go-to-definition |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
 | **Health Check** | `envforge doctor` + `envforge check` — 15+ checks with fix suggestions |
 | **Security** | Secret scanning, pre-commit hooks, value masking, credential TTL |
@@ -1411,6 +1412,40 @@ envforge man fence
 envforge man fenc
 # → Did you mean: fence
 ```
+
+### IDE Extensions
+
+EnvForge includes a built-in Language Server (`envforge lsp`) and extensions for VS Code and IntelliJ IDEA.
+
+**VS Code** — [Marketplace](https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager)
+
+```bash
+# Install from VS Code
+ext install emreerinc.envforge-env-manager
+```
+
+**IntelliJ IDEA** — [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.envforge.intellij)
+
+```
+Settings > Plugins > Marketplace > Search "EnvForge"
+```
+
+**What you get in both IDEs:**
+
+| Feature | Description |
+|---------|-------------|
+| Diagnostics | Missing required vars, type errors, secret leak warnings — real-time |
+| Hover | Type, description, default, example from `.env.schema` |
+| Completions | All envforge-managed vars + schema keys + value suggestions |
+| Go-to-definition | Click key in `.env` → jumps to `.env.schema` section |
+| Variables panel | Grouped by prefix, sensitive values masked, copy key/value |
+| Profiles panel | View all profiles, switch with one click |
+| Commands | Validate, scan, export, sync, health check, schema generate |
+| Status bar | Variable count |
+
+Requires `envforge` CLI installed. Extensions use `envforge lsp` for language features and `envforge <cmd> --json` for commands.
+
+See [`editors/`](editors/) for detailed setup guides, Neovim/Helix/Sublime configs, and feature parity table.
 
 ## Architecture
 

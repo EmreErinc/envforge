@@ -2276,6 +2276,37 @@ envforge hook fish | source
 
 ---
 
+### envforge lsp
+
+Start the Language Server Protocol server for IDE integration.
+
+```
+Usage: envforge lsp
+```
+
+The LSP server communicates over stdio (stdin/stdout) and is launched automatically by IDE extensions.
+
+**Capabilities:**
+
+| Feature | Description |
+|---------|-------------|
+| Diagnostics | Missing required vars, type validation, secret leak warnings |
+| Hover | Type, description, default, example from `.env.schema` |
+| Completions | All envforge-managed vars, schema keys, value suggestions |
+| Go-to-definition | `.env` key → `.env.schema` section |
+
+**Supported files:** `.env`, `.env.*`, `*.env`, `.env.schema`
+
+**IDE Extensions:**
+
+- **VS Code** — Install from [Marketplace](https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager) or `ext install emreerinc.envforge-env-manager`
+- **IntelliJ IDEA** — Install from [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.envforge.intellij) (requires LSP4IJ plugin)
+- **Neovim** — Configure via `nvim-lspconfig` (see `editors/README.md`)
+- **Helix** — Add to `languages.toml` (see `editors/README.md`)
+- **Sublime Text** — Configure via LSP package (see `editors/README.md`)
+
+---
+
 ### envforge env
 
 Output environment variables as shell export statements (for eval).

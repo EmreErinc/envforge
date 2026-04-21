@@ -301,17 +301,17 @@ pub fn validate_against_schema(
     errors
 }
 
-struct EffectiveVar {
-    var_type: VarType,
-    required: bool,
-    default: Option<String>,
-    pattern: Option<String>,
-    values: Option<Vec<String>>,
-    min: Option<f64>,
-    max: Option<f64>,
+pub(crate) struct EffectiveVar {
+    pub(crate) var_type: VarType,
+    pub(crate) required: bool,
+    pub(crate) default: Option<String>,
+    pub(crate) pattern: Option<String>,
+    pub(crate) values: Option<Vec<String>>,
+    pub(crate) min: Option<f64>,
+    pub(crate) max: Option<f64>,
 }
 
-fn resolve_effective(var: &SchemaVariable, environment: Option<&str>) -> EffectiveVar {
+pub(crate) fn resolve_effective(var: &SchemaVariable, environment: Option<&str>) -> EffectiveVar {
     let mut eff = EffectiveVar {
         var_type: var.var_type.clone(),
         required: var.required,
@@ -351,7 +351,7 @@ fn resolve_effective(var: &SchemaVariable, environment: Option<&str>) -> Effecti
     eff
 }
 
-fn validate_value(key: &str, value: &str, eff: &EffectiveVar) -> Option<SchemaValidationError> {
+pub(crate) fn validate_value(key: &str, value: &str, eff: &EffectiveVar) -> Option<SchemaValidationError> {
     match eff.var_type {
         VarType::Number => match value.parse::<f64>() {
             Ok(n) => {

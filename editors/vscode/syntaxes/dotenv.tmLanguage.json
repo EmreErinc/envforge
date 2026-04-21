@@ -1,0 +1,54 @@
+{
+  "scopeName": "source.dotenv",
+  "name": "DotENV",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#variable" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "^\\s*#.*$",
+      "name": "comment.line.number-sign.dotenv"
+    },
+    "variable": {
+      "match": "^\\s*(export\\s+)?([A-Za-z_][A-Za-z0-9_]*)\\s*(=)\\s*(.*?)\\s*$",
+      "captures": {
+        "1": { "name": "keyword.other.export.dotenv" },
+        "2": { "name": "variable.other.dotenv" },
+        "3": { "name": "keyword.operator.assignment.dotenv" },
+        "4": {
+          "patterns": [
+            {
+              "match": "\"[^\"]*\"",
+              "name": "string.quoted.double.dotenv"
+            },
+            {
+              "match": "'[^']*'",
+              "name": "string.quoted.single.dotenv"
+            },
+            {
+              "match": "\\$\\{[^}]+\\}",
+              "name": "variable.other.bracket.dotenv"
+            },
+            {
+              "match": "\\$[A-Za-z_][A-Za-z0-9_]*",
+              "name": "variable.other.dollar.dotenv"
+            },
+            {
+              "match": "(true|false|yes|no|on|off)",
+              "name": "constant.language.boolean.dotenv"
+            },
+            {
+              "match": "\\d+",
+              "name": "constant.numeric.dotenv"
+            },
+            {
+              "match": ".+",
+              "name": "string.unquoted.dotenv"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

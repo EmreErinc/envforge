@@ -1,0 +1,115 @@
+<idea-plugin>
+    <id>com.envforge.intellij</id>
+    <name>EnvForge</name>
+    <version>0.1.0</version>
+    <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
+
+    <description><![CDATA[
+        <p>Environment variable management with schema validation, secret scanning, and multi-profile support.</p>
+        <ul>
+            <li><b>Diagnostics</b> — Missing required vars, type errors, secret leak warnings</li>
+            <li><b>Hover</b> — Schema info: type, description, default, example</li>
+            <li><b>Completions</b> — Key names from .env.schema</li>
+            <li><b>Go-to-definition</b> — Jump from .env key to .env.schema section</li>
+            <li><b>Commands</b> — Validate, scan, export, sync, profile switch</li>
+        </ul>
+        <p>Requires <code>envforge</code> CLI installed. Get it: <code>cargo install env-forge-tui</code></p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.redhat.devtools.lsp4ij</depends>
+
+    <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+        <server id="envforgeLsp"
+                name="EnvForge"
+                factoryClass="com.envforge.intellij.EnvForgeLspFactory"/>
+
+        <languageMapping language=""
+                         serverId="envforgeLsp"
+                         fileNamePattern=".env"/>
+        <languageMapping language=""
+                         serverId="envforgeLsp"
+                         fileNamePattern=".env.*"/>
+        <languageMapping language=""
+                         serverId="envforgeLsp"
+                         fileNamePattern="*.env"/>
+        <languageMapping language=""
+                         serverId="envforgeLsp"
+                         fileNamePattern=".env.schema"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="EnvForge"
+                    anchor="right"
+                    icon="/icons/envforge.svg"
+                    factoryClass="com.envforge.intellij.EnvForgeToolWindowFactory"/>
+        <statusBarWidgetFactory id="EnvForgeStatus"
+                                implementation="com.envforge.intellij.EnvForgeStatusBarFactory"
+                                order="after Position"/>
+        <notificationGroup id="EnvForge"
+                           displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <group id="EnvForge.Menu" text="EnvForge" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+            <action id="EnvForge.List"
+                    class="com.envforge.intellij.actions.ListAction"
+                    text="List Variables"
+                    description="List all environment variables"/>
+
+            <action id="EnvForge.ProfileSwitch"
+                    class="com.envforge.intellij.actions.ProfileSwitchAction"
+                    text="Switch Profile..."
+                    description="Switch to a different profile"/>
+
+            <action id="EnvForge.ProfileDiff"
+                    class="com.envforge.intellij.actions.ProfileDiffAction"
+                    text="Diff Profiles..."
+                    description="Compare two profiles"/>
+
+            <separator/>
+
+            <action id="EnvForge.Validate"
+                    class="com.envforge.intellij.actions.ValidateAction"
+                    text="Validate Against Schema"
+                    description="Run envforge schema validation"/>
+
+            <action id="EnvForge.Scan"
+                    class="com.envforge.intellij.actions.ScanAction"
+                    text="Scan for Secret Leaks"
+                    description="Scan for leaked secrets"/>
+
+            <action id="EnvForge.Doctor"
+                    class="com.envforge.intellij.actions.DoctorAction"
+                    text="Health Check"
+                    description="Run envforge health check"/>
+
+            <action id="EnvForge.Check"
+                    class="com.envforge.intellij.actions.CheckAction"
+                    text="Run All Checks"
+                    description="Run doctor + validate + scan + age + drift"/>
+
+            <action id="EnvForge.Export"
+                    class="com.envforge.intellij.actions.ExportAction"
+                    text="Export Variables..."
+                    description="Export env vars to different formats"/>
+
+            <action id="EnvForge.SyncPush"
+                    class="com.envforge.intellij.actions.SyncPushAction"
+                    text="Sync Push"
+                    description="Push env changes to remote"/>
+
+            <action id="EnvForge.SyncPull"
+                    class="com.envforge.intellij.actions.SyncPullAction"
+                    text="Sync Pull"
+                    description="Pull env changes from remote"/>
+
+            <action id="EnvForge.SchemaGenerate"
+                    class="com.envforge.intellij.actions.SchemaGenerateAction"
+                    text="Generate Schema"
+                    description="Generate .env.schema from current variables"/>
+        </group>
+    </actions>
+</idea-plugin>

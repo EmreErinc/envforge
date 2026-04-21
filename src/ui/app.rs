@@ -535,6 +535,14 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('K') => {
+                if let Some(entry) = self.selected_entry() {
+                    match crate::ops::copy_key(&entry) {
+                        Ok(()) => self.notify("Key copied", NotificationLevel::Success),
+                        Err(e) => self.notify(&e.to_string(), NotificationLevel::Error),
+                    }
+                }
+            }
             KeyCode::Char('C') => {
                 if let Some(entry) = self.selected_entry() {
                     match copy_key_value(&entry) {

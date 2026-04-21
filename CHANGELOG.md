@@ -46,6 +46,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Short name lookup: `man list` and `man "envforge list"` both work
 - "Did you mean?" suggestions for typos
 
+#### IDE Extensions & Language Server
+- `envforge lsp` — Built-in LSP server (stdio transport) for IDE integration
+- **VS Code extension** — [Marketplace](https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager)
+  - Diagnostics, hover, completions, go-to-definition via LSP
+  - Variables panel with prefix grouping, sensitive value masking
+  - Profiles panel with one-click switching
+  - 13 commands: validate, scan, export, sync, profile switch/diff, schema generate
+  - Copy Key Name / Copy Value via click and context menu
+  - Status bar with variable count
+  - Syntax highlighting for `.env` and `.env.schema` files
+  - Search in API documentation (`/` or `Cmd+K`)
+- **IntelliJ IDEA plugin** — [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.envforge.intellij)
+  - Same LSP features via LSP4IJ (diagnostics, hover, completions, go-to-definition)
+  - Tool window with Variables + Profiles panels
+  - Prefix grouping toggle, sensitive value masking
+  - Right-click: Copy Key Name, Copy Value, Copy KEY=VALUE
+  - 11 actions under Tools > EnvForge menu
+  - Supports IntelliJ 2024.2 — 2025.2+
+- Completions source from all envforge-managed vars (not hardcoded list)
+- Value completions: bool → true/false, enum → allowed values, defaults, `${VAR}` references
+- `K` key in TUI — copy key name to clipboard (new)
+- `envforge copy KEY --key-only` — copy key name via CLI (new)
+
 #### Documentation & Shell Setup
 - `docs/cli-reference.md` — 2,266-line comprehensive CLI reference
 - `docs/docs.html` — Styled documentation viewer with sidebar navigation

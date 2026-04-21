@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="envforge-icon.svg">
   <title>EnvForge - AI-Safe Environment Variable Manager | Protect Secrets from AI Agents</title>
   <meta name="description" content="The first env management tool built to protect secrets FROM AI coding agents. 22 AI safety tools, encrypted sync, 7 secret providers, TUI + CLI. Free, open source, written in Rust.">
   <meta name="keywords" content="environment variable manager, env file security, AI agent secrets, secrets management CLI, dotenv alternative, protect secrets from AI, vibe coding security, MCP secrets">
@@ -392,7 +393,7 @@
 
   <!-- Nav -->
   <nav>
-    <div class="nav-logo"><span>&gt;</span> envforge</div>
+    <div class="nav-logo"><img src="envforge-icon.svg" alt="EnvForge" width="28" height="28" style="vertical-align: middle; margin-right: 8px; border-radius: 6px;"> envforge</div>
     <div class="nav-links">
       <a href="docs.html">Docs</a>
       <a href="https://github.com/emreerinc/envforge">GitHub</a>
@@ -633,6 +634,15 @@
           <p>8 formats. One command. Feed your secrets into any infrastructure tool.</p>
           <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
             .env &middot; JSON &middot; YAML &middot; TOML &middot; Docker &middot; Docker Secrets &middot; Kubernetes Secret &middot; Terraform tfvars
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128187;</span> IDE Extensions</h3>
+          <p>Built-in LSP server. Diagnostics, hover, completions, go-to-definition in your editor. Variables panel with grouping and profile switching.</p>
+          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+            <a href="https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager" style="color: var(--accent);">VS Code</a> &middot;
+            <a href="https://plugins.jetbrains.com/plugin/com.envforge.intellij" style="color: var(--accent);">IntelliJ IDEA</a> &middot;
+            Neovim &middot; Helix &middot; Sublime Text
           </p>
         </div>
       </div>
