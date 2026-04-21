@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EnvForge CLI Reference — Complete Command Documentation</title>
+  <meta name="description" content="Complete CLI reference for EnvForge. 90+ commands covering variable management, AI safety, secret providers, sync, schema validation, and more.">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-yellow: #d29922;
+      --border: #30363d;
+      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    nav {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 1200px;
+      margin: 0 auto;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 10;
+    }
+    .nav-logo {
+      font-family: var(--font-mono);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .nav-logo span { color: var(--accent-green); }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { color: var(--text-muted); font-size: 0.9rem; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+    .nav-links a.active { color: var(--accent); font-weight: 600; }
+
+    .layout {
+      display: flex;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 240px;
+      min-width: 240px;
+      border-right: 1px solid var(--border);
+      padding: 1.5rem 1rem;
+      position: sticky;
+      top: 52px;
+      height: calc(100vh - 52px);
+      overflow-y: auto;
+    }
+    .sidebar h4 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin: 1.5rem 0 0.5rem;
+    }
+    .sidebar h4:first-child { margin-top: 0; }
+    .sidebar a {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+    }
+    .sidebar a:hover { color: var(--text); background: var(--bg-secondary); text-decoration: none; }
+
+    /* Search */
+    .search-box {
+      position: relative;
+      margin-bottom: 1rem;
+    }
+    .search-box input {
+      width: 100%;
+      padding: 0.45rem 0.6rem 0.45rem 1.8rem;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.8rem;
+      font-family: var(--font-sans);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .search-box input:focus { border-color: var(--accent); }
+    .search-box input::placeholder { color: var(--text-muted); }
+    .search-box .search-icon {
+      position: absolute;
+      left: 0.55rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      pointer-events: none;
+    }
+    .search-box .search-kbd {
+      position: absolute;
+      right: 0.45rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 0.6rem;
+      font-family: var(--font-mono);
+      background: var(--bg-tertiary);
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      pointer-events: none;
+    }
+    .search-results {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      max-height: 320px;
+      overflow-y: auto;
+      z-index: 20;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .search-results.active { display: block; }
+    .search-result {
+      padding: 0.5rem 0.7rem;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    .search-result:last-child { border-bottom: none; }
+    .search-result:hover, .search-result.selected { background: var(--bg-tertiary); }
+    .search-result-title {
+      font-size: 0.8rem;
+      color: var(--accent);
+      font-family: var(--font-mono);
+    }
+    .search-result-section {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-top: 0.1rem;
+    }
+    .search-result-snippet {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .search-result mark {
+      background: transparent;
+      color: var(--accent-yellow);
+      font-weight: 600;
+    }
+    .search-empty {
+      padding: 0.75rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
+    .highlight-flash {
+      animation: flash 1.5s ease-out;
+    }
+    @keyframes flash {
+      0% { background: rgba(88,166,255,0.15); }
+      100% { background: transparent; }
+    }
+
+    /* Content */
+    .content {
+      flex: 1;
+      padding: 2rem 3rem;
+      min-width: 0;
+    }
+    .content h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .content h1 + p { color: var(--text-muted); margin-bottom: 2rem; }
+    .content h2 {
+      font-size: 1.4rem;
+      margin: 3rem 0 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+    .content h3 {
+      font-size: 1.05rem;
+      margin: 2rem 0 0.5rem;
+      font-family: var(--font-mono);
+      color: var(--accent);
+    }
+    .content p { margin: 0.5rem 0; color: var(--text-muted); }
+    .content strong { color: var(--text); }
+
+    .content code {
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+      background: var(--bg-tertiary);
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+    }
+    .content pre {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      margin: 0.75rem 0;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    .content pre code {
+      background: none;
+      padding: 0;
+    }
+
+    .content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0;
+      font-size: 0.85rem;
+    }
+    .content th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 2px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }
+    .content td {
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2rem 0;
+    }
+    .content blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 1rem;
+      color: var(--text-muted);
+      margin: 1rem 0;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .content { padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="index.html" class="nav-logo"><span>&gt;</span> envforge</a>
+    <div class="nav-links">
+      <a href="docs.html" class="active">Docs</a>
+      <a href="https://github.com/emreerinc/envforge">GitHub</a>
+      <a href="https://crates.io/crates/env-forge-tui">Crates.io</a>
+    </div>
+  </nav>
+
+  <div class="layout">
+
+    <aside class="sidebar">
+      <div class="search-box">
+        <span class="search-icon">&#x1F50D;</span>
+        <input type="text" id="search-input" placeholder="Search commands..." autocomplete="off" spellcheck="false">
+        <span class="search-kbd" id="search-kbd">/</span>
+        <div class="search-results" id="search-results"></div>
+      </div>
+      <h4>Getting Started</h4>
+      <a href="#global-flags">Global Flags</a>
+
+      <h4>Core</h4>
+      <a href="#variable-management">Variable Management</a>
+      <a href="#import-export">Import & Export</a>
+      <a href="#profiles">Profiles</a>
+      <a href="#encryption">Encryption</a>
+
+      <h4>Schema</h4>
+      <a href="#schema-validation">Schema & Validation</a>
+
+      <h4>Secrets</h4>
+      <a href="#secret-managers">Secret Managers</a>
+      <a href="#remote-sync">Remote Sync</a>
+
+      <h4>Runtime</h4>
+      <a href="#subprocess-runner">Subprocess Runner</a>
+
+      <h4>AI Safety</h4>
+      <a href="#ai-safety">AI Safety (22 tools)</a>
+
+      <h4>Operations</h4>
+      <a href="#diagnostics">Diagnostics</a>
+      <a href="#snapshots">Snapshots</a>
+      <a href="#sharing">Sharing</a>
+      <a href="#git-integration">Git Integration</a>
+      <a href="#shell-integration">Shell Integration</a>
+
+      <h4>Help</h4>
+      <a href="#completions">Shell Completions</a>
+      <a href="#man-pages">Man Pages</a>
+    </aside>
+
+    <main class="content" id="docs-content">
+      <h1>CLI Reference</h1>
+      <p>Complete documentation for EnvForge v0.5.4 — 90+ commands.</p>
+
+      <!-- Content will be loaded from markdown -->
+      <noscript>
+        <p>This page requires JavaScript to render the CLI reference from Markdown. <a href="cli-reference.md">View the raw Markdown file instead.</a></p>
+      </noscript>
+    </main>
+
+  </div>
+
+  <footer>
+    <a href="index.html">Home</a> &middot;
+    <a href="https://github.com/emreerinc/envforge">GitHub</a> &middot;
+    <a href="cli-reference.md">Raw Markdown</a>
+  </footer>
+
+  <script>
+    // Minimal Markdown-to-HTML renderer (no dependencies)
+    function renderMarkdown(md) {
+      let html = md
+        // Code blocks
+        .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+          `<pre><code>${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`)
+        // Inline code
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        // Tables
+        .replace(/\|(.+)\|\n\|[-| ]+\|\n((?:\|.+\|\n)*)/g, (_, header, rows) => {
+          const th = header.split('|').map(c => c.trim()).filter(c => c).map(c => `<th>${c}</th>`).join('');
+          const tr = rows.trim().split('\n').map(row => {
+            const td = row.split('|').map(c => c.trim()).filter(c => c).map(c => `<td>${c}</td>`).join('');
+            return `<tr>${td}</tr>`;
+          }).join('');
+          return `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
+        })
+        // Headings
+        .replace(/^### (.+)$/gm, (_, t) => {
+          const id = t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          return `<h3 id="${id}">${t}</h3>`;
+        })
+        .replace(/^## (.+)$/gm, (_, t) => {
+          const id = t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          return `<h2 id="${id}">${t}</h2>`;
+        })
+        .replace(/^# (.+)$/gm, '')
+        // Blockquotes
+        .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+        // Bold
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        // Horizontal rules
+        .replace(/^---$/gm, '<hr>')
+        // Paragraphs (simple: non-empty lines not starting with < or |)
+        .replace(/^(?!<|$|\|)(.+)$/gm, '<p>$1</p>')
+        // Clean up empty paragraphs
+        .replace(/<p><\/p>/g, '')
+        // Fix double-wrapped tags
+        .replace(/<p>(<h[23]|<pre|<table|<hr|<blockquote)/g, '$1')
+        .replace(/(<\/h[23]>|<\/pre>|<\/table>|<hr>|<\/blockquote>)<\/p>/g, '$1');
+
+      return html;
+    }
+
+    fetch('cli-reference.md')
+      .then(r => r.text())
+      .then(md => {
+        document.getElementById('docs-content').innerHTML =
+          '<h1>CLI Reference</h1><p>Complete documentation for EnvForge v0.5.4 — 90+ commands.</p>' +
+          renderMarkdown(md);
+        buildSearchIndex();
+      })
+      .catch(() => {
+        document.getElementById('docs-content').innerHTML =
+          '<h1>CLI Reference</h1><p>Could not load documentation. <a href="cli-reference.md">View raw Markdown.</a></p>';
+      });
+
+    // Search
+    let searchIndex = [];
+    let selectedIdx = -1;
+
+    function buildSearchIndex() {
+      searchIndex = [];
+      const content = document.getElementById('docs-content');
+      let currentSection = '';
+      const els = content.querySelectorAll('h2, h3, p, td, pre');
+      els.forEach(el => {
+        if (el.tagName === 'H2') {
+          currentSection = el.textContent;
+          searchIndex.push({ type: 'section', title: el.textContent, id: el.id, section: '', text: el.textContent, el });
+        } else if (el.tagName === 'H3') {
+          searchIndex.push({ type: 'command', title: el.textContent, id: el.id, section: currentSection, text: el.textContent, el });
+        } else {
+          const text = el.textContent.trim();
+          if (!text) return;
+          // attach context to nearest h3 or h2 above
+          let heading = el.previousElementSibling;
+          let anchor = el;
+          while (heading && heading.tagName !== 'H3' && heading.tagName !== 'H2') {
+            heading = heading.previousElementSibling;
+          }
+          if (heading) anchor = heading;
+          searchIndex.push({ type: 'content', title: heading ? heading.textContent : currentSection, id: anchor.id || '', section: currentSection, text, el: anchor });
+        }
+      });
+    }
+
+    function fuzzyMatch(query, text) {
+      const lower = text.toLowerCase();
+      const q = query.toLowerCase();
+      // exact substring
+      const idx = lower.indexOf(q);
+      if (idx !== -1) return { score: 100 - idx, start: idx };
+      // word-start match
+      const words = q.split(/\s+/);
+      if (words.every(w => lower.includes(w))) return { score: 50, start: lower.indexOf(words[0]) };
+      return null;
+    }
+
+    function highlightText(text, query) {
+      const q = query.toLowerCase();
+      const i = text.toLowerCase().indexOf(q);
+      if (i === -1) {
+        // try each word
+        let result = text;
+        query.split(/\s+/).forEach(w => {
+          const re = new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+          result = result.replace(re, '<mark>$1</mark>');
+        });
+        return result;
+      }
+      return text.slice(0, i) + '<mark>' + text.slice(i, i + query.length) + '</mark>' + text.slice(i + query.length);
+    }
+
+    function doSearch(query) {
+      const results = document.getElementById('search-results');
+      if (!query || query.length < 2) {
+        results.classList.remove('active');
+        selectedIdx = -1;
+        return;
+      }
+
+      const seen = new Set();
+      const matches = [];
+      searchIndex.forEach(entry => {
+        const m = fuzzyMatch(query, entry.text);
+        if (!m) return;
+        const key = entry.id || entry.title;
+        if (seen.has(key)) return;
+        seen.add(key);
+        // boost commands and sections
+        let score = m.score;
+        if (entry.type === 'command') score += 30;
+        if (entry.type === 'section') score += 20;
+        matches.push({ ...entry, score, matchStart: m.start });
+      });
+
+      matches.sort((a, b) => b.score - a.score);
+      const top = matches.slice(0, 12);
+
+      if (top.length === 0) {
+        results.innerHTML = '<div class="search-empty">No results for &ldquo;' + query.replace(/</g,'&lt;') + '&rdquo;</div>';
+        results.classList.add('active');
+        selectedIdx = -1;
+        return;
+      }
+
+      results.innerHTML = top.map((m, i) => {
+        const snippet = m.type === 'content' ? m.text.slice(0, 80) : '';
+        return '<div class="search-result" data-idx="' + i + '">' +
+          '<div class="search-result-title">' + highlightText(m.title, query) + '</div>' +
+          (m.section && m.type !== 'section' ? '<div class="search-result-section">' + m.section + '</div>' : '') +
+          (snippet ? '<div class="search-result-snippet">' + highlightText(snippet, query) + '</div>' : '') +
+          '</div>';
+      }).join('');
+
+      results.classList.add('active');
+      selectedIdx = -1;
+
+      results.querySelectorAll('.search-result').forEach((el, i) => {
+        el.addEventListener('click', () => navigateTo(top[i]));
+        el.addEventListener('mouseenter', () => {
+          selectedIdx = i;
+          updateSelected();
+        });
+      });
+
+      // store for keyboard nav
+      results._matches = top;
+    }
+
+    function navigateTo(match) {
+      const results = document.getElementById('search-results');
+      const input = document.getElementById('search-input');
+      results.classList.remove('active');
+      input.blur();
+      if (match.el) {
+        match.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        match.el.classList.add('highlight-flash');
+        setTimeout(() => match.el.classList.remove('highlight-flash'), 1500);
+      } else if (match.id) {
+        const target = document.getElementById(match.id);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function updateSelected() {
+      const results = document.getElementById('search-results');
+      results.querySelectorAll('.search-result').forEach((el, i) => {
+        el.classList.toggle('selected', i === selectedIdx);
+      });
+    }
+
+    // Event listeners
+    const searchInput = document.getElementById('search-input');
+    const searchResults = document.getElementById('search-results');
+    const searchKbd = document.getElementById('search-kbd');
+
+    searchInput.addEventListener('input', () => doSearch(searchInput.value.trim()));
+
+    searchInput.addEventListener('keydown', e => {
+      const matches = searchResults._matches || [];
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedIdx = Math.min(selectedIdx + 1, matches.length - 1);
+        updateSelected();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedIdx = Math.max(selectedIdx - 1, 0);
+        updateSelected();
+      } else if (e.key === 'Enter' && selectedIdx >= 0 && matches[selectedIdx]) {
+        e.preventDefault();
+        navigateTo(matches[selectedIdx]);
+      } else if (e.key === 'Escape') {
+        searchResults.classList.remove('active');
+        searchInput.blur();
+      }
+    });
+
+    searchInput.addEventListener('focus', () => {
+      searchKbd.style.display = 'none';
+      if (searchInput.value.trim().length >= 2) doSearch(searchInput.value.trim());
+    });
+
+    searchInput.addEventListener('blur', () => {
+      setTimeout(() => searchResults.classList.remove('active'), 150);
+      if (!searchInput.value) searchKbd.style.display = '';
+    });
+
+    // Keyboard shortcut: / to focus search
+    document.addEventListener('keydown', e => {
+      if (e.key === '/' && document.activeElement !== searchInput && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+    });
+  </script>
+
+</body>
+</html>

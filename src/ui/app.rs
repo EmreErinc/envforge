@@ -106,6 +106,7 @@ pub struct App {
     pub collapsed_groups: HashSet<String>,
     pub grouping_enabled: bool,
     pub add_target: AddTarget,
+    pub help_page: usize,
 }
 
 impl App {
@@ -185,6 +186,7 @@ impl App {
             collapsed_groups,
             grouping_enabled: true,
             add_target: AddTarget::Profile,
+            help_page: 0,
         })
     }
 
@@ -564,6 +566,7 @@ impl App {
                 }
             }
             KeyCode::Char('?') => {
+                self.help_page = 0;
                 self.mode = ViewMode::Help;
             }
             KeyCode::Char('r') => {
@@ -969,6 +972,21 @@ impl App {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => {
                 self.mode = ViewMode::Normal;
+            }
+            KeyCode::Tab | KeyCode::Right => {
+                self.help_page = (self.help_page + 1) % 3;
+            }
+            KeyCode::BackTab | KeyCode::Left => {
+                self.help_page = (self.help_page + 2) % 3;
+            }
+            KeyCode::Char('1') => {
+                self.help_page = 0;
+            }
+            KeyCode::Char('2') => {
+                self.help_page = 1;
+            }
+            KeyCode::Char('3') => {
+                self.help_page = 2;
             }
             _ => {}
         }

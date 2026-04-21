@@ -66,7 +66,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         ),
         Commands::Encrypt { key } => cmd_encrypt(key, dry_run),
         Commands::Decrypt { key } => cmd_decrypt(key, dry_run),
-        Commands::Completions { shell } => cmd_completions(shell),
+        Commands::Completions { shell, install } => cmd_completions(shell, *install),
         Commands::Log { key, n } => cmd_log(key.as_deref(), *n, json),
         Commands::Config => cmd_config(),
         Commands::Run {
@@ -130,6 +130,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Canary { action } => cmd_canary(action),
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref()),
         Commands::Deps { key, source } => cmd_deps(key, *source),
+        Commands::Man { command } => cmd_man(command),
     };
 
     if let Err(e) = result {
@@ -1161,19 +1162,140 @@ fn cmd_log(key: Option<&str>, n: usize, json: bool) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-fn cmd_completions(shell: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_completions(shell: &str, install: bool) -> Result<(), Box<dyn std::error::Error>> {
     use clap::CommandFactory;
     use clap_complete::{generate, Shell};
 
-    let shell = shell.parse::<Shell>().map_err(|_| {
+    // Kiro CLI / Fig / Amazon Q completion spec
+    if shell == "fig" || shell == "kiro" {
+        use clap_complete_fig::Fig;
+        let mut cmd = super::Cli::command();
+
+        if install {
+            let mut buf = Vec::new();
+            generate(Fig, &mut cmd, "envforge", &mut buf);
+            let spec = String::from_utf8(buf)?;
+            install_fig_spec(&spec, shell)?;
+        } else {
+            generate(Fig, &mut cmd, "envforge", &mut std::io::stdout());
+        }
+        return Ok(());
+    }
+
+    let shell_type = shell.parse::<Shell>().map_err(|_| {
         format!(
-            "Unknown shell '{}'. Supported: bash, zsh, fish, elvish, powershell",
+            "Unknown shell '{}'. Supported: bash, zsh, fish, elvish, powershell, fig, kiro",
             shell
         )
     })?;
 
-    let mut cmd = super::Cli::command();
-    generate(shell, &mut cmd, "envforge", &mut std::io::stdout());
+    if install {
+        let mut buf = Vec::new();
+        generate(shell_type, &mut super::Cli::command(), "envforge", &mut buf);
+        let script = String::from_utf8(buf)?;
+        install_shell_completion(&script, shell)?;
+    } else {
+        let mut cmd = super::Cli::command();
+        generate(shell_type, &mut cmd, "envforge", &mut std::io::stdout());
+    }
+    Ok(())
+}
+
+fn install_fig_spec(spec: &str, shell: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let home = std::env::var("HOME").map_err(|_| "HOME not set")?;
+
+    // Strip TypeScript type annotations for plain JS compatibility
+    let js_spec = spec.replace("const completion: Fig.Spec = {", "const completion = {");
+
+    let specs_dir = match shell {
+        "kiro" => {
+            let dir = std::path::PathBuf::from(&home).join(".kiro/specs");
+            std::fs::create_dir_all(&dir)?;
+            dir
+        }
+        "fig" => {
+            let dir = std::path::PathBuf::from(&home).join(".fig/autocomplete/build");
+            std::fs::create_dir_all(&dir)?;
+            dir
+        }
+        _ => unreachable!(),
+    };
+
+    let spec_path = specs_dir.join("envforge.js");
+    std::fs::write(&spec_path, &js_spec)?;
+    eprintln!("Installed: {}", spec_path.display());
+
+    if shell == "kiro" {
+        // Configure devCompletionsFolder and developerMode
+        for (key, value) in [
+            ("autocomplete.devCompletionsFolder", specs_dir.to_str().unwrap_or("")),
+            ("autocomplete.developerMode", "true"),
+        ] {
+            let status = std::process::Command::new("kiro-cli")
+                .args(["settings", key, value])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            match status {
+                Ok(s) if s.success() => {
+                    eprintln!("Configured: kiro-cli {} → {}", key, value);
+                }
+                _ => {
+                    eprintln!("Note: Run manually: kiro-cli settings {} \"{}\"", key, value);
+                }
+            }
+        }
+
+        // Also install to ~/.fig/autocomplete/build/ for backward compatibility
+        let fig_dir = std::path::PathBuf::from(&home).join(".fig/autocomplete/build");
+        if fig_dir.exists() {
+            let fig_path = fig_dir.join("envforge.js");
+            std::fs::write(&fig_path, &js_spec)?;
+            eprintln!("Installed: {}", fig_path.display());
+        }
+
+        eprintln!("Done. Run 'kiro-cli restart' then open a new terminal.");
+    } else {
+        eprintln!("Done. Restart your terminal for completions to take effect.");
+    }
+    Ok(())
+}
+
+fn install_shell_completion(script: &str, shell: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let home = std::env::var("HOME").map_err(|_| "HOME not set")?;
+
+    let dest = match shell {
+        "zsh" => {
+            let dir = std::path::PathBuf::from(&home).join(".zfunc");
+            std::fs::create_dir_all(&dir)?;
+            dir.join("_envforge")
+        }
+        "bash" => {
+            let dir = std::path::PathBuf::from(&home).join(".local/share/bash-completion/completions");
+            std::fs::create_dir_all(&dir)?;
+            dir.join("envforge")
+        }
+        "fish" => {
+            let dir = std::path::PathBuf::from(&home).join(".config/fish/completions");
+            std::fs::create_dir_all(&dir)?;
+            dir.join("envforge.fish")
+        }
+        _ => {
+            eprintln!("--install not supported for '{}'. Pipe output to a file instead.", shell);
+            return Ok(());
+        }
+    };
+
+    std::fs::write(&dest, script)?;
+    eprintln!("Installed: {}", dest.display());
+
+    match shell {
+        "zsh" => eprintln!("Ensure ~/.zfunc is in your fpath: fpath=(~/.zfunc $fpath)"),
+        "bash" => eprintln!("Source it: source {}", dest.display()),
+        "fish" => eprintln!("Fish will auto-load from {}", dest.display()),
+        _ => {}
+    }
+
     Ok(())
 }
 
@@ -3390,6 +3512,46 @@ fn cmd_deps(key: &str, include_source: bool) -> Result<(), Box<dyn std::error::E
     );
 
     Ok(())
+}
+
+fn cmd_man(command: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::man::{format_man_index, format_man_page, load_man_pages, suggest_similar};
+
+    let pages = load_man_pages();
+
+    if command.is_empty() {
+        // Show index
+        print!("{}", format_man_index(&pages));
+        return Ok(());
+    }
+
+    // Build query: "sync push" from ["sync", "push"]
+    let query = command.join(" ");
+
+    // Try exact match (short name)
+    if let Some(page) = pages.get(&query) {
+        print!("{}", format_man_page(page));
+        return Ok(());
+    }
+
+    // Try "envforge <query>"
+    let full = format!("envforge {}", query);
+    if let Some(page) = pages.get(&full) {
+        print!("{}", format_man_page(page));
+        return Ok(());
+    }
+
+    // Not found — suggest similar
+    let suggestions = suggest_similar(&query, &pages);
+    eprintln!("No man page for '{}'.", query);
+    if !suggestions.is_empty() {
+        eprintln!("\nDid you mean:");
+        for s in &suggestions {
+            eprintln!("  envforge man {}", s);
+        }
+    }
+    eprintln!("\nRun 'envforge man' for the full command index.");
+    process::exit(1);
 }
 
 fn truncate_context(s: &str, max: usize) -> String {

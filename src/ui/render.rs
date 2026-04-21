@@ -29,7 +29,7 @@ pub fn render(f: &mut Frame, app: &App) {
         ViewMode::Adding(field) => dialogs::render_add_popup(f, app, field),
         ViewMode::Confirming(action) => dialogs::render_confirm_popup(f, action),
         ViewMode::DiffPreview => dialogs::render_diff_preview(f, app),
-        ViewMode::Help => dialogs::render_help(f),
+        ViewMode::Help => dialogs::render_help(f, app.help_page),
         ViewMode::Importing => {
             dialogs::render_path_input(f, app, "Import from .env", "Enter path to .env file:")
         }

@@ -39,10 +39,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integrates with ggshield (500+ secret detectors) without competing
 - Fallback: if external scanner not set, uses built-in pattern matching
 
+#### Built-in Man Pages
+- `envforge man` — Full command index grouped by category
+- `envforge man COMMAND` — Detailed man page for any command (NAME, SYNOPSIS, DESCRIPTION, OPTIONS, EXAMPLES)
+- 87 command entries parsed from embedded CLI reference
+- Short name lookup: `man list` and `man "envforge list"` both work
+- "Did you mean?" suggestions for typos
+
+#### Documentation & Shell Setup
+- `docs/cli-reference.md` — 2,266-line comprehensive CLI reference
+- `docs/docs.html` — Styled documentation viewer with sidebar navigation
+- Shell completions for zsh (Oh-My-Zsh compatible), bash, fish, Kiro CLI, Fig
+- `envforge completions <shell> --install` — auto-install completions to correct system path
+- Kiro CLI integration: auto-configures `devCompletionsFolder` + `developerMode`, strips TypeScript annotations for JS compatibility
+- 3-page TUI help system (`?` key): Shortcuts, CLI Reference, About — navigate with Tab/1/2/3
+- Landing page (`docs/index.html`) updated with install + completion setup instructions
+
 ### Quality
-- 683 total tests (was 664), all passing
-- 19 new tests (canary, deps, external scanner)
-- New modules: `canary.rs`, `deps.rs`
+- 693 total tests (was 664), all passing
+- 25 new tests (canary, deps, external scanner, man pages, TUI help)
+- New modules: `canary.rs`, `deps.rs`, `man.rs`
 - No new crate dependencies
 
 ## [0.5.3] - 2026-04-20

@@ -298,52 +298,175 @@ pub fn render_profile_selector(f: &mut Frame, app: &App, selected_idx: usize) {
     f.render_widget(popup, area);
 }
 
-/// Render the help screen.
-pub fn render_help(f: &mut Frame) {
-    let area = centered_popup(f.area(), 60, 70);
-    f.render_widget(Clear, area);
+/// Build a help shortcut line with styled key and description.
+fn help_shortcut(key: &str, desc: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("  {:<10}", key),
+            Style::default().fg(Color::White),
+        ),
+        Span::styled(desc.to_string(), Style::default().fg(Color::DarkGray)),
+    ])
+}
 
-    let text = vec![
+/// Build a section header for help pages.
+fn help_section(title: &str) -> Line<'static> {
+    Line::from(Span::styled(
+        title.to_string(),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    ))
+}
+
+/// Build the footer line shown on every help page.
+fn help_footer() -> Line<'static> {
+    Line::from(Span::styled(
+        "Tab: next page  |  1/2/3: jump to page  |  Esc: close",
+        Style::default().fg(Color::DarkGray),
+    ))
+}
+
+/// Build page 1: Keyboard Shortcuts.
+fn help_page_shortcuts() -> Vec<Line<'static>> {
+    vec![
+        help_section("Navigation"),
+        help_shortcut("j/\u{2193}", "Move down"),
+        help_shortcut("k/\u{2191}", "Move up"),
+        help_shortcut("G", "Jump to bottom"),
+        help_shortcut("gg", "Jump to top"),
+        help_shortcut("/", "Search / filter"),
+        help_shortcut("Esc", "Clear search / close dialog"),
+        Line::from(""),
+        help_section("Actions"),
+        help_shortcut("Space", "Toggle active/passive"),
+        help_shortcut("e", "Edit selected value"),
+        help_shortcut("a", "Add new variable"),
+        help_shortcut("d", "Delete (soft-delete)"),
+        help_shortcut("r", "Restore deleted variable"),
+        help_shortcut("u", "Undo last operation"),
+        help_shortcut("c", "Copy value to clipboard"),
+        help_shortcut("C", "Copy KEY=VALUE to clipboard"),
+        help_shortcut("m", "Move to reference file"),
+        Line::from(""),
+        help_section("Display"),
+        help_shortcut("v", "Toggle value masking"),
+        help_shortcut("g", "Toggle grouping"),
+        help_shortcut("\u{2192}/Enter", "Expand group"),
+        help_shortcut("\u{2190}", "Collapse group"),
+        Line::from(""),
+        help_section("Profile & Files"),
+        help_shortcut("P", "Switch profile"),
+        help_shortcut("I", "Import from .env file"),
+        help_shortcut("E", "Export to .env file"),
+        help_shortcut("S", "Save changes (Ctrl+S also works)"),
+        Line::from(""),
+        help_shortcut("?", "This help"),
+        help_shortcut("q", "Quit"),
+        Line::from(""),
+        help_footer(),
+    ]
+}
+
+/// Build page 2: CLI Quick Reference.
+fn help_page_cli() -> Vec<Line<'static>> {
+    vec![
+        help_section("CLI Commands (run from terminal)"),
+        Line::from(""),
+        help_section("Variable Management"),
+        help_shortcut("list", "List all variables"),
+        help_shortcut("get KEY", "Get a value"),
+        help_shortcut("set K=V", "Set or create"),
+        help_shortcut("delete KEY", "Soft-delete"),
+        help_shortcut("explain K", "Show all info about a key"),
+        Line::from(""),
+        help_section("AI Safety"),
+        help_shortcut("fence", "Create AI ignore rules"),
+        help_shortcut("scan --mcp", "Scan AI tool configs"),
+        help_shortcut("mcp harden", "Fix AI tool configs"),
+        help_shortcut("run --vol.", "Secrets in memory only"),
+        help_shortcut("proxy", "Credential proxy"),
+        Line::from(""),
+        help_section("Secret Managers"),
+        help_shortcut("secrets pull", "Pull from provider"),
+        help_shortcut("secrets push", "Push to provider"),
+        help_shortcut("rotate KEY", "Rotate a secret"),
+        Line::from(""),
+        help_section("Sync & Backup"),
+        help_shortcut("sync p/p", "Cross-machine sync"),
+        help_shortcut("snapshot", "Backup env state"),
+        help_shortcut("check", "Run all health checks"),
+        Line::from(""),
         Line::from(Span::styled(
-            "EnvForge Keyboard Shortcuts",
+            "  All commands: envforge --help",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(""),
+        help_footer(),
+    ]
+}
+
+/// Build page 3: About.
+fn help_page_about() -> Vec<Line<'static>> {
+    let version = env!("CARGO_PKG_VERSION");
+    vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("EnvForge v{}", version),
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from("  j/↓     Move down"),
-        Line::from("  k/↑     Move up"),
-        Line::from("  Space   Toggle active/passive"),
-        Line::from("  e       Edit selected value"),
-        Line::from("  a       Add new variable"),
-        Line::from("  d       Delete (soft)"),
-        Line::from("  r       Restore deleted"),
-        Line::from("  c       Copy value"),
-        Line::from("  C       Copy KEY=VALUE"),
-        Line::from("  m       Move to reference file"),
-        Line::from("  u       Undo last operation"),
-        Line::from("  I       Import from .env file"),
-        Line::from("  E       Export to .env file"),
-        Line::from("  P       Switch profile"),
-        Line::from("  g       Toggle grouping"),
-        Line::from("  →/Enter Expand group"),
-        Line::from("  ←       Collapse group"),
-        Line::from("  v       Toggle value mask"),
-        Line::from("  /       Search/filter"),
-        Line::from("  S       Save changes"),
-        Line::from("  ?       This help"),
-        Line::from("  q       Quit"),
+        Line::from(Span::styled(
+            "The AI-safe environment variable manager.",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
         Line::from(""),
         Line::from(Span::styled(
-            "Press Esc or ? to close",
+            "Written in Rust.",
             Style::default().fg(Color::DarkGray),
         )),
-    ];
+        Line::from(Span::styled(
+            "MIT License.",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "https://github.com/emreerinc/envforge",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::UNDERLINED),
+        )),
+        Line::from(""),
+        help_footer(),
+    ]
+}
+
+/// Render the multi-page help screen.
+pub fn render_help(f: &mut Frame, page: usize) {
+    let area = centered_popup(f.area(), 65, 80);
+    f.render_widget(Clear, area);
+
+    let text = match page {
+        0 => help_page_shortcuts(),
+        1 => help_page_cli(),
+        2 => help_page_about(),
+        _ => help_page_shortcuts(),
+    };
+
+    let title = match page {
+        0 => " Help [1/3] Shortcuts ",
+        1 => " Help [2/3] CLI Reference ",
+        2 => " Help [3/3] About ",
+        _ => " Help ",
+    };
 
     let popup = Paragraph::new(text).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Help ")
+            .title(title)
             .border_style(Style::default().fg(Color::Yellow)),
     );
 

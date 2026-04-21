@@ -171,8 +171,11 @@ pub enum Commands {
 
     /// Generate shell completion scripts
     Completions {
-        /// Shell type (zsh, bash, fish)
+        /// Shell type (zsh, bash, fish, kiro, fig)
         shell: String,
+        /// Install completion spec to the correct system path
+        #[arg(long)]
+        install: bool,
     },
 
     /// Encrypt a variable's value
@@ -472,6 +475,12 @@ pub enum Commands {
         /// Include source code scanning (slower)
         #[arg(long)]
         source: bool,
+    },
+
+    /// Show built-in manual page for a command
+    Man {
+        /// Command name (e.g., "list", "sync push", "secrets pull")
+        command: Vec<String>,
     },
 }
 

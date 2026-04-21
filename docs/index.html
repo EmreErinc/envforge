@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EnvForge - AI-Safe Environment Variable Manager | Protect Secrets from AI Agents</title>
+  <meta name="description" content="The first env management tool built to protect secrets FROM AI coding agents. 22 AI safety tools, encrypted sync, 7 secret providers, TUI + CLI. Free, open source, written in Rust.">
+  <meta name="keywords" content="environment variable manager, env file security, AI agent secrets, secrets management CLI, dotenv alternative, protect secrets from AI, vibe coding security, MCP secrets">
+  <meta name="author" content="Emre Erinc">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="EnvForge - AI-Safe Environment Variable Manager">
+  <meta property="og:description" content="22 AI safety tools. Encrypted sync. 7 secret providers. CLI + TUI. Protect your secrets from AI coding agents.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://emreerinc.github.io/envforge">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="EnvForge - AI-Safe Environment Variable Manager">
+  <meta name="twitter:description" content="22 AI safety tools to protect your secrets from AI coding agents. Free, open source, written in Rust.">
+
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-yellow: #d29922;
+      --accent-red: #f85149;
+      --accent-purple: #bc8cff;
+      --border: #30363d;
+      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      --max-width: 960px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Nav */
+    nav {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .nav-logo {
+      font-family: var(--font-mono);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .nav-logo span { color: var(--accent-green); }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { color: var(--text-muted); font-size: 0.9rem; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+
+    /* Container */
+    .container { max-width: var(--max-width); margin: 0 auto; padding: 0 2rem; }
+
+    /* Hero */
+    .hero {
+      padding: 5rem 0 3rem;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      padding: 0.3rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      background: rgba(88, 166, 255, 0.1);
+      border: 1px solid rgba(88, 166, 255, 0.3);
+      color: var(--accent);
+      margin-bottom: 1.5rem;
+    }
+    .hero h1 {
+      font-size: 3rem;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.25rem;
+    }
+    .hero h1 em {
+      font-style: normal;
+      color: var(--accent-red);
+    }
+    .hero p.subtitle {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto 2rem;
+      line-height: 1.7;
+    }
+    .hero-cta {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-block;
+      padding: 0.7rem 1.5rem;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent-green);
+      color: #000;
+    }
+    .btn-primary:hover { background: #2ea043; text-decoration: none; color: #000; }
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--text-muted); text-decoration: none; }
+
+    /* Stat */
+    .stat-bar {
+      display: flex;
+      justify-content: center;
+      gap: 3rem;
+      padding: 1.5rem 0;
+      margin: 1rem 0 0;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      flex-wrap: wrap;
+    }
+    .stat-bar strong { color: var(--text); font-family: var(--font-mono); }
+
+    /* Alert */
+    .alert {
+      background: rgba(248, 81, 73, 0.08);
+      border: 1px solid rgba(248, 81, 73, 0.3);
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      margin: 3rem auto;
+      max-width: 700px;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    .alert strong { color: var(--accent-red); }
+
+    /* Terminal */
+    .terminal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin: 2rem auto;
+      max-width: 700px;
+      overflow: hidden;
+    }
+    .terminal-header {
+      background: var(--bg-tertiary);
+      padding: 0.5rem 1rem;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+    }
+    .terminal-dot.red { background: #f85149; }
+    .terminal-dot.yellow { background: #d29922; }
+    .terminal-dot.green { background: #3fb950; }
+    .terminal-body {
+      padding: 1.25rem;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.9;
+      overflow-x: auto;
+    }
+    .terminal-body pre {
+      margin: 0;
+      font-family: inherit;
+      font-size: inherit;
+      line-height: inherit;
+      white-space: pre;
+    }
+    .terminal-body .p { color: var(--accent-green); }     /* prompt */
+    .terminal-body .c { color: var(--text-muted); }       /* comment */
+    .terminal-body .o { color: var(--text-muted); }       /* output */
+    .terminal-body .k { color: var(--accent); }           /* keyword/flag */
+    .terminal-body .v { color: var(--accent-yellow); }    /* value */
+    .terminal-body .s { color: var(--accent-green); }     /* success */
+    .terminal-body .w { color: var(--accent-red); }       /* warning */
+
+    /* Section */
+    section { padding: 4rem 0; }
+    section h2 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    section h2 + p {
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+      font-size: 1rem;
+    }
+
+    /* Works with */
+    .works-with {
+      text-align: center;
+      padding: 2rem 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .works-with p { color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; }
+    .logo-belt {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .logo-belt span {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      padding: 0.4rem 0.8rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-secondary);
+    }
+
+    /* Safety table */
+    .safety-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin: 1rem 0;
+    }
+    .safety-table th {
+      text-align: left;
+      padding: 0.6rem 0.8rem;
+      border-bottom: 2px solid var(--border);
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .safety-table td {
+      padding: 0.5rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .safety-table tr:hover { background: var(--bg-secondary); }
+    .safety-table code {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      background: var(--bg-tertiary);
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+    }
+    .layer-tag {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .layer-prevention { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+    .layer-runtime { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
+    .layer-context { background: rgba(188, 140, 255, 0.15); color: var(--accent-purple); }
+    .layer-remediation { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); }
+    .layer-detection { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
+    .layer-governance { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); }
+
+    /* Feature grid */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+      margin: 1.5rem 0;
+    }
+    .feature-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+    }
+    .feature-card h3 {
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .feature-card p { color: var(--text-muted); font-size: 0.85rem; line-height: 1.6; }
+    .feature-icon { font-size: 1.2rem; }
+
+    /* Comparison */
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      margin: 1rem 0;
+    }
+    .comparison-table th, .comparison-table td {
+      padding: 0.5rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+    }
+    .comparison-table th { color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
+    .comparison-table td:first-child { text-align: left; font-weight: 500; }
+    .comparison-table .yes { color: var(--accent-green); }
+    .comparison-table .no { color: var(--text-muted); }
+    .comparison-table .envforge { background: rgba(63, 185, 80, 0.05); }
+
+    /* Install */
+    .install {
+      text-align: center;
+      padding: 4rem 0;
+      border-top: 1px solid var(--border);
+    }
+    .install-cmd {
+      font-family: var(--font-mono);
+      font-size: 1.1rem;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 2rem;
+      display: inline-block;
+      margin: 1.5rem 0;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .install-cmd:hover { border-color: var(--accent-green); }
+    .install-cmd .dollar { color: var(--accent-green); }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+    footer a { color: var(--text-muted); }
+    footer a:hover { color: var(--text); }
+    .footer-links { display: flex; justify-content: center; gap: 1.5rem; margin-bottom: 1rem; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2rem; }
+      .hero p.subtitle { font-size: 1rem; }
+      nav { flex-direction: column; gap: 1rem; }
+      .stat-bar { gap: 1.5rem; }
+      .comparison-table { font-size: 0.7rem; }
+      .logo-belt { gap: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <div class="nav-logo"><span>&gt;</span> envforge</div>
+    <div class="nav-links">
+      <a href="docs.html">Docs</a>
+      <a href="https://github.com/emreerinc/envforge">GitHub</a>
+      <a href="https://crates.io/crates/env-forge-tui">Crates.io</a>
+      <span class="badge">MIT License</span>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-badge">22 AI Safety Tools &middot; Written in Rust &middot; Free &amp; Open Source</div>
+      <h1>Your secrets are <em>not safe</em><br>from AI.</h1>
+      <p class="subtitle">EnvForge is the environment variable manager built to protect secrets FROM AI coding agents. 22 safety tools. Zero cloud dependency. One CLI.</p>
+      <div class="hero-cta">
+        <a href="#install" class="btn btn-primary">Install in 10 seconds</a>
+        <a href="#ai-safety" class="btn btn-secondary">See the 22 AI safety tools</a>
+      </div>
+      <div class="stat-bar">
+        <span><strong>90+</strong> commands</span>
+        <span><strong>7</strong> secret providers</span>
+        <span><strong>22</strong> AI safety tools</span>
+      </div>
+    </section>
+
+    <!-- Alert -->
+    <div class="alert">
+      <strong>GitGuardian 2026:</strong> AI-assisted commits leak secrets at <strong>2x the baseline rate</strong>. 24,000+ credentials found in MCP config files. 64% of leaked secrets from 2022 are still valid today.
+    </div>
+
+    <!-- Works with -->
+    <div class="works-with">
+      <p>Works with</p>
+      <div class="logo-belt">
+        <span>Claude Code</span>
+        <span>Cursor</span>
+        <span>GitHub Copilot</span>
+        <span>HashiCorp Vault</span>
+        <span>AWS SSM</span>
+        <span>1Password</span>
+        <span>Doppler</span>
+        <span>Infisical</span>
+        <span>GCP</span>
+        <span>Azure</span>
+      </div>
+    </div>
+
+    <!-- Quick Start -->
+    <section>
+      <h2>Protect a project in 30 seconds</h2>
+      <p>Five commands. Full protection for Cursor, Copilot, and Claude Code.</p>
+      <div class="terminal">
+        <div class="terminal-header">
+          <div class="terminal-dot red"></div>
+          <div class="terminal-dot yellow"></div>
+          <div class="terminal-dot green"></div>
+        </div>
+        <div class="terminal-body"><pre>
+<span class="c"># 1. Block AI tools from reading secrets</span>
+<span class="p">$</span> envforge fence
+<span class="o">  Created .envforgeignore</span>
+<span class="o">  Created .cursorignore</span>
+<span class="o">  Created .claude/settings.json</span>
+
+<span class="c"># 2. Give AI context without values</span>
+<span class="p">$</span> envforge schema emit-ai <span class="k">--infer</span> <span class="k">--output</span> <span class="v">.env.ai.md</span>
+<span class="o">  AI context written to .env.ai.md (42 variables)</span>
+
+<span class="c"># 3. Install pre-commit hook + AI guard</span>
+<span class="p">$</span> envforge scan <span class="k">--install-hook</span>
+<span class="s">  Pre-commit hook installed</span>
+<span class="p">$</span> envforge ai-hook install <span class="v">claude-code</span>
+<span class="s">  Hooks installed: PreToolUse + PostToolUse</span>
+
+<span class="c"># 4. Scan and harden AI tool configs</span>
+<span class="p">$</span> envforge scan <span class="k">--mcp</span>
+<span class="w">  2 credential(s) found in MCP configs</span>
+<span class="p">$</span> envforge mcp harden
+<span class="s">  2 secrets replaced with ${VAR} references</span>
+</pre></div>
+      </div>
+    </section>
+
+    <!-- AI Safety Suite -->
+    <section id="ai-safety">
+      <h2>22 AI Safety Tools</h2>
+      <p>Six security layers. From prevention to governance.</p>
+      <table class="safety-table">
+        <thead>
+          <tr><th>Layer</th><th>Tool</th><th>Command</th><th>What it does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>Secret Fence</td><td><code>envforge fence</code></td><td>Ignore rules for Cursor, Copilot, Claude Code</td></tr>
+          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>Pre-Commit Hook</td><td><code>envforge scan --install-hook</code></td><td>Block commits containing secrets</td></tr>
+          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>3-Stage AI Guard</td><td><code>envforge ai-guard</code></td><td>Pre-tool + post-tool scanning</td></tr>
+          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>AI Hooks</td><td><code>envforge ai-hook install</code></td><td>Security hooks in Claude Code &amp; Cursor</td></tr>
+          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>File Alerts</td><td><em>built-in</em></td><td>Warn on .env, .pem, .ssh/ access</td></tr>
+          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Volatile Mode</td><td><code>envforge run --volatile</code></td><td>Secrets in memory only &mdash; never on disk</td></tr>
+          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Log Redaction</td><td><code>envforge run --redact</code></td><td>Mask secrets in subprocess output</td></tr>
+          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Credential Proxy</td><td><code>envforge proxy</code></td><td>HTTP API with allowlist + audit</td></tr>
+          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Session Leases</td><td><code>envforge lease create</code></td><td>Time-bounded secret access</td></tr>
+          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Killswitch</td><td><code>envforge revoke --all</code></td><td>Instantly revoke all access</td></tr>
+          <tr><td><span class="layer-tag layer-context">Context</span></td><td>AI-Safe Schema</td><td><code>envforge schema emit-ai</code></td><td>Types &amp; names without values</td></tr>
+          <tr><td><span class="layer-tag layer-context">Context</span></td><td>Safe Export</td><td><code>envforge export --safe</code></td><td>Redacted [REDACTED] values</td></tr>
+          <tr><td><span class="layer-tag layer-context">Context</span></td><td>Ignore File</td><td><code>.envforgeignore</code></td><td>Mark files AI tools should skip</td></tr>
+          <tr><td><span class="layer-tag layer-remediation">Remediation</span></td><td>MCP Scan</td><td><code>envforge scan --mcp</code></td><td>Find creds in AI tool configs</td></tr>
+          <tr><td><span class="layer-tag layer-remediation">Remediation</span></td><td>MCP Harden</td><td><code>envforge mcp harden</code></td><td>Auto-replace with ${VAR} refs</td></tr>
+          <tr><td><span class="layer-tag layer-remediation">Remediation</span></td><td>Prompt Sanitizer</td><td><code>envforge sanitize</code></td><td>Strip secrets from any file</td></tr>
+          <tr><td><span class="layer-tag layer-detection">Detection</span></td><td>Canary Secrets</td><td><code>envforge canary create</code></td><td>Honeypot credentials &mdash; alert on exfiltration</td></tr>
+          <tr><td><span class="layer-tag layer-detection">Detection</span></td><td>AI Leak Audit</td><td><code>envforge audit --ai-leaks</code></td><td>Scan git for AI-assisted leaks</td></tr>
+          <tr><td><span class="layer-tag layer-detection">Detection</span></td><td>Access Audit</td><td><code>envforge audit --access</code></td><td>JSONL log of all proxy access</td></tr>
+          <tr><td><span class="layer-tag layer-governance">Governance</span></td><td>Approval Flow</td><td><code>--require-approval</code></td><td>Human approves each access</td></tr>
+          <tr><td><span class="layer-tag layer-governance">Governance</span></td><td>Dependency Map</td><td><code>envforge deps KEY</code></td><td>What breaks if this secret rotates?</td></tr>
+          <tr><td><span class="layer-tag layer-governance">Governance</span></td><td>External Scanner</td><td><code>ENVFORGE_EXTERNAL_SCANNER</code></td><td>Delegate to ggshield 500+ detectors</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Core Features -->
+    <section>
+      <h2>Beyond AI safety</h2>
+      <p>A complete environment variable manager with 90+ commands.</p>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128274;</span> Encrypted Sync</h3>
+          <p>Git-based cross-machine sync with age encryption. Selective keys, machine overrides, rollback. Offline-first.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128273;</span> 7 Secret Providers</h3>
+          <p>Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure. Pull, push, reference. URI refs: <code>vault://path</code>.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128196;</span> Schema Validation</h3>
+          <p>.env.schema with types, defaults, descriptions. Drift detection. JSON Schema for editor autocomplete. Docs generation.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128187;</span> TUI + CLI</h3>
+          <p>Vim-style TUI with fuzzy search, grouping, masking. 90+ CLI commands with --json and --dry-run. Shell completions.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128230;</span> 8 Export Formats</h3>
+          <p>dotenv, JSON, YAML, TOML, Docker, Docker Secrets, Kubernetes Secret, Terraform tfvars.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#9889;</span> Smart Workflows</h3>
+          <p>Profiles, snapshots, rotation with propagation, shell auto-load, secure sharing, unified health check.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Run with protection -->
+    <section>
+      <h2>Run with maximum protection</h2>
+      <p>Secrets in memory. Logs redacted. Leases enforced. Nothing leaks.</p>
+      <div class="terminal">
+        <div class="terminal-header">
+          <div class="terminal-dot red"></div>
+          <div class="terminal-dot yellow"></div>
+          <div class="terminal-dot green"></div>
+        </div>
+        <div class="terminal-body"><pre>
+<span class="c"># Secrets in memory only + log redaction</span>
+<span class="p">$</span> envforge run <span class="k">--volatile</span> <span class="k">--redact</span> <span class="k">--</span> npm start
+<span class="o">  Volatile mode: secrets resolved in memory only</span>
+<span class="o">  Connecting to [REDACTED:DB_PASSWORD]@host...</span>
+<span class="s">  Server running on port 3000</span>
+
+<span class="c"># Time-bounded access with credential proxy</span>
+<span class="p">$</span> envforge lease create <span class="k">--ttl</span> <span class="v">1h</span> <span class="k">--keys</span> <span class="v">DB_URL,API_KEY</span>
+<span class="o">  Lease created: session-143052</span>
+<span class="o">  Expires: 2026-04-20T21:00:00Z</span>
+<span class="o">  Keys: DB_URL, API_KEY</span>
+
+<span class="p">$</span> envforge proxy <span class="k">--port</span> <span class="v">8100</span> <span class="k">--require-lease</span>
+<span class="o">  Credential proxy on http://127.0.0.1:8100</span>
+<span class="o">  Lease enforcement: ON</span>
+
+<span class="c"># Emergency: revoke all access instantly</span>
+<span class="p">$</span> envforge revoke <span class="k">--all</span>
+<span class="w">  KILLSWITCH: 3 lease(s) revoked.</span>
+</pre></div>
+      </div>
+    </section>
+
+    <!-- Git & Privacy -->
+    <section>
+      <h2>Git-native privacy</h2>
+      <p>Everything versioned. Everything encrypted. Nothing leaks into your repo.</p>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128275;</span> Encrypted Sync</h3>
+          <p>Age (X25519) encrypted snapshots pushed to any Git remote. Auto-decrypt on pull. Your env vars are ciphertext in the repo &mdash; only your machines can read them.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128200;</span> Git Merge Driver</h3>
+          <p>Semantic three-way merge for .env files. Different keys auto-merged. Same key, different values &rarr; clean conflict markers. <code>envforge git install-merge-driver</code></p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128269;</span> Secret Scanning</h3>
+          <p>Scan source code and staged files for leaked secrets. Pre-commit hook blocks commits. MCP config scanning for AI tool credentials.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128221;</span> Audit Trail</h3>
+          <p>Full change history from sync Git log. Who changed what, when, from which machine. <code>envforge audit --key DB_URL --since 2026-01-01</code></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Integrations -->
+    <section>
+      <h2>Integrations</h2>
+      <p>Plugs into your existing stack. No migration required.</p>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#9729;&#65039;</span> Secret Providers</h3>
+          <p>Pull and push secrets from 7 providers. Configure once, use everywhere. URI refs: <code>vault://secret/myapp/DB_URL</code></p>
+          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+            HashiCorp Vault &middot; AWS SSM &middot; 1Password &middot; Doppler &middot; Infisical &middot; GCP Secret Manager &middot; Azure Key Vault
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#9881;&#65039;</span> CI/CD</h3>
+          <p>Official GitHub Action with 5 modes: validate, secrets-pull, export, run, drift. Works in any CI pipeline via <code>envforge run</code>.</p>
+          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+            GitHub Actions &middot; GitLab CI &middot; CircleCI &middot; Jenkins &middot; Any CI with shell
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128194;</span> Shell Integration</h3>
+          <p>direnv-style auto-load. Profile switches without shell restart. Completions for zsh, bash, fish.</p>
+          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+            eval "$(envforge hook zsh)" &middot; eval "$(envforge hook bash)" &middot; envforge hook fish | source
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128230;</span> Export Anywhere</h3>
+          <p>8 formats. One command. Feed your secrets into any infrastructure tool.</p>
+          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+            .env &middot; JSON &middot; YAML &middot; TOML &middot; Docker &middot; Docker Secrets &middot; Kubernetes Secret &middot; Terraform tfvars
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Developer Experience -->
+    <section>
+      <h2>Built for developers</h2>
+      <p>Every workflow thought through. Every edge case handled.</p>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128270;</span> Explain</h3>
+          <p>X-ray view of any key. Source file, line number, profile, schema type, encryption status, sync marking, secret age &mdash; all in one command. <code>envforge explain KEY</code></p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128260;</span> Secret Rotation</h3>
+          <p>Guided interactive rotation. Masked input. Auto-resets age. Pushes to provider and sync with <code>--propagate</code>. Bulk rotate stale secrets with <code>--stale</code>.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128247;</span> Snapshots</h3>
+          <p>Backup and restore your entire env state. Diff against previous snapshots. Auto-prune to 20. Safety net before any risky change.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#129657;</span> Unified Check</h3>
+          <p>One command runs doctor + validate + scan + age + drift. Fix hints for every failure. <code>--only</code> for selective checks. <code>--json</code> for CI.</p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128101;</span> Secure Sharing</h3>
+          <p>Age-encrypted share files. Recipient decrypts with their key. Optional expiry. <code>envforge share create --recipient age1... --all</code></p>
+        </div>
+        <div class="feature-card">
+          <h3><span class="feature-icon">&#128736;</span> Multi-Profile</h3>
+          <p>Dev, staging, prod &mdash; switch instantly. Merge multiple profiles: <code>envforge run --profiles dev,staging</code>. Last wins. Compare with <code>profile diff</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Comparison -->
+    <section>
+      <h2>How EnvForge compares</h2>
+      <p>The only tool with comprehensive AI safety AND full env management.</p>
+      <div style="overflow-x: auto;">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="envforge">EnvForge</th>
+              <th>ggshield</th>
+              <th>dotenvx</th>
+              <th>Infisical</th>
+              <th>Doppler</th>
+              <th>Varlock</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>AI safety tools</td><td class="envforge"><span class="yes">22</span></td><td><span class="yes">3</span></td><td><span class="yes">2</span></td><td><span class="yes">1</span></td><td><span class="no">0</span></td><td><span class="yes">7</span></td></tr>
+            <tr><td>Pre-tool scanning</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
+            <tr><td>Canary secrets</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
+            <tr><td>Session leases + killswitch</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
+            <tr><td>MCP config harden</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
+            <tr><td>Volatile mode (no disk)</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
+            <tr><td>Dependency mapping</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
+            <tr><td>Full env management</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td></tr>
+            <tr><td>TUI interface</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
+            <tr><td>7+ secret providers</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td></tr>
+            <tr><td>Encrypted sync</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td></tr>
+            <tr><td>Free &amp; open source</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">Partial</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td></tr>
+            <tr><td>Zero cloud dependency</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Install -->
+    <section id="install" class="install">
+      <h2>Start protecting your secrets</h2>
+      <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Rust 1.75+ required. Linux and macOS.</p>
+      <div class="install-cmd" onclick="navigator.clipboard.writeText('cargo install env-forge-tui').then(() => this.querySelector('.dollar').textContent = '$ copied!')">
+        <span class="dollar">$</span> cargo install env-forge-tui
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 1rem;">
+        Or build from source:
+        <code style="background: var(--bg-tertiary); padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.8rem;">
+          git clone https://github.com/emreerinc/envforge && cd envforge && cargo install --path .
+        </code>
+      </p>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 1.5rem;">
+        Then set up shell completions and man pages:
+      </p>
+      <div class="terminal" style="max-width: 600px; margin: 1rem auto;">
+        <div class="terminal-header">
+          <div class="terminal-dot red"></div>
+          <div class="terminal-dot yellow"></div>
+          <div class="terminal-dot green"></div>
+        </div>
+        <div class="terminal-body"><pre>
+<span class="c"># Shell completions (auto-install)</span>
+<span class="p">$</span> envforge completions zsh --install
+<span class="p">$</span> envforge completions bash --install
+<span class="p">$</span> envforge completions fish --install
+
+<span class="c"># Kiro CLI / Fig / Amazon Q autocomplete</span>
+<span class="p">$</span> envforge completions kiro --install
+<span class="p">$</span> kiro-cli restart
+
+<span class="c"># Built-in man pages</span>
+<span class="p">$</span> envforge man           <span class="c"># full command index</span>
+<span class="p">$</span> envforge man fence     <span class="c"># specific command</span>
+</pre></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-links">
+      <a href="https://github.com/emreerinc/envforge">GitHub</a>
+      <a href="docs.html">Documentation</a>
+      <a href="https://crates.io/crates/env-forge-tui">Crates.io</a>
+      <a href="https://github.com/emreerinc/envforge/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/emreerinc/envforge/blob/main/CHANGELOG.md">Changelog</a>
+    </div>
+    <p>Built by <a href="https://github.com/emreerinc">Emre Erinc</a>. Written in Rust.</p>
+  </footer>
+
+</body>
+</html>

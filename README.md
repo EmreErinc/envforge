@@ -460,7 +460,9 @@ envforge log [KEY] [-n N]                # View change history
 envforge config                          # Show current configuration
 envforge backup list                     # List available backups
 envforge backup restore FILE             # Restore from backup
-envforge completions zsh|bash|fish       # Generate shell completions
+envforge completions zsh|bash|fish|kiro|fig  # Generate shell completions
+envforge completions kiro --install          # Install to correct system path
+envforge man [COMMAND]                   # Built-in man pages (offline)
 ```
 
 ### Profiles
@@ -1339,15 +1341,75 @@ For project-level validation, create a `.env.schema` file (see [ENV Schema](#env
 
 ### Shell Completions
 
+Tab completion for all 90+ commands and flags. Use `--install` for automatic setup:
+
 ```bash
-# Zsh
+# Zsh — auto-install to ~/.zfunc/_envforge
+envforge completions zsh --install
+
+# Bash — auto-install to ~/.local/share/bash-completion/completions/envforge
+envforge completions bash --install
+
+# Fish — auto-install to ~/.config/fish/completions/envforge.fish
+envforge completions fish --install
+
+# Kiro CLI — installs Fig spec + configures devCompletionsFolder + developerMode
+envforge completions kiro --install
+kiro-cli restart
+
+# Fig / Amazon Q
+envforge completions fig --install
+```
+
+<details>
+<summary>Manual setup (without --install)</summary>
+
+```bash
+# Zsh (Oh-My-Zsh)
+mkdir -p ~/.zsh/completions
 envforge completions zsh > ~/.zsh/completions/_envforge
+# Add to ~/.zshrc BEFORE source $ZSH/oh-my-zsh.sh:
+#   fpath=(~/.zsh/completions $fpath)
+
+# Zsh (vanilla)
+envforge completions zsh > ~/.zsh/completions/_envforge
+echo 'fpath=(~/.zsh/completions $fpath); autoload -Uz compinit; compinit' >> ~/.zshrc
 
 # Bash
 envforge completions bash > /etc/bash_completion.d/envforge
 
 # Fish
 envforge completions fish > ~/.config/fish/completions/envforge.fish
+
+# Kiro CLI (manual)
+mkdir -p ~/.kiro/specs
+envforge completions kiro > ~/.kiro/specs/envforge.js
+# Remove TypeScript annotation: replace "const completion: Fig.Spec = {" with "const completion = {"
+kiro-cli settings autocomplete.devCompletionsFolder "$HOME/.kiro/specs"
+kiro-cli settings autocomplete.developerMode true
+kiro-cli restart
+```
+</details>
+
+After installing, restart your shell (`exec zsh` or open new terminal).
+
+### Built-in Man Pages
+
+Detailed manual for every command, available offline:
+
+```bash
+# Show full command index
+envforge man
+
+# Show man page for a specific command
+envforge man list
+envforge man sync push
+envforge man secrets pull
+envforge man fence
+
+# "Did you mean?" suggestions for typos
+envforge man fenc
+# → Did you mean: fence
 ```
 
 ## Architecture

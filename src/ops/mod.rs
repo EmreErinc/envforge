@@ -26,6 +26,7 @@ pub mod profile_diff;
 mod reference;
 pub mod rotate;
 pub mod run;
+pub mod man;
 pub mod mcp_scan;
 pub mod proxy;
 pub mod sanitize;
