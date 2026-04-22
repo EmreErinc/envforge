@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, SecretProvider, SecretsError};
+use super::super::provider::{run_cli, sort_secret_pairs, SecretProvider, SecretsError};
 
 pub struct GcpSecretManagerProvider;
 
@@ -23,6 +23,14 @@ impl SecretProvider for GcpSecretManagerProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec!["project_id"]
+    }
+
+    fn build_provider_env(
+        &self,
+        _credentials: &HashMap<String, String>,
+    ) -> Vec<(&'static str, String)> {
+        // GCP uses gcloud CLI directly, no env vars needed
+        Vec::new()
     }
 
     fn pull(
@@ -52,7 +60,7 @@ impl SecretProvider for GcpSecretManagerProvider {
             result.push((key.clone(), output.trim().to_string()));
         }
 
-        result.sort_by(|a, b| a.0.cmp(&b.0));
+        sort_secret_pairs(&mut result);
         Ok(result)
     }
 

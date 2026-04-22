@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, SecretProvider, SecretsError};
+use super::super::provider::{
+    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+};
 
 pub struct AwsSsmProvider;
 
@@ -36,13 +38,33 @@ impl SecretProvider for AwsSsmProvider {
         Ok(())
     }
 
+    fn build_provider_env(
+        &self,
+        credentials: &HashMap<String, String>,
+    ) -> Vec<(&'static str, String)> {
+        let mut env = Vec::new();
+        if let Some(key) = credentials.get("access_key") {
+            env.push(("AWS_ACCESS_KEY_ID", key.clone()));
+        }
+        if let Some(secret) = credentials.get("secret_key") {
+            env.push(("AWS_SECRET_ACCESS_KEY", secret.clone()));
+        }
+        if let Some(profile) = credentials.get("profile") {
+            env.push(("AWS_PROFILE", profile.clone()));
+        }
+        if let Some(region) = credentials.get("region") {
+            env.push(("AWS_DEFAULT_REGION", region.clone()));
+        }
+        env
+    }
+
     fn pull(
         &self,
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let region_str = credentials.get("region").cloned().unwrap_or_default();
         let has_region = credentials.contains_key("region");
@@ -95,8 +117,8 @@ impl SecretProvider for AwsSsmProvider {
         path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         for (key, value) in secrets {
             let param_name = format!("{}/{}", path.trim_end_matches('/'), key);
@@ -130,8 +152,8 @@ impl SecretProvider for AwsSsmProvider {
         path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let param_name = format!("{}/{}", path.trim_end_matches('/'), key);
         let mut args = vec![
@@ -178,20 +200,8 @@ impl SecretProvider for AwsSsmProvider {
 }
 
 pub fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
-    let mut env = Vec::new();
-    if let Some(key) = credentials.get("access_key") {
-        env.push(("AWS_ACCESS_KEY_ID", key.clone()));
-    }
-    if let Some(secret) = credentials.get("secret_key") {
-        env.push(("AWS_SECRET_ACCESS_KEY", secret.clone()));
-    }
-    if let Some(profile) = credentials.get("profile") {
-        env.push(("AWS_PROFILE", profile.clone()));
-    }
-    if let Some(region) = credentials.get("region") {
-        env.push(("AWS_DEFAULT_REGION", region.clone()));
-    }
-    env
+    let provider = AwsSsmProvider;
+    provider.build_provider_env(credentials)
 }
 
 pub fn parse_ssm_output(
@@ -223,6 +233,6 @@ pub fn parse_ssm_output(
         })
         .collect();
 
-    result.sort_by(|a, b| a.0.cmp(&b.0));
+    sort_secret_pairs(&mut result);
     Ok(result)
 }

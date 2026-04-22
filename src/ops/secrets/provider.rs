@@ -163,6 +163,16 @@ pub trait SecretProvider: Send + Sync {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<String>, SecretsError>;
+
+    /// Build provider-specific environment variables from credentials.
+    /// Override in provider implementation to set custom env vars.
+    /// Default: returns empty vector.
+    fn build_provider_env(
+        &self,
+        _credentials: &HashMap<String, String>,
+    ) -> Vec<(&'static str, String)> {
+        vec![]
+    }
 }
 
 // ─── Provider Registry ───────────────────────────────────────
@@ -313,6 +323,73 @@ pub fn run_cli(
             })
         }
     }
+}
+
+// ─── Provider Helper Utilities ───────────────────────────────
+
+/// Convert environment vector to reference vector for Command::env().
+/// This helper eliminates repeated `.map(|(k, v)| (*k, v.as_str())).collect()` patterns
+/// across all providers.
+pub fn env_refs_from_env<'a>(env: &'a [(&'static str, String)]) -> Vec<(&'static str, &'a str)> {
+    env.iter().map(|(k, v)| (*k, v.as_str())).collect()
+}
+
+/// Sort secrets by key for consistent output across providers.
+/// All providers use identical sorting logic; this helper ensures consistency.
+pub fn sort_secret_pairs(secrets: &mut [(String, String)]) {
+    secrets.sort_by(|a, b| a.0.cmp(&b.0));
+}
+
+/// Extract and parse JSON object into a HashMap<String, String>.
+/// Filters out system keys (those starting with underscore) and handles nested structures.
+/// Provider-specific JSON extraction logic should use this utility.
+pub fn extract_json_object(
+    json: &serde_json::Value,
+    path: &[&str],
+    provider: &str,
+) -> Result<Vec<(String, String)>, SecretsError> {
+    let mut current = json;
+    for key in path {
+        current = &current[key];
+        if current.is_null() {
+            return Err(SecretsError::ParseError {
+                provider: provider.to_string(),
+                message: format!("missing key in path: {}", key),
+            });
+        }
+    }
+
+    let obj = current
+        .as_object()
+        .ok_or_else(|| SecretsError::ParseError {
+            provider: provider.to_string(),
+            message: "expected object at path".to_string(),
+        })?;
+
+    let mut secrets: Vec<(String, String)> = obj
+        .iter()
+        .filter(|(k, _)| !k.starts_with('_')) // Filter system keys
+        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+        .collect();
+
+    sort_secret_pairs(&mut secrets);
+    Ok(secrets)
+}
+
+/// Parse JSON response and return sorted secrets.
+/// This is the standard parsing pipeline used by all providers.
+pub fn parse_json_secrets(
+    output: &str,
+    path: &[&str],
+    provider: &str,
+) -> Result<Vec<(String, String)>, SecretsError> {
+    let json: serde_json::Value =
+        serde_json::from_str(output).map_err(|e| SecretsError::ParseError {
+            provider: provider.to_string(),
+            message: format!("JSON parse error: {}", e),
+        })?;
+
+    extract_json_object(&json, path, provider)
 }
 
 #[cfg(test)]

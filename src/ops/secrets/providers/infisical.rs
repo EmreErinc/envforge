@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, SecretProvider, SecretsError};
+use super::super::provider::{
+    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+};
 
 pub struct InfisicalProvider;
 
@@ -25,13 +27,24 @@ impl SecretProvider for InfisicalProvider {
         vec!["token", "project_id", "environment"]
     }
 
+    fn build_provider_env(
+        &self,
+        credentials: &HashMap<String, String>,
+    ) -> Vec<(&'static str, String)> {
+        let mut env = Vec::new();
+        if let Some(token) = credentials.get("token") {
+            env.push(("INFISICAL_TOKEN", token.clone()));
+        }
+        env
+    }
+
     fn pull(
         &self,
         credentials: &HashMap<String, String>,
         _path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let mut args = vec!["export", "--format=json"];
 
@@ -57,8 +70,8 @@ impl SecretProvider for InfisicalProvider {
         _path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         // Infisical supports multiple KEY=VALUE pairs in a single set call
         let assignments: Vec<String> = secrets
@@ -113,14 +126,6 @@ impl SecretProvider for InfisicalProvider {
     }
 }
 
-fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
-    let mut env = Vec::new();
-    if let Some(token) = credentials.get("token") {
-        env.push(("INFISICAL_TOKEN", token.clone()));
-    }
-    env
-}
-
 pub fn parse_infisical_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
     let items: Vec<serde_json::Value> =
         serde_json::from_str(output).map_err(|e| SecretsError::ParseError {
@@ -137,6 +142,6 @@ pub fn parse_infisical_output(output: &str) -> Result<Vec<(String, String)>, Sec
         })
         .collect();
 
-    result.sort_by(|a, b| a.0.cmp(&b.0));
+    sort_secret_pairs(&mut result);
     Ok(result)
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, SecretProvider, SecretsError};
+use super::super::provider::{run_cli, sort_secret_pairs, SecretProvider, SecretsError};
 
 pub struct AzureKeyVaultProvider;
 
@@ -34,6 +34,14 @@ impl SecretProvider for AzureKeyVaultProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec!["vault_name"]
+    }
+
+    fn build_provider_env(
+        &self,
+        _credentials: &HashMap<String, String>,
+    ) -> Vec<(&'static str, String)> {
+        // Azure CLI uses `az` command directly, no env vars needed
+        Vec::new()
     }
 
     fn pull(
@@ -77,7 +85,7 @@ impl SecretProvider for AzureKeyVaultProvider {
             }
         }
 
-        result.sort_by(|a, b| a.0.cmp(&b.0));
+        sort_secret_pairs(&mut result);
         Ok(result)
     }
 

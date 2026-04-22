@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, SecretProvider, SecretsError};
+use super::super::provider::{
+    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+};
 
 pub struct OnePasswordProvider;
 
@@ -25,13 +27,24 @@ impl SecretProvider for OnePasswordProvider {
         vec!["service_account_token"]
     }
 
+    fn build_provider_env(
+        &self,
+        credentials: &HashMap<String, String>,
+    ) -> Vec<(&'static str, String)> {
+        let mut env = Vec::new();
+        if let Some(token) = credentials.get("service_account_token") {
+            env.push(("OP_SERVICE_ACCOUNT_TOKEN", token.clone()));
+        }
+        env
+    }
+
     fn pull(
         &self,
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "op",
@@ -48,8 +61,8 @@ impl SecretProvider for OnePasswordProvider {
         path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         for (key, value) in secrets {
             let assignment = format!("{}={}", key, value);
@@ -70,8 +83,8 @@ impl SecretProvider for OnePasswordProvider {
         path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let field = format!("--fields=label={}", key);
         let output = run_cli("op", &["item", "get", path, &field], &env_refs, "1password")?;
@@ -84,8 +97,8 @@ impl SecretProvider for OnePasswordProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<String>, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "op",
@@ -108,11 +121,8 @@ impl SecretProvider for OnePasswordProvider {
 }
 
 pub fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
-    let mut env = Vec::new();
-    if let Some(token) = credentials.get("service_account_token") {
-        env.push(("OP_SERVICE_ACCOUNT_TOKEN", token.clone()));
-    }
-    env
+    let provider = OnePasswordProvider;
+    provider.build_provider_env(credentials)
 }
 
 pub fn parse_item_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
@@ -143,6 +153,6 @@ pub fn parse_item_output(output: &str) -> Result<Vec<(String, String)>, SecretsE
         })
         .collect();
 
-    result.sort_by(|a, b| a.0.cmp(&b.0));
+    sort_secret_pairs(&mut result);
     Ok(result)
 }

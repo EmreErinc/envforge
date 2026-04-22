@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, SecretProvider, SecretsError};
+use super::super::provider::{
+    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+};
 
 pub struct DopplerProvider;
 
@@ -25,13 +27,24 @@ impl SecretProvider for DopplerProvider {
         vec!["token", "project", "config"]
     }
 
+    fn build_provider_env(
+        &self,
+        credentials: &HashMap<String, String>,
+    ) -> Vec<(&'static str, String)> {
+        let mut env = Vec::new();
+        if let Some(token) = credentials.get("token") {
+            env.push(("DOPPLER_TOKEN", token.clone()));
+        }
+        env
+    }
+
     fn pull(
         &self,
         credentials: &HashMap<String, String>,
         _path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let mut args = vec!["secrets", "download", "--format=json", "--no-file"];
 
@@ -57,8 +70,8 @@ impl SecretProvider for DopplerProvider {
         _path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         // Batch all KEY=VALUE pairs into a single doppler secrets set call
         let assignments: Vec<String> = secrets
@@ -113,14 +126,6 @@ impl SecretProvider for DopplerProvider {
     }
 }
 
-fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
-    let mut env = Vec::new();
-    if let Some(token) = credentials.get("token") {
-        env.push(("DOPPLER_TOKEN", token.clone()));
-    }
-    env
-}
-
 /// Doppler system keys injected into download output that are not user secrets.
 const DOPPLER_SYSTEM_KEYS: &[&str] = &["DOPPLER_PROJECT", "DOPPLER_CONFIG", "DOPPLER_ENVIRONMENT"];
 
@@ -135,6 +140,6 @@ pub fn parse_doppler_output(output: &str) -> Result<Vec<(String, String)>, Secre
         .into_iter()
         .filter(|(k, _)| !DOPPLER_SYSTEM_KEYS.contains(&k.as_str()))
         .collect();
-    result.sort_by(|a, b| a.0.cmp(&b.0));
+    sort_secret_pairs(&mut result);
     Ok(result)
 }

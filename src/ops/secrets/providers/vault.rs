@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, SecretProvider, SecretsError};
+use super::super::provider::{
+    env_refs_from_env, parse_json_secrets, run_cli, SecretProvider, SecretsError,
+};
 
 pub struct VaultProvider;
 
@@ -27,6 +29,21 @@ impl SecretProvider for VaultProvider {
 
     fn optional_credential_fields(&self) -> Vec<&str> {
         vec!["token", "role_id", "secret_id", "auth_method"]
+    }
+
+    /// Build provider-specific environment variables for Vault CLI.
+    fn build_provider_env(
+        &self,
+        credentials: &HashMap<String, String>,
+    ) -> Vec<(&'static str, String)> {
+        let mut env = Vec::new();
+        if let Some(addr) = credentials.get("addr") {
+            env.push(("VAULT_ADDR", addr.clone()));
+        }
+        if let Some(token) = credentials.get("token") {
+            env.push(("VAULT_TOKEN", token.clone()));
+        }
+        env
     }
 
     fn authenticate(&self, credentials: &HashMap<String, String>) -> Result<(), SecretsError> {
@@ -86,8 +103,8 @@ impl SecretProvider for VaultProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "vault",
@@ -96,7 +113,8 @@ impl SecretProvider for VaultProvider {
             "vault",
         )?;
 
-        parse_kv_get_output(&output)
+        parse_json_secrets(&output, &["data", "data"], "vault")
+            .or_else(|_| parse_json_secrets(&output, &["data"], "vault"))
     }
 
     fn push(
@@ -105,8 +123,8 @@ impl SecretProvider for VaultProvider {
         path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let kv_args: Vec<String> = secrets
             .iter()
@@ -127,8 +145,8 @@ impl SecretProvider for VaultProvider {
         path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let field_flag = format!("-field={}", key);
         let output = run_cli(
@@ -146,8 +164,8 @@ impl SecretProvider for VaultProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<String>, SecretsError> {
-        let env_vars = build_env(credentials);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let env_vars = self.build_provider_env(credentials);
+        let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "vault",
@@ -160,45 +178,21 @@ impl SecretProvider for VaultProvider {
     }
 }
 
-pub fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
-    let mut env = Vec::new();
-    if let Some(addr) = credentials.get("addr") {
-        env.push(("VAULT_ADDR", addr.clone()));
-    }
-    if let Some(token) = credentials.get("token") {
-        env.push(("VAULT_TOKEN", token.clone()));
-    }
-    env
+/// Legacy parse function for Vault KV GET output.
+/// Wrapper around parse_json_secrets for backward compatibility with tests.
+pub fn parse_kv_get_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
+    use super::super::provider::parse_json_secrets;
+    parse_json_secrets(output, &["data", "data"], "vault")
+        .or_else(|_| parse_json_secrets(output, &["data"], "vault"))
 }
 
-pub fn parse_kv_get_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> {
-    let json: serde_json::Value =
-        serde_json::from_str(output).map_err(|e| SecretsError::ParseError {
-            provider: "vault".to_string(),
-            message: e.to_string(),
-        })?;
-
-    let data = json
-        .get("data")
-        .and_then(|d| d.get("data"))
-        .or_else(|| json.get("data"))
-        .ok_or_else(|| SecretsError::ParseError {
-            provider: "vault".to_string(),
-            message: "unexpected JSON structure".to_string(),
-        })?;
-
-    let map = data.as_object().ok_or_else(|| SecretsError::ParseError {
-        provider: "vault".to_string(),
-        message: "data is not an object".to_string(),
-    })?;
-
-    let mut result: Vec<(String, String)> = map
-        .iter()
-        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
-        .collect();
-
-    result.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(result)
+/// Legacy environment builder for Vault.
+/// Wrapper around build_provider_env for backward compatibility with tests.
+pub fn build_env(
+    credentials: &std::collections::HashMap<String, String>,
+) -> Vec<(&'static str, String)> {
+    let provider = VaultProvider;
+    provider.build_provider_env(credentials)
 }
 
 /// Parse `vault kv list -format=json` output.
