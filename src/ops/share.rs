@@ -207,8 +207,7 @@ mod tests {
         let encrypted = create_share(&entries, &pubkey, None).expect("create_share");
         assert!(!encrypted.is_empty());
 
-        let package =
-            receive_share_with_identity(&encrypted, &identity).expect("receive_share");
+        let package = receive_share_with_identity(&encrypted, &identity).expect("receive_share");
         assert_eq!(package.metadata.key_count, 2);
         assert_eq!(package.entries.get("API_KEY").unwrap(), "sk-test-123");
         assert_eq!(package.entries.get("DB_HOST").unwrap(), "localhost");
@@ -253,8 +252,7 @@ mod tests {
         let encrypted = create_share(&entries, &pubkey, Some(0)).expect("create_share");
 
         // receive_share should still succeed (warn but not block)
-        let package =
-            receive_share_with_identity(&encrypted, &identity).expect("receive_share");
+        let package = receive_share_with_identity(&encrypted, &identity).expect("receive_share");
         assert_eq!(package.entries.get("SECRET").unwrap(), "value");
 
         // is_expired should return true
@@ -283,8 +281,7 @@ mod tests {
         let entries = vec![("TOKEN".to_string(), "abc123".to_string())];
 
         let encrypted = create_share(&entries, &pubkey, Some(24)).expect("create_share");
-        let package =
-            receive_share_with_identity(&encrypted, &identity).expect("receive_share");
+        let package = receive_share_with_identity(&encrypted, &identity).expect("receive_share");
 
         assert!(package.metadata.expires_at.is_some());
         // Should NOT be expired (24 hours from now)
