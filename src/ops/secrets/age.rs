@@ -117,7 +117,7 @@ pub fn get_age_report(stale_threshold_days: i64) -> Result<Vec<AgeEntry>, Secret
         });
     }
 
-    entries.sort_by(|a, b| b.age_days.cmp(&a.age_days));
+    entries.sort_by_key(|a| std::cmp::Reverse(a.age_days));
     Ok(entries)
 }
 

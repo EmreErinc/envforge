@@ -170,22 +170,35 @@ pub fn is_expired(package: &SharePackage) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::encrypt::ensure_age_key;
+    /// Decrypt a share using an explicit identity (for CI-safe tests).
+    fn receive_share_with_identity(
+        encrypted_data: &[u8],
+        identity: &age::x25519::Identity,
+    ) -> Result<SharePackage, ShareError> {
+        let decryptor = age::Decryptor::new(encrypted_data)
+            .map_err(|e| ShareError::DecryptFailed(e.to_string()))?;
 
-    /// Helper: get the local public key from the age key file.
-    fn local_pubkey() -> String {
-        let key_content = ensure_age_key().expect("ensure_age_key");
-        for line in key_content.lines() {
-            if line.starts_with("# public key: ") {
-                return line.trim_start_matches("# public key: ").to_string();
-            }
-        }
-        panic!("No public key found in age.key");
+        let mut reader = decryptor
+            .decrypt(std::iter::once(identity as &dyn age::Identity))
+            .map_err(|e| ShareError::DecryptFailed(e.to_string()))?;
+
+        let mut decrypted = String::new();
+        reader
+            .read_to_string(&mut decrypted)
+            .map_err(|e| ShareError::DecryptFailed(e.to_string()))?;
+
+        let package: SharePackage = toml::from_str(&decrypted)
+            .map_err(|e| ShareError::InvalidFormat(format!("TOML parse failed: {e}")))?;
+
+        Ok(package)
     }
 
     #[test]
     fn test_create_receive_roundtrip() {
-        let pubkey = local_pubkey();
+        // Generate an ephemeral key pair — no filesystem dependency
+        let identity = age::x25519::Identity::generate();
+        let pubkey = identity.to_public().to_string();
+
         let entries = vec![
             ("API_KEY".to_string(), "sk-test-123".to_string()),
             ("DB_HOST".to_string(), "localhost".to_string()),
@@ -194,7 +207,8 @@ mod tests {
         let encrypted = create_share(&entries, &pubkey, None).expect("create_share");
         assert!(!encrypted.is_empty());
 
-        let package = receive_share(&encrypted).expect("receive_share");
+        let package =
+            receive_share_with_identity(&encrypted, &identity).expect("receive_share");
         assert_eq!(package.metadata.key_count, 2);
         assert_eq!(package.entries.get("API_KEY").unwrap(), "sk-test-123");
         assert_eq!(package.entries.get("DB_HOST").unwrap(), "localhost");
@@ -231,14 +245,16 @@ mod tests {
 
     #[test]
     fn test_expired_share_warning() {
-        let pubkey = local_pubkey();
+        let identity = age::x25519::Identity::generate();
+        let pubkey = identity.to_public().to_string();
         let entries = vec![("SECRET".to_string(), "value".to_string())];
 
         // Create a share that expires in 0 hours (already expired)
         let encrypted = create_share(&entries, &pubkey, Some(0)).expect("create_share");
 
         // receive_share should still succeed (warn but not block)
-        let package = receive_share(&encrypted).expect("receive_share");
+        let package =
+            receive_share_with_identity(&encrypted, &identity).expect("receive_share");
         assert_eq!(package.entries.get("SECRET").unwrap(), "value");
 
         // is_expired should return true
@@ -262,11 +278,13 @@ mod tests {
 
     #[test]
     fn test_create_share_with_expiry() {
-        let pubkey = local_pubkey();
+        let identity = age::x25519::Identity::generate();
+        let pubkey = identity.to_public().to_string();
         let entries = vec![("TOKEN".to_string(), "abc123".to_string())];
 
         let encrypted = create_share(&entries, &pubkey, Some(24)).expect("create_share");
-        let package = receive_share(&encrypted).expect("receive_share");
+        let package =
+            receive_share_with_identity(&encrypted, &identity).expect("receive_share");
 
         assert!(package.metadata.expires_at.is_some());
         // Should NOT be expired (24 hours from now)

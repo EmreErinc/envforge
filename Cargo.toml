@@ -11,7 +11,7 @@ readme = "README.md"
 keywords = ["env", "environment", "terminal", "tui", "shell"]
 categories = ["command-line-utilities"]
 authors = ["Emre Erinc"]
-exclude = [".specsmd/", "memory-bank/", ".github/", "node_modules/", ".claude/"]
+exclude = [".specsmd/", "memory-bank/", ".github/", "node_modules/", ".claude/", ".agents/", ".idea"]
 
 [[bin]]
 name = "envforge"
@@ -113,6 +113,7 @@ if_then_some_else_none = "allow"
 ignored_unit_patterns = "allow"
 manual_matches = "allow"
 comparison_chain = "allow"
+collapsible_match = "allow"
 
 [dev-dependencies]
 insta = "1.47.2"

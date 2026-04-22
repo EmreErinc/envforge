@@ -14,7 +14,7 @@ pub fn sanitize_content(content: &str, secrets: &[(String, String)]) -> (String,
         .iter()
         .filter(|(_, v)| v.len() >= 4) // skip very short values
         .collect();
-    sorted.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    sorted.sort_by_key(|a| std::cmp::Reverse(a.1.len()));
 
     for (key, value) in sorted {
         if result.contains(value.as_str()) {
