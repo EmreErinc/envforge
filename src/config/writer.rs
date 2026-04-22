@@ -128,3 +128,65 @@ pub fn safe_write(
 
     atomic_write(path, content, expected_hash)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_hash_deterministic() {
+        let data = b"hello world";
+        let h1 = compute_hash(data);
+        let h2 = compute_hash(data);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_hash_different_inputs() {
+        let h1 = compute_hash(b"hello");
+        let h2 = compute_hash(b"world");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_atomic_write_creates_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.txt");
+        atomic_write(&path, "hello", None).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_atomic_write_hash_mismatch_aborts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.txt");
+        std::fs::write(&path, "original").unwrap();
+
+        let wrong_hash = compute_hash(b"different content");
+        let result = atomic_write(&path, "new content", Some(wrong_hash));
+        assert!(matches!(result, Err(WriteError::HashMismatch { .. })));
+        // Original content preserved
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+    }
+
+    #[test]
+    fn test_atomic_write_hash_match_succeeds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.txt");
+        let original = "original content";
+        std::fs::write(&path, original).unwrap();
+
+        let correct_hash = compute_hash(original.as_bytes());
+        atomic_write(&path, "new content", Some(correct_hash)).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new content");
+    }
+
+    #[test]
+    fn test_atomic_write_none_hash_always_succeeds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.txt");
+        std::fs::write(&path, "anything").unwrap();
+        atomic_write(&path, "replaced", None).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "replaced");
+    }
+}

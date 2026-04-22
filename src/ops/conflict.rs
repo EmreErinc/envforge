@@ -151,3 +151,49 @@ fn compute_hash(data: &[u8]) -> [u8; 32] {
     hash.copy_from_slice(&result);
     hash
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_diff_identical_strings() {
+        let diff = generate_diff_from_strings("hello\nworld\n", "hello\nworld\n", "test.sh");
+        assert!(
+            diff.is_empty(),
+            "Identical strings should produce empty diff"
+        );
+    }
+
+    #[test]
+    fn test_diff_added_line() {
+        let diff = generate_diff_from_strings("a\n", "a\nb\n", "test.sh");
+        assert!(diff.contains("+b"), "Should show added line");
+    }
+
+    #[test]
+    fn test_diff_removed_line() {
+        let diff = generate_diff_from_strings("a\nb\n", "a\n", "test.sh");
+        assert!(diff.contains("-b"), "Should show removed line");
+    }
+
+    #[test]
+    fn test_diff_changed_line() {
+        let diff = generate_diff_from_strings("old\n", "new\n", "test.sh");
+        assert!(diff.contains("-old"), "Should show removed old");
+        assert!(diff.contains("+new"), "Should show added new");
+    }
+
+    #[test]
+    fn test_diff_header_format() {
+        let diff = generate_diff_from_strings("a\n", "b\n", "myfile.sh");
+        assert!(diff.contains("--- a/myfile.sh"));
+        assert!(diff.contains("+++ b/myfile.sh"));
+    }
+
+    #[test]
+    fn test_diff_both_empty() {
+        let diff = generate_diff_from_strings("", "", "test.sh");
+        assert!(diff.is_empty());
+    }
+}

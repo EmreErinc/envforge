@@ -315,6 +315,82 @@ pub enum Resolution {
     Delete,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_git_version_meets_minimum_exact() {
+        let v = GitVersion {
+            major: 2,
+            minor: 28,
+            patch: 0,
+        };
+        assert!(v.meets_minimum());
+    }
+
+    #[test]
+    fn test_git_version_below_minimum() {
+        let v = GitVersion {
+            major: 2,
+            minor: 27,
+            patch: 9,
+        };
+        assert!(!v.meets_minimum());
+    }
+
+    #[test]
+    fn test_git_version_above_minimum() {
+        let v = GitVersion {
+            major: 2,
+            minor: 40,
+            patch: 0,
+        };
+        assert!(v.meets_minimum());
+    }
+
+    #[test]
+    fn test_sync_diff_empty_and_total() {
+        let empty_diff = SyncDiff {
+            added: vec![],
+            modified: vec![],
+            removed: vec![],
+        };
+        assert!(empty_diff.is_empty());
+        assert_eq!(empty_diff.total_changes(), 0);
+
+        let non_empty = SyncDiff {
+            added: vec![DiffEntry {
+                key: "A".to_string(),
+                local_value: Some("1".to_string()),
+                remote_value: None,
+            }],
+            modified: vec![],
+            removed: vec![DiffEntry {
+                key: "B".to_string(),
+                local_value: None,
+                remote_value: Some("2".to_string()),
+            }],
+        };
+        assert!(!non_empty.is_empty());
+        assert_eq!(non_empty.total_changes(), 2);
+    }
+
+    #[test]
+    fn test_sync_config_new_defaults() {
+        let config = SyncConfig::new("my-machine", Some("git@host:repo.git"));
+        assert_eq!(config.sync.machine_id, "my-machine");
+        assert_eq!(
+            config.sync.remote_url,
+            Some("git@host:repo.git".to_string())
+        );
+        assert!(!config.sync.auto_push);
+        assert!(!config.sync.default_sync);
+        assert_eq!(config.sync.conflict_strategy, ConflictStrategy::Ask);
+        assert!(config.sync.encrypted);
+    }
+}
+
 /// A conflict after resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedEntry {

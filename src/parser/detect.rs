@@ -63,3 +63,49 @@ pub fn default_primary_file(shell: &Shell) -> Result<PathBuf, ParseError> {
 
     Ok(home.join(name))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_classify_shell_zsh() {
+        assert_eq!(classify_shell("/bin/zsh"), Shell::Zsh);
+        assert_eq!(classify_shell("/usr/local/bin/zsh"), Shell::Zsh);
+        assert_eq!(classify_shell("zsh"), Shell::Zsh);
+    }
+
+    #[test]
+    fn test_classify_shell_bash() {
+        assert_eq!(classify_shell("/bin/bash"), Shell::Bash);
+        assert_eq!(classify_shell("/usr/bin/bash"), Shell::Bash);
+        assert_eq!(classify_shell("bash"), Shell::Bash);
+    }
+
+    #[test]
+    fn test_classify_shell_unknown() {
+        let result = classify_shell("/usr/bin/fish");
+        assert!(matches!(result, Shell::Unknown(_)));
+    }
+
+    #[test]
+    fn test_config_file_names_zsh() {
+        let names = config_file_names(&Shell::Zsh);
+        assert!(names.contains(&".zshrc"));
+        assert!(names.contains(&".zprofile"));
+    }
+
+    #[test]
+    fn test_config_file_names_bash() {
+        let names = config_file_names(&Shell::Bash);
+        assert!(names.contains(&".bashrc"));
+        assert!(names.contains(&".bash_profile"));
+        assert!(names.contains(&".profile"));
+    }
+
+    #[test]
+    fn test_config_file_names_unknown_includes_all() {
+        let names = config_file_names(&Shell::Unknown("fish".to_string()));
+        assert!(names.len() >= 5);
+    }
+}

@@ -873,4 +873,177 @@ mod tests {
         let path = shellexpand_path("/absolute/path");
         assert_eq!(path, PathBuf::from("/absolute/path"));
     }
+
+    // ─── parse_schema_content ─────────────────────────────────
+
+    #[test]
+    fn test_parse_schema_basic() {
+        let content = r#"
+[DB_HOST]
+type = "string"
+required = true
+description = "Database hostname"
+"#;
+        let schema = parse_schema_content(content).unwrap();
+        assert_eq!(schema.variables.len(), 1);
+        let var = schema.variables.get("DB_HOST").unwrap();
+        assert_eq!(var.var_type, VarType::String);
+        assert!(var.required);
+        assert_eq!(var.description.as_deref(), Some("Database hostname"));
+    }
+
+    #[test]
+    fn test_parse_schema_with_enum() {
+        let content = r#"
+[NODE_ENV]
+type = "enum"
+values = ["development", "staging", "production"]
+required = true
+"#;
+        let schema = parse_schema_content(content).unwrap();
+        let var = schema.variables.get("NODE_ENV").unwrap();
+        assert_eq!(var.var_type, VarType::Enum);
+        assert_eq!(
+            var.values.as_ref().unwrap(),
+            &vec!["development", "staging", "production"]
+        );
+    }
+
+    // ─── VarType::parse ───────────────────────────────────────
+
+    #[test]
+    fn test_vartype_parse_all_known() {
+        assert_eq!(VarType::parse("string"), Some(VarType::String));
+        assert_eq!(VarType::parse("number"), Some(VarType::Number));
+        assert_eq!(VarType::parse("bool"), Some(VarType::Bool));
+        assert_eq!(VarType::parse("url"), Some(VarType::Url));
+        assert_eq!(VarType::parse("email"), Some(VarType::Email));
+        assert_eq!(VarType::parse("enum"), Some(VarType::Enum));
+        assert_eq!(VarType::parse("port"), Some(VarType::Port));
+    }
+
+    #[test]
+    fn test_vartype_parse_unknown() {
+        assert_eq!(VarType::parse("unknown_type"), None);
+    }
+
+    // ─── validate_against_schema ──────────────────────────────
+
+    #[test]
+    fn test_validate_missing_required() {
+        let content = r#"
+[API_KEY]
+type = "string"
+required = true
+"#;
+        let schema = parse_schema_content(content).unwrap();
+        let env: HashMap<String, String> = HashMap::new(); // no API_KEY set
+        let errors = validate_against_schema(&env, &schema, None, &HashMap::new());
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.key == "API_KEY"));
+    }
+
+    #[test]
+    fn test_validate_number_type() {
+        let content = r#"
+[PORT]
+type = "number"
+"#;
+        let schema = parse_schema_content(content).unwrap();
+        let mut env = HashMap::new();
+        env.insert("PORT".to_string(), "not_a_number".to_string());
+        let errors = validate_against_schema(&env, &schema, None, &HashMap::new());
+        assert!(errors.iter().any(|e| e.key == "PORT"));
+    }
+
+    #[test]
+    fn test_validate_bool_type() {
+        let content = r#"
+[DEBUG]
+type = "bool"
+"#;
+        let schema = parse_schema_content(content).unwrap();
+        // Valid bools should pass
+        let mut env = HashMap::new();
+        env.insert("DEBUG".to_string(), "true".to_string());
+        let errors = validate_against_schema(&env, &schema, None, &HashMap::new());
+        assert!(errors.is_empty());
+
+        // Invalid bool should fail
+        env.insert("DEBUG".to_string(), "maybe".to_string());
+        let errors = validate_against_schema(&env, &schema, None, &HashMap::new());
+        assert!(!errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_enum_type() {
+        let content = r#"
+[NODE_ENV]
+type = "enum"
+values = ["dev", "prod"]
+"#;
+        let schema = parse_schema_content(content).unwrap();
+        let mut env = HashMap::new();
+        env.insert("NODE_ENV".to_string(), "invalid".to_string());
+        let errors = validate_against_schema(&env, &schema, None, &HashMap::new());
+        assert!(errors.iter().any(|e| e.key == "NODE_ENV"));
+    }
+
+    // ─── generate_schema ──────────────────────────────────────
+
+    #[test]
+    fn test_generate_schema_infers_types() {
+        let mut env = HashMap::new();
+        env.insert("PORT".to_string(), "3000".to_string());
+        env.insert("DEBUG".to_string(), "true".to_string());
+        env.insert("DB_URL".to_string(), "https://db.example.com".to_string());
+        let schema_str = generate_schema(&env);
+        assert!(schema_str.contains("type = \"number\"") || schema_str.contains("type = \"port\""));
+        assert!(schema_str.contains("type = \"bool\""));
+        assert!(schema_str.contains("type = \"url\""));
+    }
+
+    #[test]
+    fn test_generate_schema_detects_sensitive() {
+        let mut env = HashMap::new();
+        env.insert("SECRET_KEY".to_string(), "abc123".to_string());
+        let schema_str = generate_schema(&env);
+        assert!(schema_str.contains("sensitive = true"));
+    }
+
+    // ─── detect_drift ─────────────────────────────────────────
+
+    #[test]
+    fn test_drift_same_values() {
+        let mut env1 = HashMap::new();
+        env1.insert("A".to_string(), "1".to_string());
+        let mut env2 = HashMap::new();
+        env2.insert("A".to_string(), "1".to_string());
+        let drift = detect_drift(
+            &[("env1".to_string(), env1), ("env2".to_string(), env2)],
+            None,
+        );
+        assert!(drift.iter().all(|d| matches!(d.status, DriftStatus::Same)));
+    }
+
+    #[test]
+    fn test_drift_missing_and_differs() {
+        let mut env1 = HashMap::new();
+        env1.insert("A".to_string(), "1".to_string());
+        env1.insert("B".to_string(), "old".to_string());
+        let mut env2 = HashMap::new();
+        env2.insert("B".to_string(), "new".to_string());
+        env2.insert("C".to_string(), "3".to_string());
+        let drift = detect_drift(
+            &[("env1".to_string(), env1), ("env2".to_string(), env2)],
+            None,
+        );
+        // A: only in env1 (missing from env2)
+        // B: differs
+        // C: only in env2 (missing from env1)
+        assert!(drift.len() >= 2);
+        assert!(drift
+            .iter()
+            .any(|d| matches!(d.status, DriftStatus::Differs)));
+    }
 }

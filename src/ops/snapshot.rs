@@ -519,4 +519,55 @@ mod tests {
 
         assert_eq!(snapshot.metadata.name, "newest");
     }
+
+    // ─── diff_snapshot edge cases ─────────────────────────────
+
+    #[test]
+    fn test_diff_empty_snapshot_vs_current() {
+        let snapshot = Snapshot {
+            metadata: SnapshotMeta {
+                name: "empty".to_string(),
+                created_at: "2026-04-20T00:00:00Z".to_string(),
+                profile: "dev".to_string(),
+                machine_id: "test".to_string(),
+                var_count: 0,
+            },
+            entries: BTreeMap::new(),
+        };
+        let current = vec![("NEW".to_string(), "val".to_string())];
+        let diff = diff_snapshot(&snapshot, &current);
+        assert!(diff.iter().all(|d| d.status == DiffStatus::Added));
+    }
+
+    #[test]
+    fn test_diff_current_empty() {
+        let snapshot = Snapshot {
+            metadata: SnapshotMeta {
+                name: "full".to_string(),
+                created_at: "2026-04-20T00:00:00Z".to_string(),
+                profile: "dev".to_string(),
+                machine_id: "test".to_string(),
+                var_count: 1,
+            },
+            entries: BTreeMap::from([("OLD".to_string(), "val".to_string())]),
+        };
+        let diff = diff_snapshot(&snapshot, &[]);
+        assert!(diff.iter().all(|d| d.status == DiffStatus::Removed));
+    }
+
+    #[test]
+    fn test_diff_both_empty() {
+        let snapshot = Snapshot {
+            metadata: SnapshotMeta {
+                name: "empty".to_string(),
+                created_at: "2026-04-20T00:00:00Z".to_string(),
+                profile: "dev".to_string(),
+                machine_id: "test".to_string(),
+                var_count: 0,
+            },
+            entries: BTreeMap::new(),
+        };
+        let diff = diff_snapshot(&snapshot, &[]);
+        assert!(diff.is_empty());
+    }
 }

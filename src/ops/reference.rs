@@ -236,3 +236,118 @@ fn find_export_index(shell_file: &ShellFile, key: &str) -> Result<usize, OpsErro
         }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn make_shell_file(content: &str) -> ShellFile {
+        parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
+    }
+
+    fn make_shell_file_at(content: &str, path: &str) -> ShellFile {
+        parse_shell_content(content, Path::new(path)).unwrap()
+    }
+
+    // ─── has_source_directive ─────────────────────────────────
+
+    #[test]
+    fn test_has_source_directive_found() {
+        let sf = make_shell_file("# header\nsource /home/user/.env_managed\nexport FOO=\"bar\"");
+        assert!(has_source_directive(
+            &sf,
+            Path::new("/home/user/.env_managed")
+        ));
+    }
+
+    #[test]
+    fn test_has_source_directive_not_found() {
+        let sf = make_shell_file("export FOO=\"bar\"");
+        assert!(!has_source_directive(
+            &sf,
+            Path::new("/home/user/.env_managed")
+        ));
+    }
+
+    // ─── ensure_source_directive ──────────────────────────────
+
+    #[test]
+    fn test_ensure_source_directive_inserts() {
+        let mut sf = make_shell_file("export FOO=\"bar\"");
+        let ref_path = Path::new("/home/user/.env_managed");
+        let before = sf.lines.len();
+        ensure_source_directive(&mut sf, ref_path, 0, 0).unwrap();
+        assert_eq!(sf.lines.len(), before + 2);
+    }
+
+    #[test]
+    fn test_ensure_source_directive_idempotent() {
+        let mut sf = make_shell_file(
+            "# [envforge:source] Managed environment variables\nsource /home/user/.env_managed\nexport FOO=\"bar\"",
+        );
+        let ref_path = Path::new("/home/user/.env_managed");
+        let before = sf.lines.len();
+        ensure_source_directive(&mut sf, ref_path, 0, 0).unwrap();
+        assert_eq!(sf.lines.len(), before, "Should not add duplicate directive");
+    }
+
+    // ─── move_to_reference / restore ──────────────────────────
+
+    #[test]
+    fn test_move_to_reference_creates_managed_comment() {
+        let mut primary = make_shell_file_at("export API_KEY=\"secret\"", "/test/.zshrc");
+        let mut ref_file = make_shell_file_at("# managed", "/test/.env_managed");
+        let ref_path = Path::new("/test/.env_managed");
+
+        move_to_reference(&mut primary, &mut ref_file, "API_KEY", ref_path).unwrap();
+
+        // Primary should have ManagedComment
+        assert!(matches!(primary.lines[0], LineNode::ManagedComment { .. }));
+        // Ref file should have the EnvExport
+        assert!(ref_file.lines.iter().any(|n| matches!(
+            n,
+            LineNode::EnvExport { key, .. } if key == "API_KEY"
+        )));
+    }
+
+    #[test]
+    fn test_move_key_not_found() {
+        let mut primary = make_shell_file_at("export FOO=\"bar\"", "/test/.zshrc");
+        let mut ref_file = make_shell_file_at("# managed", "/test/.env_managed");
+        let result = move_to_reference(
+            &mut primary,
+            &mut ref_file,
+            "MISSING",
+            Path::new("/test/.env_managed"),
+        );
+        assert!(matches!(result, Err(OpsError::KeyNotFound { .. })));
+    }
+
+    #[test]
+    fn test_restore_from_reference_roundtrip() {
+        let mut primary = make_shell_file_at("export API_KEY=\"secret\"", "/test/.zshrc");
+        let mut ref_file = make_shell_file_at("# managed", "/test/.env_managed");
+        let ref_path = Path::new("/test/.env_managed");
+
+        move_to_reference(&mut primary, &mut ref_file, "API_KEY", ref_path).unwrap();
+        restore_from_reference(&mut primary, &mut ref_file, "API_KEY").unwrap();
+
+        // Primary should have EnvExport restored
+        match &primary.lines[0] {
+            LineNode::EnvExport { key, value, .. } => {
+                assert_eq!(key, "API_KEY");
+                assert_eq!(value, "secret");
+            }
+            other => panic!("Expected restored EnvExport, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_restore_key_not_found() {
+        let mut primary = make_shell_file_at("export FOO=\"bar\"", "/test/.zshrc");
+        let mut ref_file = make_shell_file_at("# managed", "/test/.env_managed");
+        let result = restore_from_reference(&mut primary, &mut ref_file, "MISSING");
+        assert!(matches!(result, Err(OpsError::KeyNotFound { .. })));
+    }
+}

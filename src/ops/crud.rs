@@ -248,3 +248,223 @@ fn find_unique_export(shell_file: &ShellFile, key: &str) -> Result<usize, OpsErr
         }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_shell_content;
+    use std::path::Path;
+
+    fn make_shell_file(content: &str) -> ShellFile {
+        parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
+    }
+
+    // ─── edit_entry ───────────────────────────────────────────
+
+    #[test]
+    fn test_edit_entry_updates_value() {
+        let mut sf = make_shell_file("export API_KEY=\"old_value\"");
+        edit_entry(&mut sf, "API_KEY", "new_value").unwrap();
+        if let LineNode::EnvExport { value, .. } = &sf.lines[0] {
+            assert_eq!(value, "new_value");
+        } else {
+            panic!("Expected EnvExport");
+        }
+    }
+
+    #[test]
+    fn test_edit_entry_preserves_quote_style() {
+        let mut sf = make_shell_file("export DB_HOST='localhost'");
+        edit_entry(&mut sf, "DB_HOST", "remotehost").unwrap();
+        if let LineNode::EnvExport {
+            quote_style,
+            original_text,
+            ..
+        } = &sf.lines[0]
+        {
+            assert_eq!(*quote_style, QuoteStyle::Single);
+            assert!(original_text.contains("'remotehost'"));
+        } else {
+            panic!("Expected EnvExport");
+        }
+    }
+
+    #[test]
+    fn test_edit_entry_preserves_inline_comment() {
+        let mut sf = make_shell_file("export PORT=\"8080\" # web server port");
+        edit_entry(&mut sf, "PORT", "3000").unwrap();
+        if let LineNode::EnvExport {
+            original_text,
+            inline_comment,
+            ..
+        } = &sf.lines[0]
+        {
+            assert!(inline_comment.is_some());
+            assert!(original_text.contains("# web server port"));
+        } else {
+            panic!("Expected EnvExport");
+        }
+    }
+
+    #[test]
+    fn test_edit_entry_key_not_found() {
+        let mut sf = make_shell_file("export FOO=\"bar\"");
+        let result = edit_entry(&mut sf, "MISSING", "val");
+        assert!(matches!(result, Err(OpsError::KeyNotFound { .. })));
+    }
+
+    #[test]
+    fn test_edit_entry_ambiguous_key() {
+        let mut sf = make_shell_file("export DUP=\"a\"\nexport DUP=\"b\"");
+        let result = edit_entry(&mut sf, "DUP", "c");
+        assert!(matches!(result, Err(OpsError::AmbiguousKey { .. })));
+    }
+
+    // ─── soft_delete ──────────────────────────────────────────
+
+    #[test]
+    fn test_soft_delete_converts_to_managed_comment() {
+        let mut sf = make_shell_file("export API_KEY=\"secret\"");
+        soft_delete(&mut sf, "API_KEY").unwrap();
+        match &sf.lines[0] {
+            LineNode::ManagedComment { tag, .. } => {
+                assert_eq!(tag, "deleted:API_KEY");
+            }
+            other => panic!("Expected ManagedComment, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_soft_delete_key_not_found() {
+        let mut sf = make_shell_file("export FOO=\"bar\"");
+        let result = soft_delete(&mut sf, "MISSING");
+        assert!(matches!(result, Err(OpsError::KeyNotFound { .. })));
+    }
+
+    #[test]
+    fn test_soft_delete_ambiguous_key() {
+        let mut sf = make_shell_file("export X=\"1\"\nexport X=\"2\"");
+        let result = soft_delete(&mut sf, "X");
+        assert!(matches!(result, Err(OpsError::AmbiguousKey { .. })));
+    }
+
+    // ─── undo_delete ──────────────────────────────────────────
+
+    #[test]
+    fn test_undo_delete_restores_export() {
+        let mut sf = make_shell_file("export API_KEY=\"secret\"");
+        soft_delete(&mut sf, "API_KEY").unwrap();
+        assert!(matches!(sf.lines[0], LineNode::ManagedComment { .. }));
+
+        undo_delete(&mut sf, "API_KEY").unwrap();
+        match &sf.lines[0] {
+            LineNode::EnvExport { key, value, .. } => {
+                assert_eq!(key, "API_KEY");
+                assert_eq!(value, "secret");
+            }
+            other => panic!("Expected EnvExport after undo, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_undo_delete_not_deleted_error() {
+        let mut sf = make_shell_file("export FOO=\"bar\"");
+        let result = undo_delete(&mut sf, "FOO");
+        assert!(matches!(result, Err(OpsError::NotDeleted { .. })));
+    }
+
+    #[test]
+    fn test_undo_delete_roundtrip_preserves_value() {
+        let mut sf = make_shell_file("export DB_URL=\"postgres://localhost\"");
+        let original_text = sf.lines[0].original_text().to_string();
+
+        soft_delete(&mut sf, "DB_URL").unwrap();
+        undo_delete(&mut sf, "DB_URL").unwrap();
+
+        assert_eq!(sf.lines[0].original_text(), original_text);
+    }
+
+    // ─── add_entry ────────────────────────────────────────────
+
+    #[test]
+    fn test_add_entry_inserts_at_safe_zone() {
+        let mut sf = make_shell_file("# header\nexport EXISTING=\"val\"");
+        add_entry(
+            &mut sf,
+            "NEW_KEY",
+            "new_val",
+            ExportStyle::Export,
+            QuoteStyle::Double,
+            0,
+            0,
+        )
+        .unwrap();
+        assert_eq!(sf.lines.len(), 3);
+        match &sf.lines[2] {
+            LineNode::EnvExport { key, value, .. } => {
+                assert_eq!(key, "NEW_KEY");
+                assert_eq!(value, "new_val");
+            }
+            other => panic!("Expected EnvExport, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_add_entry_key_already_exists() {
+        let mut sf = make_shell_file("export FOO=\"bar\"");
+        let result = add_entry(
+            &mut sf,
+            "FOO",
+            "baz",
+            ExportStyle::Export,
+            QuoteStyle::Double,
+            0,
+            0,
+        );
+        assert!(matches!(result, Err(OpsError::KeyAlreadyExists { .. })));
+    }
+
+    #[test]
+    fn test_add_entry_no_safe_zone() {
+        let mut sf = make_shell_file("export A=\"1\"");
+        // header_offset=1, total=1, safe_start >= safe_end
+        let result = add_entry(
+            &mut sf,
+            "B",
+            "2",
+            ExportStyle::Export,
+            QuoteStyle::Double,
+            5,
+            5,
+        );
+        assert!(matches!(result, Err(OpsError::NoSafeZone { .. })));
+    }
+
+    #[test]
+    fn test_add_entry_bare_no_quotes() {
+        let mut sf = make_shell_file("# file");
+        add_entry(
+            &mut sf,
+            "PORT",
+            "3000",
+            ExportStyle::Bare,
+            QuoteStyle::None,
+            0,
+            0,
+        )
+        .unwrap();
+        match &sf.lines[1] {
+            LineNode::EnvExport {
+                original_text,
+                export_style,
+                quote_style,
+                ..
+            } => {
+                assert_eq!(original_text, "PORT=3000");
+                assert_eq!(*export_style, ExportStyle::Bare);
+                assert_eq!(*quote_style, QuoteStyle::None);
+            }
+            other => panic!("Expected EnvExport, got: {:?}", other),
+        }
+    }
+}

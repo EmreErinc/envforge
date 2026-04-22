@@ -162,3 +162,64 @@ pub enum EncryptError {
     #[error("decryption failed: {0}")]
     DecryptFailed(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_encrypted_true() {
+        assert!(is_encrypted("ENC[age:base64data]"));
+    }
+
+    #[test]
+    fn test_is_encrypted_false() {
+        assert!(!is_encrypted("plaintext"));
+        assert!(!is_encrypted("ENC[other:data]"));
+        assert!(!is_encrypted(""));
+    }
+
+    #[test]
+    fn test_extract_encrypted_data_valid() {
+        let data = extract_encrypted_data("ENC[age:someb64data]").unwrap();
+        assert_eq!(data, "someb64data");
+    }
+
+    #[test]
+    fn test_extract_encrypted_data_not_encrypted() {
+        let result = extract_encrypted_data("plaintext");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_recipient_valid() {
+        let key_content = "# created by envforge\n# public key: age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p\nAGE-SECRET-KEY-FAKE\n";
+        let result = get_recipient(key_content);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_recipient_missing_pubkey() {
+        let key_content = "# no public key here\nAGE-SECRET-KEY-FAKE\n";
+        let result = get_recipient(key_content);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_identity_valid() {
+        // Generate a real key to get a valid secret key string
+        use age::secrecy::ExposeSecret;
+        let key = age::x25519::Identity::generate();
+        let secret = key.to_string();
+        let content = format!("# comment\n{}\n", secret.expose_secret());
+        let result = get_identity(&content);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_identity_missing_secret() {
+        let content = "# public key: age1xyz\n# no secret key\n";
+        let result = get_identity(content);
+        assert!(result.is_err());
+    }
+}

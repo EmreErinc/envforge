@@ -278,3 +278,140 @@ fn strip_quotes(value: &str) -> String {
         value.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_shell_content;
+    use std::path::Path;
+
+    fn make_shell_file(content: &str) -> ShellFile {
+        parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
+    }
+
+    // ─── parse_dotenv_content ─────────────────────────────────
+
+    #[test]
+    fn test_parse_basic_key_value() {
+        let entries = parse_dotenv_content("FOO=bar");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "FOO");
+        assert_eq!(entries[0].value, "bar");
+    }
+
+    #[test]
+    fn test_parse_quoted_values() {
+        let entries = parse_dotenv_content("A=\"hello\"\nB='world'");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].value, "hello");
+        assert_eq!(entries[1].value, "world");
+    }
+
+    #[test]
+    fn test_parse_skips_comments_and_blanks() {
+        let entries = parse_dotenv_content("# comment\n\nFOO=bar\n# another");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "FOO");
+    }
+
+    #[test]
+    fn test_parse_empty_key_skipped() {
+        let entries = parse_dotenv_content("=value");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_parse_multiline_content() {
+        let entries = parse_dotenv_content("A=1\nB=2\nC=3");
+        assert_eq!(entries.len(), 3);
+    }
+
+    // ─── is_sensitive_key ─────────────────────────────────────
+
+    #[test]
+    fn test_sensitive_secret() {
+        assert!(is_sensitive_key("AWS_SECRET"));
+    }
+
+    #[test]
+    fn test_sensitive_token() {
+        assert!(is_sensitive_key("AUTH_TOKEN"));
+    }
+
+    #[test]
+    fn test_sensitive_password() {
+        assert!(is_sensitive_key("DB_PASSWORD"));
+    }
+
+    #[test]
+    fn test_sensitive_keyboard_excluded() {
+        assert!(!is_sensitive_key("KEYBOARD_LAYOUT"));
+    }
+
+    #[test]
+    fn test_not_sensitive() {
+        assert!(!is_sensitive_key("DB_HOST"));
+        assert!(!is_sensitive_key("PORT"));
+    }
+
+    // ─── export_entries ───────────────────────────────────────
+
+    #[test]
+    fn test_export_entries_basic() {
+        let sf = make_shell_file("export FOO=\"bar\"\nexport BAZ=\"qux\"");
+        let entries = crate::ops::listing::collect_entries(&sf);
+        let output = export_entries(&entries, false, None);
+        assert!(output.contains("FOO=bar"));
+        assert!(output.contains("BAZ=qux"));
+    }
+
+    #[test]
+    fn test_export_entries_excludes_sensitive() {
+        let sf = make_shell_file("export API_KEY=\"secret\"\nexport HOST=\"localhost\"");
+        let entries = crate::ops::listing::collect_entries(&sf);
+        let output = export_entries(&entries, true, None);
+        assert!(
+            !output.contains("API_KEY"),
+            "Sensitive key should be excluded"
+        );
+        assert!(output.contains("HOST"));
+    }
+
+    // ─── export_safe ──────────────────────────────────────────
+
+    #[test]
+    fn test_export_safe_redacts_sensitive() {
+        let sf = make_shell_file("export API_KEY=\"secret\"\nexport HOST=\"localhost\"");
+        let entries = crate::ops::listing::collect_entries(&sf);
+        let output = export_safe(&entries, &std::collections::HashSet::new());
+        assert!(output.contains("API_KEY=[REDACTED]"));
+        assert!(output.contains("HOST=localhost"));
+    }
+
+    #[test]
+    fn test_export_safe_schema_sensitive() {
+        let sf = make_shell_file("export CUSTOM=\"value\"");
+        let entries = crate::ops::listing::collect_entries(&sf);
+        let mut schema_keys = std::collections::HashSet::new();
+        schema_keys.insert("CUSTOM".to_string());
+        let output = export_safe(&entries, &schema_keys);
+        assert!(output.contains("CUSTOM=[REDACTED]"));
+    }
+
+    // ─── strip_quotes / needs_quoting ─────────────────────────
+
+    #[test]
+    fn test_strip_quotes() {
+        assert_eq!(strip_quotes("\"hello\""), "hello");
+        assert_eq!(strip_quotes("'world'"), "world");
+        assert_eq!(strip_quotes("bare"), "bare");
+    }
+
+    #[test]
+    fn test_needs_quoting() {
+        assert!(needs_quoting("has space"));
+        assert!(needs_quoting("has#hash"));
+        assert!(needs_quoting(""));
+        assert!(!needs_quoting("simple"));
+    }
+}

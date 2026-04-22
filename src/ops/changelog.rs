@@ -143,3 +143,36 @@ pub fn mask_for_log(value: &str) -> String {
         format!("{}***", &value[..3])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mask_short_value() {
+        assert_eq!(mask_for_log("abc"), "***");
+        assert_eq!(mask_for_log("abcd"), "***");
+    }
+
+    #[test]
+    fn test_mask_long_value() {
+        assert_eq!(mask_for_log("secret_value"), "sec***");
+        assert_eq!(mask_for_log("12345"), "123***");
+    }
+
+    #[test]
+    fn test_parse_changelog_line_valid() {
+        let entry = parse_changelog_line("2026-04-10T10:30:00Z [dev] ADD API_KEY sk-***").unwrap();
+        assert_eq!(entry.timestamp, "2026-04-10T10:30:00Z");
+        assert_eq!(entry.profile, "dev");
+        assert_eq!(entry.action, "ADD");
+        assert_eq!(entry.key, "API_KEY");
+        assert_eq!(entry.detail, "sk-***");
+    }
+
+    #[test]
+    fn test_parse_changelog_line_invalid() {
+        assert!(parse_changelog_line("incomplete").is_none());
+        assert!(parse_changelog_line("").is_none());
+    }
+}

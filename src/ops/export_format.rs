@@ -497,4 +497,38 @@ mod tests {
         let toml_out = export_toml(&entries);
         assert!(toml_out.contains("MSG = \"say \\\"hello\\\"\""));
     }
+
+    // ─── format parsing ───────────────────────────────────────
+
+    #[test]
+    fn test_parse_format_all_aliases() {
+        assert_eq!(ExportFormat::parse("yaml").unwrap(), ExportFormat::Yaml);
+        assert_eq!(ExportFormat::parse("yml").unwrap(), ExportFormat::Yaml);
+        assert_eq!(ExportFormat::parse("k8s").unwrap(), ExportFormat::K8s);
+        assert_eq!(
+            ExportFormat::parse("kubernetes").unwrap(),
+            ExportFormat::K8s
+        );
+        assert_eq!(ExportFormat::parse("tf").unwrap(), ExportFormat::Tfvars);
+        assert_eq!(
+            ExportFormat::parse("terraform").unwrap(),
+            ExportFormat::Tfvars
+        );
+        assert_eq!(ExportFormat::parse("dotenv").unwrap(), ExportFormat::Dotenv);
+        assert_eq!(ExportFormat::parse("env").unwrap(), ExportFormat::Dotenv);
+    }
+
+    #[test]
+    fn test_parse_format_unknown() {
+        assert!(ExportFormat::parse("xml").is_err());
+        assert!(ExportFormat::parse("csv").is_err());
+    }
+
+    #[test]
+    fn test_extension_all_formats() {
+        assert_eq!(ExportFormat::Dotenv.extension(), ".env");
+        assert_eq!(ExportFormat::Json.extension(), ".json");
+        assert_eq!(ExportFormat::Yaml.extension(), ".yaml");
+        assert_eq!(ExportFormat::Toml.extension(), ".toml");
+    }
 }

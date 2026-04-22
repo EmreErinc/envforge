@@ -152,3 +152,133 @@ pub fn suggest_offsets(shell_file: &ShellFile) -> (usize, usize) {
 
     (header, footer)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_shell_content;
+    use std::path::Path;
+
+    fn make_shell_file(content: &str) -> ShellFile {
+        parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
+    }
+
+    // ─── detect_protected_blocks ──────────────────────────────
+
+    #[test]
+    fn test_detect_conda_block() {
+        let sf = make_shell_file(
+            "# some stuff\n\
+             # >>> conda initialize >>>\n\
+             __conda_setup=1\n\
+             # <<< conda initialize <<<\n\
+             export FOO=\"bar\"",
+        );
+        let blocks = detect_protected_blocks(&sf);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].name, "conda");
+    }
+
+    #[test]
+    fn test_detect_amazon_q_blocks() {
+        let sf = make_shell_file(
+            "# Q pre block.\n\
+             some_q_setup\n\
+             export FOO=\"bar\"\n\
+             # Q post block.\n\
+             some_q_teardown",
+        );
+        let blocks = detect_protected_blocks(&sf);
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks.iter().any(|b| b.name == "Amazon Q (pre)"));
+        assert!(blocks.iter().any(|b| b.name == "Amazon Q (post)"));
+    }
+
+    #[test]
+    fn test_detect_no_blocks() {
+        let sf = make_shell_file("export FOO=\"bar\"\nexport BAZ=\"qux\"");
+        let blocks = detect_protected_blocks(&sf);
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn test_detect_multiple_blocks() {
+        let sf = make_shell_file(
+            "# >>> conda initialize >>>\n\
+             conda_stuff\n\
+             # <<< conda initialize <<<\n\
+             export FOO=\"bar\"\n\
+             # Q pre block.\n\
+             q_stuff",
+        );
+        let blocks = detect_protected_blocks(&sf);
+        assert_eq!(blocks.len(), 2);
+    }
+
+    // ─── calculate_safe_zone ──────────────────────────────────
+
+    #[test]
+    fn test_safe_zone_no_offsets() {
+        let zone = calculate_safe_zone(10, 0, 0).unwrap();
+        assert_eq!(zone.start, 0);
+        assert_eq!(zone.end, 10);
+    }
+
+    #[test]
+    fn test_safe_zone_with_header() {
+        let zone = calculate_safe_zone(10, 3, 0).unwrap();
+        assert_eq!(zone.start, 3);
+        assert_eq!(zone.end, 10);
+    }
+
+    #[test]
+    fn test_safe_zone_with_footer() {
+        let zone = calculate_safe_zone(10, 0, 2).unwrap();
+        assert_eq!(zone.start, 0);
+        assert_eq!(zone.end, 8);
+    }
+
+    #[test]
+    fn test_safe_zone_consumed_entirely() {
+        assert!(calculate_safe_zone(5, 3, 3).is_none());
+    }
+
+    // ─── suggest_offsets ──────────────────────────────────────
+
+    #[test]
+    fn test_suggest_offsets_empty_file() {
+        let sf = make_shell_file("");
+        let (h, f) = suggest_offsets(&sf);
+        assert_eq!(h, 0);
+        assert_eq!(f, 0);
+    }
+
+    #[test]
+    fn test_suggest_offsets_with_conda_at_top() {
+        let sf = make_shell_file(
+            "# >>> conda initialize >>>\n\
+             conda_stuff\n\
+             # <<< conda initialize <<<\n\
+             export FOO=\"bar\"",
+        );
+        let (h, _f) = suggest_offsets(&sf);
+        assert!(h > 0, "Header offset should be > 0 with conda at top");
+    }
+
+    // ─── SafeZone methods ─────────────────────────────────────
+
+    #[test]
+    fn test_safe_zone_contains() {
+        let zone = SafeZone { start: 3, end: 7 };
+        assert!(!zone.contains(2));
+        assert!(zone.contains(3));
+        assert!(zone.contains(6));
+        assert!(!zone.contains(7));
+    }
+
+    #[test]
+    fn test_safe_zone_size() {
+        let zone = SafeZone { start: 3, end: 7 };
+        assert_eq!(zone.size(), 4);
+    }
+}

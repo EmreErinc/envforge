@@ -244,3 +244,73 @@ pub enum ConfigError {
     #[error("home directory could not be determined")]
     HomeDirNotFound,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_profiles_config_active_entry() {
+        let config = ProfilesConfig::default();
+        let entry = config.active_entry().unwrap();
+        assert!(entry.file.contains("default"));
+    }
+
+    #[test]
+    fn test_profiles_config_active_file() {
+        let config = ProfilesConfig::default();
+        let file = config.active_file().unwrap();
+        assert!(file.contains("default"));
+    }
+
+    #[test]
+    fn test_profiles_config_profile_names_sorted() {
+        let mut config = ProfilesConfig::default();
+        config.entries.insert(
+            "staging".to_string(),
+            ProfileEntry {
+                file: "~/.env_managed.staging".to_string(),
+            },
+        );
+        config.entries.insert(
+            "alpha".to_string(),
+            ProfileEntry {
+                file: "~/.env_managed.alpha".to_string(),
+            },
+        );
+        let names = config.profile_names();
+        assert_eq!(names[0], "alpha");
+        assert!(names.windows(2).all(|w| w[0] <= w[1]));
+    }
+
+    #[test]
+    fn test_app_config_default() {
+        let config = AppConfig::default();
+        assert_eq!(config.general.default_shell, "zsh");
+        assert!(config.files.use_reference_file);
+        assert_eq!(config.profiles.active, "default");
+    }
+
+    #[test]
+    fn test_save_and_load_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+
+        let config = AppConfig::default();
+        save_config(&config, &path).unwrap();
+
+        let loaded = load_config(&path).unwrap();
+        assert_eq!(loaded.general.default_shell, config.general.default_shell);
+        assert_eq!(loaded.profiles.active, config.profiles.active);
+    }
+
+    #[test]
+    fn test_load_config_invalid_toml() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("bad.toml");
+        std::fs::write(&path, "this is not valid TOML {{{").unwrap();
+
+        let result = load_config(&path);
+        assert!(matches!(result, Err(ConfigError::ParseError { .. })));
+    }
+}

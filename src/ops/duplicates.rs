@@ -114,3 +114,89 @@ pub fn duplicate_key_set(shell_files: &[ShellFile]) -> std::collections::HashSet
         .map(|g| g.key)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_shell_content;
+    use std::path::Path;
+
+    fn make_shell_file_at(content: &str, path: &str) -> ShellFile {
+        parse_shell_content(content, Path::new(path)).unwrap()
+    }
+
+    #[test]
+    fn test_detect_duplicates_same_file() {
+        let sf = make_shell_file_at("export FOO=\"a\"\nexport FOO=\"b\"", "/test/.zshrc");
+        let groups = detect_duplicates(&[sf]);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, "FOO");
+        assert_eq!(groups[0].entries.len(), 2);
+    }
+
+    #[test]
+    fn test_detect_duplicates_across_files() {
+        let sf1 = make_shell_file_at("export API_KEY=\"val1\"", "/test/.zshrc");
+        let sf2 = make_shell_file_at("export API_KEY=\"val2\"", "/test/.bashrc");
+        let groups = detect_duplicates(&[sf1, sf2]);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, "API_KEY");
+    }
+
+    #[test]
+    fn test_detect_duplicates_no_dupes() {
+        let sf = make_shell_file_at("export A=\"1\"\nexport B=\"2\"", "/test/.zshrc");
+        let groups = detect_duplicates(&[sf]);
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn test_detect_duplicates_ignores_commented() {
+        let sf = make_shell_file_at(
+            "export FOO=\"active\"\n#[envforge:deleted:FOO] export FOO=\"old\"",
+            "/test/.zshrc",
+        );
+        let groups = detect_duplicates(&[sf]);
+        assert!(
+            groups.is_empty(),
+            "Soft-deleted entry should not count as duplicate"
+        );
+    }
+
+    #[test]
+    fn test_detect_duplicates_sorted_by_key() {
+        let sf = make_shell_file_at(
+            "export ZZZ=\"1\"\nexport ZZZ=\"2\"\nexport AAA=\"1\"\nexport AAA=\"2\"",
+            "/test/.zshrc",
+        );
+        let groups = detect_duplicates(&[sf]);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].key, "AAA");
+        assert_eq!(groups[1].key, "ZZZ");
+    }
+
+    #[test]
+    fn test_resolve_duplicate_keep_across_files() {
+        // Duplicates across different files — soft_delete works since each file has one copy
+        let sf1 = make_shell_file_at("export DUP=\"a\"", "/f1/.zshrc");
+        let sf2 = make_shell_file_at("export DUP=\"b\"", "/f2/.zshrc");
+        let groups = detect_duplicates(&[sf1, sf2]);
+        assert_eq!(groups.len(), 1);
+
+        let mut files = vec![
+            make_shell_file_at("export DUP=\"a\"", "/f1/.zshrc"),
+            make_shell_file_at("export DUP=\"b\"", "/f2/.zshrc"),
+        ];
+        // Keep entry 0 (from file 0), delete entry 1 (from file 1)
+        let deleted = resolve_duplicate_keep(&mut files, &groups[0], 0).unwrap();
+        assert_eq!(deleted, 1);
+    }
+
+    #[test]
+    fn test_duplicate_key_set() {
+        let sf = make_shell_file_at("export X=\"1\"\nexport X=\"2\"\nexport Y=\"3\"", "/t/.z");
+        let set = duplicate_key_set(&[sf]);
+        assert!(set.contains("X"));
+        assert!(!set.contains("Y"));
+    }
+}

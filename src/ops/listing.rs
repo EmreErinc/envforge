@@ -225,3 +225,116 @@ fn extract_value_from_export(export_line: &str) -> (String, ExportStyle, QuoteSt
         (String::new(), style, QuoteStyle::None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_shell_content;
+    use std::path::Path;
+
+    fn make_shell_file(content: &str) -> ShellFile {
+        parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
+    }
+
+    fn make_shell_file_at(content: &str, path: &str) -> ShellFile {
+        parse_shell_content(content, Path::new(path)).unwrap()
+    }
+
+    // ─── extract_key_from_tag ─────────────────────────────────
+
+    #[test]
+    fn test_extract_key_deleted_tag() {
+        assert_eq!(
+            extract_key_from_tag("deleted:API_KEY"),
+            Some("API_KEY".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_key_moved_tag() {
+        assert_eq!(
+            extract_key_from_tag("moved:DB_URL -> ~/.env_managed"),
+            Some("DB_URL".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_key_no_colon() {
+        assert_eq!(extract_key_from_tag("invalid"), None);
+    }
+
+    #[test]
+    fn test_extract_key_empty_after_colon() {
+        assert_eq!(extract_key_from_tag("deleted:"), None);
+    }
+
+    // ─── extract_value_from_export ────────────────────────────
+
+    #[test]
+    fn test_extract_export_double_quotes() {
+        let (val, style, quote) = extract_value_from_export("export FOO=\"bar\"");
+        assert_eq!(val, "bar");
+        assert_eq!(style, ExportStyle::Export);
+        assert_eq!(quote, QuoteStyle::Double);
+    }
+
+    #[test]
+    fn test_extract_export_single_quotes() {
+        let (val, style, quote) = extract_value_from_export("export FOO='bar'");
+        assert_eq!(val, "bar");
+        assert_eq!(style, ExportStyle::Export);
+        assert_eq!(quote, QuoteStyle::Single);
+    }
+
+    #[test]
+    fn test_extract_bare_no_quotes() {
+        let (val, style, quote) = extract_value_from_export("BAZ=123");
+        assert_eq!(val, "123");
+        assert_eq!(style, ExportStyle::Bare);
+        assert_eq!(quote, QuoteStyle::None);
+    }
+
+    #[test]
+    fn test_extract_no_equals() {
+        let (val, _, quote) = extract_value_from_export("something");
+        assert_eq!(val, "");
+        assert_eq!(quote, QuoteStyle::None);
+    }
+
+    // ─── filter_entries ───────────────────────────────────────
+
+    #[test]
+    fn test_filter_entries_matches_key_and_value() {
+        let sf = make_shell_file("export API_KEY=\"secret\"\nexport DB_HOST=\"localhost\"");
+        let entries = collect_entries(&sf);
+        let filtered = filter_entries(&entries, "api");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].key, "API_KEY");
+    }
+
+    #[test]
+    fn test_filter_entries_empty_query_returns_all() {
+        let sf = make_shell_file("export A=\"1\"\nexport B=\"2\"");
+        let entries = collect_entries(&sf);
+        let filtered = filter_entries(&entries, "");
+        assert_eq!(filtered.len(), 2);
+    }
+
+    // ─── collect_all_entries ──────────────────────────────────
+
+    #[test]
+    fn test_collect_all_entries_multiple_files() {
+        let sf1 = make_shell_file_at("export A=\"1\"", "/test/.zshrc");
+        let sf2 = make_shell_file_at("export B=\"2\"", "/test/.bashrc");
+        let entries = collect_all_entries(&[sf1, sf2]);
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|e| e.key == "A"));
+        assert!(entries.iter().any(|e| e.key == "B"));
+    }
+
+    #[test]
+    fn test_collect_all_entries_empty() {
+        let entries = collect_all_entries(&[]);
+        assert!(entries.is_empty());
+    }
+}
