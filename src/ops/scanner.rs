@@ -147,7 +147,17 @@ fn is_binary_extension(path: &Path) -> bool {
 
 fn truncate_line(line: &str, max: usize) -> String {
     if line.len() > max {
-        format!("{}…", &line[..max])
+        let mut truncated = String::new();
+        let mut byte_count = 0;
+        for ch in line.chars() {
+            let ch_len = ch.len_utf8();
+            if byte_count + ch_len > max {
+                break;
+            }
+            truncated.push(ch);
+            byte_count += ch_len;
+        }
+        format!("{}…", truncated)
     } else {
         line.to_string()
     }

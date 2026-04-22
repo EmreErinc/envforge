@@ -1,4 +1,5 @@
 mod commands;
+mod error;
 mod secrets_cmd;
 mod sync_cmd;
 mod wizard;
@@ -6,6 +7,7 @@ mod wizard;
 use clap::{Parser, Subcommand};
 
 pub use commands::*;
+pub use error::{CliError, CliResult};
 pub use secrets_cmd::*;
 pub use sync_cmd::*;
 pub use wizard::*;

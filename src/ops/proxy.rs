@@ -114,8 +114,10 @@ pub fn extract_host_from_origin(origin: &str) -> String {
 const DEFAULT_SAFE_HOSTS: &[&str] = &["127.0.0.1", "localhost", "::1"];
 
 /// Check whether a request origin is allowed.
+///
 /// - If `allowed_origins` is Some, check against that list (plus loopback always allowed).
 /// - If `allowed_origins` is None, only allow loopback.
+///
 /// Returns true if allowed.
 pub fn is_origin_allowed(origin: Option<&str>, allowed_origins: Option<&[String]>) -> bool {
     let origin = match origin {
@@ -197,18 +199,15 @@ pub fn check_lease_for_request(
         return None;
     }
 
-    if path.starts_with("/env/") {
-        let key = &path[5..];
-        if !key.is_empty() {
-            if super::lease::check_lease_access(key).is_none() {
-                return Some((
-                    "403 Forbidden".to_string(),
-                    format!(
-                        r#"{{"error":"no active lease for key '{}'","hint":"Run: envforge lease create --ttl 1h --keys {}"}}"#,
-                        key, key
-                    ),
-                ));
-            }
+    if let Some(key) = path.strip_prefix("/env/") {
+        if !key.is_empty() && super::lease::check_lease_access(key).is_none() {
+            return Some((
+                "403 Forbidden".to_string(),
+                format!(
+                    r#"{{"error":"no active lease for key '{}'","hint":"Run: envforge lease create --ttl 1h --keys {}"}}"#,
+                    key, key
+                ),
+            ));
         }
     }
 
@@ -461,11 +460,7 @@ pub fn start_proxy(
                             .format("%Y-%m-%dT%H:%M:%S%z")
                             .to_string(),
                         action: "lease_denied".to_string(),
-                        key: if path.starts_with("/env/") {
-                            Some(path[5..].to_string())
-                        } else {
-                            None
-                        },
+                        key: path.strip_prefix("/env/").map(|s| s.to_string()),
                         keys_served: None,
                         client_addr,
                         user_agent,
@@ -500,11 +495,7 @@ pub fn start_proxy(
                                 .format("%Y-%m-%dT%H:%M:%S%z")
                                 .to_string(),
                             action: "denied_by_human".to_string(),
-                            key: if path.starts_with("/env/") {
-                                Some(path[5..].to_string())
-                            } else {
-                                None
-                            },
+                            key: path.strip_prefix("/env/").map(|s| s.to_string()),
                             keys_served: None,
                             client_addr: client_addr.clone(),
                             user_agent: user_agent.clone(),
@@ -520,11 +511,7 @@ pub fn start_proxy(
                             .format("%Y-%m-%dT%H:%M:%S%z")
                             .to_string(),
                         action: "approved".to_string(),
-                        key: if path.starts_with("/env/") {
-                            Some(path[5..].to_string())
-                        } else {
-                            None
-                        },
+                        key: path.strip_prefix("/env/").map(|s| s.to_string()),
                         keys_served: None,
                         client_addr: client_addr.clone(),
                         user_agent: user_agent.clone(),

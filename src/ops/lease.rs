@@ -94,7 +94,7 @@ fn list_leases_in(dir: &std::path::Path) -> Vec<LeaseStatus> {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "toml") {
+        if path.extension().is_some_and(|e| e == "toml") {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(lease) = toml::from_str::<Lease>(&content) {
                     let expires = DateTime::parse_from_rfc3339(&lease.expires_at)
@@ -160,7 +160,7 @@ fn revoke_all_in(dir: &std::path::Path) -> Result<usize, Box<dyn std::error::Err
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "toml") {
+        if path.extension().is_some_and(|e| e == "toml") {
             std::fs::remove_file(&path)?;
             count += 1;
         }
@@ -188,7 +188,7 @@ fn check_lease_access_in(dir: &std::path::Path, key: &str) -> Option<String> {
 
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "toml") {
+        if path.extension().is_some_and(|e| e == "toml") {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(lease) = toml::from_str::<Lease>(&content) {
                     if lease.revoked {
@@ -257,7 +257,7 @@ fn cleanup_expired_in(dir: &std::path::Path) -> Result<usize, Box<dyn std::error
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "toml") {
+        if path.extension().is_some_and(|e| e == "toml") {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(lease) = toml::from_str::<Lease>(&content) {
                     if lease.revoked {
@@ -464,7 +464,7 @@ mod tests {
         let remaining: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .flatten()
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "toml"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
             .collect();
         assert_eq!(remaining.len(), 1);
     }

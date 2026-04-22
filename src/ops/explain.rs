@@ -186,8 +186,6 @@ pub fn explain_key(key: &str) -> KeyExplanation {
         "ENC[age:...]".to_string()
     } else if is_sensitive {
         mask_value(value)
-    } else if explanation.reference.is_some() {
-        value.to_string()
     } else {
         value.to_string()
     };
@@ -602,17 +600,17 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     let mut dp = vec![vec![0usize; m + 1]; n + 1];
 
     for i in 0..=n {
-        dp[i][0] = i;
-    }
-    for j in 0..=m {
-        dp[0][j] = j;
-    }
-    for i in 1..=n {
-        for j in 1..=m {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            dp[i][j] = (dp[i - 1][j] + 1)
-                .min(dp[i][j - 1] + 1)
-                .min(dp[i - 1][j - 1] + cost);
+        for j in 0..=m {
+            match (i, j) {
+                (0, _) => dp[0][j] = j,
+                (_, 0) => dp[i][0] = i,
+                _ => {
+                    let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+                    dp[i][j] = (dp[i - 1][j] + 1)
+                        .min(dp[i][j - 1] + 1)
+                        .min(dp[i - 1][j - 1] + cost);
+                }
+            }
         }
     }
     dp[n][m]

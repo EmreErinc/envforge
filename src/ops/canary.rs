@@ -34,7 +34,7 @@ pub fn generate_fake_value(pattern: &str) -> String {
     // Generate deterministic-looking but fake values
     let suffix: String = (0..20).map(|i| {
         let chars = b"abcdefghijklmnopqrstuvwxyz0123456789";
-        chars[((i * 7 + 13) % chars.len()) as usize] as char
+        chars[(i * 7 + 13) % chars.len()] as char
     }).collect();
 
     match pattern {

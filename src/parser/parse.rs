@@ -1,9 +1,39 @@
 use std::path::Path;
+use std::sync::OnceLock;
 
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
 use crate::model::{ExportStyle, LineNode, ParseError, QuoteStyle, ShellFile};
+
+// Lazy-initialized regexes for parsing shell files (compiled once at first use)
+fn envforge_tag_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^#\[envforge:([^\]]+)\]\s*(.*)$").expect("invalid envforge tag regex"))
+}
+
+fn source_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^\s*(?:source|\.)\s+(.+)$").expect("invalid source regex"))
+}
+
+fn export_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"^\s*(export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*?)$"#)
+            .expect("invalid export regex")
+    })
+}
+
+fn comment_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^\s*#(.*)$").expect("invalid comment regex"))
+}
+
+fn blank_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^\s*$").expect("invalid blank regex"))
+}
 
 /// Parse a shell configuration file into a ShellFile AST.
 ///
@@ -40,20 +70,6 @@ fn compute_hash(data: &[u8]) -> [u8; 32] {
 }
 
 fn parse_lines(content: &str) -> Vec<LineNode> {
-    let envforge_tag_re =
-        Regex::new(r"^#\[envforge:([^\]]+)\]\s*(.*)$").expect("invalid envforge tag regex");
-
-    let source_re = Regex::new(r"^\s*(?:source|\.)\s+(.+)$").expect("invalid source regex");
-
-    // Match export statements with various styles:
-    // export KEY=VALUE, export KEY="VALUE", KEY=VALUE, KEY="VALUE", etc.
-    let export_re = Regex::new(r#"^\s*(export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*?)$"#)
-        .expect("invalid export regex");
-
-    let comment_re = Regex::new(r"^\s*#(.*)$").expect("invalid comment regex");
-
-    let blank_re = Regex::new(r"^\s*$").expect("invalid blank regex");
-
     let raw_lines = split_preserving_content(content);
 
     raw_lines
@@ -63,11 +79,11 @@ fn parse_lines(content: &str) -> Vec<LineNode> {
             parse_single_line(
                 idx,
                 line,
-                &envforge_tag_re,
-                &source_re,
-                &export_re,
-                &comment_re,
-                &blank_re,
+                envforge_tag_regex(),
+                source_regex(),
+                export_regex(),
+                comment_regex(),
+                blank_regex(),
             )
         })
         .collect()
@@ -103,8 +119,8 @@ fn parse_single_line(
 ) -> LineNode {
     // Priority 1: EnvForge managed comments
     if let Some(caps) = envforge_tag_re.captures(&line) {
-        let tag = caps.get(1).unwrap().as_str().to_string();
-        let original_export = caps.get(2).unwrap().as_str().to_string();
+        let tag = caps[1].to_string();
+        let original_export = caps[2].to_string();
         return LineNode::ManagedComment {
             line_number,
             original_text: line,
@@ -117,7 +133,7 @@ fn parse_single_line(
     if let Some(caps) = source_re.captures(&line) {
         // But only if it's not a comment
         if !line.trim_start().starts_with('#') {
-            let path = caps.get(1).unwrap().as_str().to_string();
+            let path = caps[1].to_string();
             return LineNode::SourceDirective {
                 line_number,
                 original_text: line,
@@ -131,8 +147,8 @@ fn parse_single_line(
         // Exclude lines that start with #
         if !line.trim_start().starts_with('#') {
             let export_keyword = caps.get(1);
-            let key = caps.get(2).unwrap().as_str().to_string();
-            let raw_value_and_rest = caps.get(3).unwrap().as_str().to_string();
+            let key = caps[2].to_string();
+            let raw_value_and_rest = caps[3].to_string();
 
             let export_style = if export_keyword.is_some() {
                 ExportStyle::Export
@@ -164,7 +180,7 @@ fn parse_single_line(
 
     // Priority 5: Comments (must be after envforge tag check)
     if let Some(caps) = comment_re.captures(&line) {
-        let text = caps.get(1).unwrap().as_str().to_string();
+        let text = caps[1].to_string();
         return LineNode::Comment {
             line_number,
             original_text: line,

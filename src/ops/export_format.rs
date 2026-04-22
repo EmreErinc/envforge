@@ -207,11 +207,11 @@ fn export_docker_secrets(entries: &[EnvEntry]) -> String {
     out.push_str("# services:\n");
     out.push_str("#   app:\n");
     out.push_str("#     secrets:\n");
-    for (k, _) in &map {
+    for k in map.keys() {
         out.push_str(&format!("#       - {}\n", k));
     }
     out.push_str("# secrets:\n");
-    for (k, _) in &map {
+    for k in map.keys() {
         out.push_str(&format!("#   {}:\n#     file: ./secrets/{}\n", k, k));
     }
     out

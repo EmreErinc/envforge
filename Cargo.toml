@@ -1,6 +1,6 @@
 [package]
 name = "env-forge-tui"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2021"
 rust-version = "1.75"
 description = "Terminal environment variable manager with TUI and CLI"

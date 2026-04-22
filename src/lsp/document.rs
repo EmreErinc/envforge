@@ -30,8 +30,8 @@ pub fn parse_env_document(content: &str) -> Vec<EnvDocEntry> {
         }
 
         // Strip optional "export " prefix
-        let effective = if trimmed.starts_with("export ") {
-            &trimmed[7..]
+        let effective = if let Some(s) = trimmed.strip_prefix("export ") {
+            s
         } else {
             trimmed
         };

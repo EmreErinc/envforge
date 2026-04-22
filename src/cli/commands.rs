@@ -1880,6 +1880,7 @@ fn cmd_init_schema(
     Ok(())
 }
 
+#[expect(clippy::too_many_arguments, reason = "Legitimate API with shell run configuration")]
 fn cmd_run(
     profile: Option<&str>,
     resolve: bool,
@@ -2366,17 +2367,11 @@ fn propagate_rotation(
     plan: &crate::ops::rotate::RotationPlan,
 ) {
     if plan.has_provider {
-        match propagate_to_provider(key, new_value, plan) {
-            Ok(_) => {}
-            Err(_) => {}
-        }
+        let _ = propagate_to_provider(key, new_value, plan);
     }
 
     if plan.is_synced {
-        match propagate_to_sync(key, new_value) {
-            Ok(_) => {}
-            Err(_) => {}
-        }
+        let _ = propagate_to_sync(key, new_value);
     }
 }
 
@@ -2901,8 +2896,8 @@ fn cmd_audit(
         println!("{}", serde_json::to_string_pretty(&json_entries)?);
     } else {
         println!(
-            "{:<25} {:<18} {:<10} {:<30} {}",
-            "TIMESTAMP", "MACHINE", "ACTION", "KEY", "COMMIT"
+            "{:<25} {:<18} {:<10} {:<30} COMMIT",
+            "TIMESTAMP", "MACHINE", "ACTION", "KEY"
         );
         println!("{}", "-".repeat(100));
         for e in &entries {
@@ -3386,8 +3381,8 @@ fn cmd_lease(action: &LeaseAction) -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             println!(
-                "{:<25} {:<12} {:<12} {}",
-                "NAME", "STATUS", "REMAINING", "KEYS"
+                "{:<25} {:<12} {:<12} KEYS",
+                "NAME", "STATUS", "REMAINING"
             );
             println!("{}", "-".repeat(65));
             for s in &statuses {
@@ -3479,7 +3474,7 @@ fn cmd_deps(key: &str, include_source: bool) -> Result<(), Box<dyn std::error::E
         managed_files.push(shellexpand(&config.files.reference));
     }
     managed_files.push(shellexpand(&config.profiles.shared_file));
-    for (_name, entry) in &config.profiles.entries {
+    for entry in config.profiles.entries.values() {
         managed_files.push(shellexpand(&entry.file));
     }
 

@@ -112,8 +112,8 @@ fn test_backup_creates_file() {
     // Since create_backup uses the global backups_dir(), we test list_backups
     // with the actual backup system
     let backups = list_backups(&source).unwrap();
-    // Initially no backups (in the global dir for this file)
-    assert!(backups.is_empty() || true); // May have backups from other tests
+    // May have backups from other tests - just ensure it doesn't error
+    let _ = backups;
 }
 
 #[test]

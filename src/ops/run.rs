@@ -253,10 +253,8 @@ pub fn spawn_process_with_redaction(
     let sensitive_clone = sensitive_pairs.to_vec();
     let stdout_handle = std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                println!("{}", redact_secrets(&line, &sensitive_clone));
-            }
+        for line in reader.lines().map_while(Result::ok) {
+            println!("{}", redact_secrets(&line, &sensitive_clone));
         }
     });
 
@@ -264,10 +262,8 @@ pub fn spawn_process_with_redaction(
     let sensitive_clone2 = sensitive_pairs.to_vec();
     let stderr_handle = std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                eprintln!("{}", redact_secrets(&line, &sensitive_clone2));
-            }
+        for line in reader.lines().map_while(Result::ok) {
+            eprintln!("{}", redact_secrets(&line, &sensitive_clone2));
         }
     });
 

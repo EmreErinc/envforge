@@ -372,6 +372,7 @@ fn replace_in_json(json: &mut serde_json::Value, json_path: &str, key: &str) -> 
 
 /// Harden an MCP config file by replacing plaintext secrets with env var references.
 /// Returns (modified_count, list of replaced keys, backup_path).
+#[expect(clippy::type_complexity, reason = "Return type is appropriate for operation result")]
 pub fn harden_mcp_config(
     file_path: &Path,
     dry_run: bool,
@@ -423,13 +424,10 @@ pub fn harden_all_mcp_configs(
     let mut results = Vec::new();
     for path in mcp_config_paths() {
         if path.is_file() {
-            match harden_mcp_config(&path, dry_run) {
-                Ok((count, keys, backup)) => {
-                    if count > 0 {
-                        results.push((path, count, keys, backup));
-                    }
+            if let Ok((count, keys, backup)) = harden_mcp_config(&path, dry_run) {
+                if count > 0 {
+                    results.push((path, count, keys, backup));
                 }
-                Err(_) => {} // skip unreadable files
             }
         }
     }

@@ -76,7 +76,7 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
                 &current_examples,
             );
 
-            current_category = line[3..].trim().to_string();
+            current_category = line.strip_prefix("## ").map(|s| s.trim().to_string()).unwrap_or_default();
             current_command.clear();
             current_desc.clear();
             current_usage.clear();
@@ -342,13 +342,14 @@ pub fn suggest_similar(query: &str, pages: &BTreeMap<String, ManPage>) -> Vec<St
         .filter(|k| k.starts_with("envforge "))
         .filter(|k| {
             let short = k.replace("envforge ", "").to_lowercase();
+            let prefix_len = query_lower.len().clamp(1, 3);
             short.contains(&query_lower) || query_lower.contains(&short) || {
                 // Simple prefix match
-                short.starts_with(&query_lower[..query_lower.len().min(3).max(1)])
+                short.starts_with(&query_lower[..prefix_len])
             }
         })
         .take(5)
-        .map(|k| k.replace("envforge ", ""))
+        .map(|k| k.strip_prefix("envforge ").map(|s| s.to_string()).unwrap_or_else(|| k.clone()))
         .collect()
 }
 

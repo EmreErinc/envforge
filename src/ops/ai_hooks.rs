@@ -22,7 +22,11 @@ impl AiTool {
 
 /// Parse a tool name string into an AiTool enum.
 pub fn parse_ai_tool(name: &str) -> Result<AiTool, String> {
-    match name.to_lowercase().replace('-', "").replace('_', "").as_str() {
+    match name
+        .to_lowercase()
+        .replace(['-', '_'], "")
+        .as_str()
+    {
         "claudecode" => Ok(AiTool::ClaudeCode),
         "cursor" => Ok(AiTool::Cursor),
         _ => Err(format!(
@@ -61,7 +65,7 @@ fn has_envforge_hook(arr: &[serde_json::Value]) -> bool {
         entry
             .get("hook")
             .and_then(|v| v.as_str())
-            .map_or(false, |s| s.contains("envforge"))
+            .is_some_and(|s| s.contains("envforge"))
     })
 }
 
@@ -159,7 +163,7 @@ fn remove_envforge_from_array(arr: &mut Vec<serde_json::Value>) -> bool {
         !entry
             .get("hook")
             .and_then(|v| v.as_str())
-            .map_or(false, |s| s.contains("envforge"))
+            .is_some_and(|s| s.contains("envforge"))
     });
     before != arr.len()
 }

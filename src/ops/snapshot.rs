@@ -116,7 +116,7 @@ pub fn list_snapshots() -> Result<Vec<SnapshotMeta>, Box<dyn std::error::Error>>
         .collect();
 
     // Sort by filename descending (newest first since filenames start with timestamp)
-    toml_files.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    toml_files.sort_by_key(|a| std::cmp::Reverse(a.file_name()));
 
     for entry in toml_files {
         let content = fs::read_to_string(entry.path())?;
@@ -145,7 +145,7 @@ pub fn load_snapshot(name_or_last: &str) -> Result<Snapshot, Box<dyn std::error:
         .collect();
 
     // Sort by filename descending (newest first)
-    toml_files.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    toml_files.sort_by_key(|a| std::cmp::Reverse(a.file_name()));
 
     if name_or_last == "last" {
         let entry = toml_files
@@ -194,7 +194,7 @@ pub fn delete_snapshot(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
 
-    toml_files.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    toml_files.sort_by_key(|a| std::cmp::Reverse(a.file_name()));
 
     // Find by filename substring
     for entry in &toml_files {
@@ -284,7 +284,7 @@ pub fn prune_snapshots(max_count: usize) -> Result<usize, Box<dyn std::error::Er
     }
 
     // Sort ascending by filename (oldest first)
-    toml_files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    toml_files.sort_by_key(|a| a.file_name());
 
     let to_remove = toml_files.len() - max_count;
     let mut removed = 0;
@@ -386,7 +386,7 @@ mod tests {
                     .unwrap_or(false)
             })
             .collect();
-        toml_files.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+        toml_files.sort_by_key(|a| std::cmp::Reverse(a.file_name()));
 
         let mut metas = Vec::new();
         for entry in &toml_files {
@@ -458,9 +458,9 @@ mod tests {
         let mut toml_files: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "toml").unwrap_or(false))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
             .collect();
-        toml_files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+        toml_files.sort_by_key(|a| a.file_name());
 
         let to_remove = toml_files.len().saturating_sub(3);
         let mut removed = 0;
@@ -492,9 +492,9 @@ mod tests {
         let mut toml_files: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "toml").unwrap_or(false))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
             .collect();
-        toml_files.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+        toml_files.sort_by_key(|a| std::cmp::Reverse(a.file_name()));
 
         let content = fs::read_to_string(toml_files[0].path()).unwrap();
         let snapshot: Snapshot = toml::from_str(&content).unwrap();

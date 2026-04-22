@@ -264,19 +264,17 @@ fn cmd_sync_push(
                 "dry_run": dry_run,
             })
         );
+    } else if dry_run {
+        println!("[dry-run] Would push {} keys", summary.keys_pushed);
     } else {
-        if dry_run {
-            println!("[dry-run] Would push {} keys", summary.keys_pushed);
-        } else {
-            println!("Pushed {} keys", summary.keys_pushed);
-            if let Some(hash) = &summary.commit_hash {
-                println!("Commit: {}", hash);
-            }
-            match summary.push_result {
-                PushResult::Success => println!("Pushed to remote"),
-                PushResult::NoRemote => println!("No remote configured (local commit only)"),
-                PushResult::Rejected => println!("Push rejected. Run `envforge sync pull` first"),
-            }
+        println!("Pushed {} keys", summary.keys_pushed);
+        if let Some(hash) = &summary.commit_hash {
+            println!("Commit: {}", hash);
+        }
+        match summary.push_result {
+            PushResult::Success => println!("Pushed to remote"),
+            PushResult::NoRemote => println!("No remote configured (local commit only)"),
+            PushResult::Rejected => println!("Push rejected. Run `envforge sync pull` first"),
         }
     }
 

@@ -58,7 +58,9 @@ impl Backend {
     }
 
     fn load_schema_from_workspace(&self) {
-        let root = self.workspace_root.read().unwrap().clone();
+        let root = self.workspace_root.read()
+            .ok()
+            .and_then(|r| r.clone());
         if let Some(root_url) = root {
             if let Ok(root_path) = root_url.to_file_path() {
                 let schema_path = root_path.join(".env.schema");
@@ -66,10 +68,22 @@ impl Backend {
                     if let Ok(content) = std::fs::read_to_string(&schema_path) {
                         let lines = schema_line_map(&content);
                         if let Ok(schema) = parse_schema_content(&content) {
-                            *self.schema.write().unwrap() = Some(schema);
-                            *self.schema_lines.write().unwrap() = lines;
+                            if let Ok(mut w) = self.schema.write() {
+                                *w = Some(schema);
+                            } else {
+                                eprintln!("LSP: Failed to acquire write lock on schema (lock poisoned)");
+                            }
+                            if let Ok(mut w) = self.schema_lines.write() {
+                                *w = lines;
+                            } else {
+                                eprintln!("LSP: Failed to acquire write lock on schema_lines (lock poisoned)");
+                            }
                             if let Ok(uri) = Url::from_file_path(&schema_path) {
-                                *self.schema_uri.write().unwrap() = Some(uri);
+                                if let Ok(mut w) = self.schema_uri.write() {
+                                    *w = Some(uri);
+                                } else {
+                                    eprintln!("LSP: Failed to acquire write lock on schema_uri (lock poisoned)");
+                                }
                             }
                         }
                     }
@@ -103,7 +117,11 @@ impl Backend {
                                 })
                             })
                             .collect();
-                        *self.managed_vars.write().unwrap() = managed;
+                        if let Ok(mut w) = self.managed_vars.write() {
+                            *w = managed;
+                        } else {
+                            eprintln!("LSP: Failed to acquire write lock on managed_vars (lock poisoned)");
+                        }
                     }
                 }
             }
@@ -112,7 +130,9 @@ impl Backend {
     }
 
     fn publish_diagnostics_for(&self, uri: &Url, doc: &DocumentState) {
-        let schema = self.schema.read().unwrap();
+        let schema = self.schema.read()
+            .ok()
+            .and_then(|r| r.clone());
         let diags = compute_diagnostics(&doc.entries, schema.as_ref());
         let client = self.client.clone();
         let uri = uri.clone();
@@ -123,9 +143,18 @@ impl Backend {
     }
 
     fn republish_all(&self) {
-        let docs = self.documents.read().unwrap().clone();
-        for (uri, doc) in &docs {
-            self.publish_diagnostics_for(uri, doc);
+        if let Ok(docs) = self.documents.read() {
+            // Collect URIs to avoid holding lock across publish calls
+            let uris: Vec<Url> = docs.keys().cloned().collect();
+            drop(docs);
+            
+            for uri in uris {
+                if let Ok(doc_map) = self.documents.read() {
+                    if let Some(doc) = doc_map.get(&uri) {
+                        self.publish_diagnostics_for(&uri, doc);
+                    }
+                }
+            }
         }
     }
 }
@@ -134,10 +163,14 @@ impl Backend {
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         if let Some(root_uri) = params.root_uri {
-            *self.workspace_root.write().unwrap() = Some(root_uri);
+            if let Ok(mut w) = self.workspace_root.write() {
+                *w = Some(root_uri);
+            }
         } else if let Some(folders) = params.workspace_folders {
             if let Some(folder) = folders.first() {
-                *self.workspace_root.write().unwrap() = Some(folder.uri.clone());
+                if let Ok(mut w) = self.workspace_root.write() {
+                    *w = Some(folder.uri.clone());
+                }
             }
         }
 
@@ -176,9 +209,15 @@ impl LanguageServer for Backend {
             let content = &params.text_document.text;
             let lines = schema_line_map(content);
             if let Ok(schema) = parse_schema_content(content) {
-                *self.schema.write().unwrap() = Some(schema);
-                *self.schema_lines.write().unwrap() = lines;
-                *self.schema_uri.write().unwrap() = Some(uri.clone());
+                if let Ok(mut w) = self.schema.write() {
+                    *w = Some(schema);
+                }
+                if let Ok(mut w) = self.schema_lines.write() {
+                    *w = lines;
+                }
+                if let Ok(mut w) = self.schema_uri.write() {
+                    *w = Some(uri.clone());
+                }
                 self.republish_all();
             }
             return;
@@ -195,7 +234,9 @@ impl LanguageServer for Backend {
             entries,
         };
         self.publish_diagnostics_for(&uri, &doc);
-        self.documents.write().unwrap().insert(uri, doc);
+        if let Ok(mut w) = self.documents.write() {
+            w.insert(uri, doc);
+        }
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -205,9 +246,15 @@ impl LanguageServer for Backend {
             if let Some(change) = params.content_changes.first() {
                 let lines = schema_line_map(&change.text);
                 if let Ok(schema) = parse_schema_content(&change.text) {
-                    *self.schema.write().unwrap() = Some(schema);
-                    *self.schema_lines.write().unwrap() = lines;
-                    *self.schema_uri.write().unwrap() = Some(uri.clone());
+                    if let Ok(mut w) = self.schema.write() {
+                        *w = Some(schema);
+                    }
+                    if let Ok(mut w) = self.schema_lines.write() {
+                        *w = lines;
+                    }
+                    if let Ok(mut w) = self.schema_uri.write() {
+                        *w = Some(uri.clone());
+                    }
                     self.republish_all();
                 }
             }
@@ -226,7 +273,9 @@ impl LanguageServer for Backend {
                 entries,
             };
             self.publish_diagnostics_for(&uri, &doc);
-            self.documents.write().unwrap().insert(uri, doc);
+            if let Ok(mut w) = self.documents.write() {
+                w.insert(uri, doc);
+            }
         }
     }
 
@@ -239,23 +288,26 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.documents
-            .write()
-            .unwrap()
-            .remove(&params.text_document.uri);
+        if let Ok(mut w) = self.documents.write() {
+            w.remove(&params.text_document.uri);
+        }
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
 
-        let docs = self.documents.read().unwrap();
-        let doc = match docs.get(uri) {
+        let doc = self.documents.read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let doc = match doc {
             Some(d) => d,
             None => return Ok(None),
         };
 
-        let schema = self.schema.read().unwrap();
+        let schema = self.schema.read()
+            .ok()
+            .and_then(|r| r.clone());
         Ok(hover_info(pos, &doc.entries, schema.as_ref()))
     }
 
@@ -263,14 +315,21 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
 
-        let docs = self.documents.read().unwrap();
-        let doc = match docs.get(uri) {
+        let doc = self.documents.read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let doc = match doc {
             Some(d) => d,
             None => return Ok(None),
         };
 
-        let schema = self.schema.read().unwrap();
-        let managed = self.managed_vars.read().unwrap();
+        let schema = self.schema.read()
+            .ok()
+            .and_then(|r| r.clone());
+        let managed = self.managed_vars.read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
         let items = completions(pos, &doc.content, &doc.entries, schema.as_ref(), &managed);
 
         if items.is_empty() {
@@ -287,14 +346,21 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
 
-        let docs = self.documents.read().unwrap();
-        let doc = match docs.get(uri) {
+        let doc = self.documents.read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let doc = match doc {
             Some(d) => d,
             None => return Ok(None),
         };
 
-        let schema_uri = self.schema_uri.read().unwrap();
-        let schema_lines = self.schema_lines.read().unwrap();
+        let schema_uri = self.schema_uri.read()
+            .ok()
+            .and_then(|r| r.clone());
+        let schema_lines = self.schema_lines.read()
+            .ok()
+            .map(|lines| lines.clone())
+            .unwrap_or_default();
 
         Ok(goto_definition(
             pos,
