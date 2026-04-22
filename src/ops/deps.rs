@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
+use super::OpError;
+
 /// A single reference to an env var key found in a file.
 #[derive(Debug, Clone)]
 pub struct DepReference {
@@ -63,7 +65,7 @@ pub fn find_dependencies(
     project_dir: &Path,
     include_source: bool,
     managed_files: &[PathBuf],
-) -> Result<Vec<DepReference>, Box<dyn std::error::Error>> {
+) -> Result<Vec<DepReference>, OpError> {
     let mut refs = Vec::new();
 
     // 1. EnvForge managed shell files
@@ -372,11 +374,11 @@ mod tests {
 
         let refs = find_dependencies("DB_PASSWORD", tmp.path(), true, &[]).unwrap();
 
-        let source_refs: Vec<_> = refs
+        let source_ref_count = refs
             .iter()
             .filter(|r| r.ref_type == RefType::SourceCode)
-            .collect();
-        assert_eq!(source_refs.len(), 4);
+            .count();
+        assert_eq!(source_ref_count, 4);
     }
 
     #[test]
@@ -438,11 +440,11 @@ mod tests {
 
         let refs = find_dependencies("DB_HOST", tmp.path(), false, &[]).unwrap();
 
-        let config_refs: Vec<_> = refs
+        let config_ref_count = refs
             .iter()
             .filter(|r| r.ref_type == RefType::Config)
-            .collect();
-        assert_eq!(config_refs.len(), 3);
+            .count();
+        assert_eq!(config_ref_count, 3);
     }
 
     #[test]

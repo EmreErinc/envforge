@@ -1,5 +1,6 @@
-use std::error::Error;
 use std::path::Path;
+
+use super::OpError;
 
 /// Sanitize a file's content by replacing known secret values with ${KEY} placeholders.
 ///
@@ -32,7 +33,7 @@ pub fn sanitize_file(
     input_path: &Path,
     output_path: Option<&Path>,
     secrets: &[(String, String)],
-) -> Result<usize, Box<dyn Error>> {
+) -> Result<usize, OpError> {
     let content = std::fs::read_to_string(input_path)?;
     let (sanitized, count) = sanitize_content(&content, secrets);
 

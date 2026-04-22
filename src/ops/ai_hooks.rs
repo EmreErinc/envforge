@@ -1,5 +1,6 @@
-use std::error::Error;
 use std::path::{Path, PathBuf};
+
+use super::OpError;
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ fn has_envforge_hook(arr: &[serde_json::Value]) -> bool {
 /// Installs PreToolUse and PostToolUse hooks for the `envforge ai-guard` command.
 /// Reads existing settings (or creates new), merges hooks without overwriting
 /// other hooks, and writes back.
-fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, Box<dyn Error>> {
+fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpError> {
     let settings_path = claude_settings_path(project_dir);
 
     let mut settings = if settings_path.exists() {
@@ -163,7 +164,7 @@ fn remove_envforge_from_array(arr: &mut Vec<serde_json::Value>) -> bool {
 }
 
 /// Remove the EnvForge hooks from Claude Code's settings.json.
-fn remove_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, Box<dyn Error>> {
+fn remove_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpError> {
     let settings_path = claude_settings_path(project_dir);
 
     if !settings_path.exists() {
@@ -231,7 +232,7 @@ fn cursor_rules_path(project_dir: &Path) -> PathBuf {
     }
 }
 
-fn install_cursor_hook(project_dir: &Path) -> Result<HookInstallResult, Box<dyn Error>> {
+fn install_cursor_hook(project_dir: &Path) -> Result<HookInstallResult, OpError> {
     let rules_path = cursor_rules_path(project_dir);
 
     let existing = if rules_path.exists() {
@@ -268,7 +269,7 @@ fn install_cursor_hook(project_dir: &Path) -> Result<HookInstallResult, Box<dyn 
     })
 }
 
-fn remove_cursor_hook(project_dir: &Path) -> Result<HookInstallResult, Box<dyn Error>> {
+fn remove_cursor_hook(project_dir: &Path) -> Result<HookInstallResult, OpError> {
     let rules_path = cursor_rules_path(project_dir);
 
     if !rules_path.exists() {
@@ -332,10 +333,7 @@ fn remove_cursor_hook(project_dir: &Path) -> Result<HookInstallResult, Box<dyn E
 // ─── Public API ────────────────────────────────────────────
 
 /// Install EnvForge hook for an AI coding tool.
-pub fn install_ai_hook(
-    tool: &AiTool,
-    project_dir: &Path,
-) -> Result<HookInstallResult, Box<dyn Error>> {
+pub fn install_ai_hook(tool: &AiTool, project_dir: &Path) -> Result<HookInstallResult, OpError> {
     match tool {
         AiTool::ClaudeCode => install_claude_code_hook(project_dir),
         AiTool::Cursor => install_cursor_hook(project_dir),
@@ -343,10 +341,7 @@ pub fn install_ai_hook(
 }
 
 /// Remove EnvForge hook from an AI coding tool.
-pub fn remove_ai_hook(
-    tool: &AiTool,
-    project_dir: &Path,
-) -> Result<HookInstallResult, Box<dyn Error>> {
+pub fn remove_ai_hook(tool: &AiTool, project_dir: &Path) -> Result<HookInstallResult, OpError> {
     match tool {
         AiTool::ClaudeCode => remove_claude_code_hook(project_dir),
         AiTool::Cursor => remove_cursor_hook(project_dir),

@@ -162,7 +162,7 @@ pub fn explain_key(key: &str) -> KeyExplanation {
             explanation.reference = Some(ReferenceInfo {
                 provider: secret_ref.provider,
                 path: if secret_ref.path.is_empty() {
-                    secret_ref.key.clone()
+                    secret_ref.key
                 } else {
                     format!("{}/{}", secret_ref.path, secret_ref.key)
                 },
@@ -414,7 +414,7 @@ pub fn explanation_to_json(exp: &KeyExplanation) -> serde_json::Value {
 
 // ─── Helpers ────────────────────────────────────────────────
 
-fn load_context() -> Result<(AppConfig, Vec<crate::model::ShellFile>), Box<dyn std::error::Error>> {
+fn load_context() -> Result<(AppConfig, Vec<crate::model::ShellFile>), super::OpError> {
     let config = load_or_create_default()?;
     let mut shell_files = Vec::new();
 

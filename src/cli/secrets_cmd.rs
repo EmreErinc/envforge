@@ -209,7 +209,7 @@ fn cmd_secrets_pull(
     json_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let registry = create_default_registry();
-    let existing = std::collections::HashMap::new(); // TODO: load from EnvForge config
+    let existing = std::collections::HashMap::new(); // Stub: per-project config not yet implemented
 
     let (entries, result, _sources) =
         modes::pull_secrets(&registry, provider_name, path, filter, &existing)?;
@@ -268,7 +268,7 @@ fn cmd_secrets_push(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let registry = create_default_registry();
 
-    // TODO: load from EnvForge config — for now collect from available entries
+    // Stub: per-project config not yet implemented — collect from available entries
     let all_secrets: Vec<(String, String)> = Vec::new();
 
     let secrets: Vec<(String, String)> = if let Some(key_list) = keys {
@@ -294,7 +294,7 @@ fn cmd_secrets_push(
                 .cloned()
                 .collect::<Vec<_>>()
         } else {
-            secrets.clone()
+            secrets
         };
         if json_output {
             println!(
@@ -344,8 +344,7 @@ fn cmd_secrets_ref(
 }
 
 fn cmd_secrets_unref(key: &str, json_output: bool) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: read key from EnvForge config, check if it's a reference, convert to plain value
-    // For now, instruct user
+    // Stub: per-project config not yet implemented — instruct user manually
     if json_output {
         println!(
             "{}",

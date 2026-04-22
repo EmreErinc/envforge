@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
+use super::OpError;
+
 // ─── Types ─────────────────────────────────────────────────
 
 /// Configuration for the credential proxy server.
@@ -59,7 +61,7 @@ fn rotate_audit_log(path: &std::path::Path) {
 }
 
 /// Read all audit entries from the access-audit.jsonl file.
-pub fn read_audit_log() -> Result<Vec<AuditEntry>, Box<dyn std::error::Error>> {
+pub fn read_audit_log() -> Result<Vec<AuditEntry>, OpError> {
     let dir = crate::config::config_dir()?;
     let path = dir.join("access-audit.jsonl");
     if !path.exists() {
@@ -386,7 +388,7 @@ pub fn start_proxy(
     allowed_origins: Option<&[String]>,
     require_lease: bool,
     require_approval: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), OpError> {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
     eprintln!(
         "EnvForge credential proxy listening on http://127.0.0.1:{}",

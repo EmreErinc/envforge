@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::config::load_or_create_default;
+
+use super::OpError;
 use crate::ops::doctor::{self, CheckStatus as DoctorStatus};
 use crate::ops::listing::{EntryLocation, EnvEntry};
 use crate::ops::scanner::filter_sensitive;
@@ -590,7 +592,7 @@ pub fn report_to_json(report: &CheckReport) -> serde_json::Value {
 
 // ─── Helpers ────────────────────────────────────────────────
 
-fn load_env_map() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+fn load_env_map() -> Result<HashMap<String, String>, OpError> {
     let config = load_or_create_default()?;
     let mut shell_files = Vec::new();
     let primary = shellexpand(&config.files.primary);
@@ -609,7 +611,7 @@ fn load_env_map() -> Result<HashMap<String, String>, Box<dyn std::error::Error>>
         .collect())
 }
 
-fn load_entries() -> Result<Vec<EnvEntry>, Box<dyn std::error::Error>> {
+fn load_entries() -> Result<Vec<EnvEntry>, OpError> {
     let config = load_or_create_default()?;
     let mut shell_files = Vec::new();
     let primary = shellexpand(&config.files.primary);

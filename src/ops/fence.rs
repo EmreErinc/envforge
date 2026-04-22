@@ -1,5 +1,6 @@
-use std::error::Error;
 use std::path::{Path, PathBuf};
+
+use super::OpError;
 
 /// Result of creating AI tool fence files.
 pub struct FenceResult {
@@ -53,7 +54,7 @@ Never hardcode secrets, API keys, tokens, or passwords.
 const FENCE_MARKER: &str = "# EnvForge secret fence";
 
 /// Generate and write AI tool ignore rules for all supported tools.
-pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, Box<dyn Error>> {
+pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, OpError> {
     let mut result = FenceResult {
         files_created: Vec::new(),
         files_updated: Vec::new(),
@@ -82,7 +83,7 @@ fn write_envforgeignore(
     dir: &Path,
     dry_run: bool,
     result: &mut FenceResult,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), OpError> {
     let path = dir.join(".envforgeignore");
     if path.exists() {
         result.files_skipped.push(path);
@@ -95,11 +96,7 @@ fn write_envforgeignore(
     Ok(())
 }
 
-fn write_cursorignore(
-    dir: &Path,
-    dry_run: bool,
-    result: &mut FenceResult,
-) -> Result<(), Box<dyn Error>> {
+fn write_cursorignore(dir: &Path, dry_run: bool, result: &mut FenceResult) -> Result<(), OpError> {
     let path = dir.join(".cursorignore");
     if path.exists() {
         let content = std::fs::read_to_string(&path)?;
@@ -126,11 +123,7 @@ fn write_cursorignore(
     Ok(())
 }
 
-fn write_cursorrules(
-    dir: &Path,
-    dry_run: bool,
-    result: &mut FenceResult,
-) -> Result<(), Box<dyn Error>> {
+fn write_cursorrules(dir: &Path, dry_run: bool, result: &mut FenceResult) -> Result<(), OpError> {
     let path = dir.join(".cursorrules");
     if path.exists() {
         let content = std::fs::read_to_string(&path)?;
@@ -160,7 +153,7 @@ fn write_copilot_instructions(
     dir: &Path,
     dry_run: bool,
     result: &mut FenceResult,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), OpError> {
     let github_dir = dir.join(".github");
     let path = github_dir.join("copilot-instructions.md");
 
@@ -193,7 +186,7 @@ fn write_claude_settings(
     dir: &Path,
     dry_run: bool,
     result: &mut FenceResult,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), OpError> {
     let claude_dir = dir.join(".claude");
     let path = claude_dir.join("settings.json");
 

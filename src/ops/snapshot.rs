@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use super::OpError;
+
 // ── Types ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,7 +41,7 @@ pub struct SnapshotDiffEntry {
 
 // ── Directory ──────────────────────────────────────────────
 
-pub fn snapshots_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn snapshots_dir() -> Result<PathBuf, OpError> {
     let dir = dirs::home_dir()
         .ok_or("Cannot determine home directory")?
         .join(".config")
@@ -55,7 +57,7 @@ pub fn create_snapshot(
     name: &str,
     entries: &[(String, String)],
     profile: &str,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+) -> Result<PathBuf, OpError> {
     let dir = snapshots_dir()?;
 
     let now = chrono::Local::now();
@@ -107,7 +109,7 @@ pub fn create_snapshot(
 
 // ── List ───────────────────────────────────────────────────
 
-pub fn list_snapshots() -> Result<Vec<SnapshotMeta>, Box<dyn std::error::Error>> {
+pub fn list_snapshots() -> Result<Vec<SnapshotMeta>, OpError> {
     let dir = snapshots_dir()?;
     let mut metas = Vec::new();
 
@@ -137,7 +139,7 @@ pub fn list_snapshots() -> Result<Vec<SnapshotMeta>, Box<dyn std::error::Error>>
 
 // ── Load ───────────────────────────────────────────────────
 
-pub fn load_snapshot(name_or_last: &str) -> Result<Snapshot, Box<dyn std::error::Error>> {
+pub fn load_snapshot(name_or_last: &str) -> Result<Snapshot, OpError> {
     let dir = snapshots_dir()?;
 
     let mut toml_files: Vec<_> = fs::read_dir(&dir)?
@@ -185,7 +187,7 @@ pub fn load_snapshot(name_or_last: &str) -> Result<Snapshot, Box<dyn std::error:
 
 // ── Delete ─────────────────────────────────────────────────
 
-pub fn delete_snapshot(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn delete_snapshot(name: &str) -> Result<(), OpError> {
     let dir = snapshots_dir()?;
 
     let mut toml_files: Vec<_> = fs::read_dir(&dir)?
@@ -267,7 +269,7 @@ pub fn diff_snapshot(snapshot: &Snapshot, current: &[(String, String)]) -> Vec<S
 
 // ── Prune ──────────────────────────────────────────────────
 
-pub fn prune_snapshots(max_count: usize) -> Result<usize, Box<dyn std::error::Error>> {
+pub fn prune_snapshots(max_count: usize) -> Result<usize, OpError> {
     let dir = snapshots_dir()?;
 
     let mut toml_files: Vec<_> = fs::read_dir(&dir)?

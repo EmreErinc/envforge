@@ -395,14 +395,10 @@ fn replace_in_json(json: &mut serde_json::Value, json_path: &str, key: &str) -> 
 
 /// Harden an MCP config file by replacing plaintext secrets with env var references.
 /// Returns (modified_count, list of replaced keys, backup_path).
-#[expect(
-    clippy::type_complexity,
-    reason = "Return type is appropriate for operation result"
-)]
 pub fn harden_mcp_config(
     file_path: &Path,
     dry_run: bool,
-) -> Result<(usize, Vec<String>, Option<PathBuf>), Box<dyn std::error::Error>> {
+) -> Result<(usize, Vec<String>, Option<PathBuf>), super::OpError> {
     let content = std::fs::read_to_string(file_path)?;
     let mut json: serde_json::Value = serde_json::from_str(&content)?;
 

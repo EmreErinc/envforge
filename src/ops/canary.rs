@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use super::OpError;
+
 const CANARY_FILE: &str = "canaries.toml";
 const CANARY_LOG: &str = "canary-alerts.jsonl";
 
@@ -50,19 +52,19 @@ pub fn generate_fake_value(pattern: &str) -> String {
 }
 
 /// Get canary store path.
-fn canary_store_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn canary_store_path() -> Result<PathBuf, OpError> {
     let dir = crate::config::config_dir()?;
     Ok(dir.join(CANARY_FILE))
 }
 
 /// Get canary alert log path.
-fn canary_log_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn canary_log_path() -> Result<PathBuf, OpError> {
     let dir = crate::config::config_dir()?;
     Ok(dir.join(CANARY_LOG))
 }
 
 /// Load canary store.
-pub fn load_canaries() -> Result<CanaryStore, Box<dyn std::error::Error>> {
+pub fn load_canaries() -> Result<CanaryStore, OpError> {
     let path = canary_store_path()?;
     if !path.exists() {
         return Ok(CanaryStore {
@@ -74,7 +76,7 @@ pub fn load_canaries() -> Result<CanaryStore, Box<dyn std::error::Error>> {
 }
 
 /// Save canary store.
-fn save_canaries(store: &CanaryStore) -> Result<(), Box<dyn std::error::Error>> {
+fn save_canaries(store: &CanaryStore) -> Result<(), OpError> {
     let path = canary_store_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -84,7 +86,7 @@ fn save_canaries(store: &CanaryStore) -> Result<(), Box<dyn std::error::Error>> 
 }
 
 /// Create a new canary secret.
-pub fn create_canary(key: &str, pattern: &str) -> Result<CanarySecret, Box<dyn std::error::Error>> {
+pub fn create_canary(key: &str, pattern: &str) -> Result<CanarySecret, OpError> {
     let mut store = load_canaries()?;
 
     let fake_value = generate_fake_value(pattern);
@@ -104,17 +106,13 @@ pub fn create_canary(key: &str, pattern: &str) -> Result<CanarySecret, Box<dyn s
 }
 
 /// List all canaries.
-pub fn list_canaries() -> Result<Vec<CanarySecret>, Box<dyn std::error::Error>> {
+pub fn list_canaries() -> Result<Vec<CanarySecret>, OpError> {
     let store = load_canaries()?;
     Ok(store.canaries.values().cloned().collect())
 }
 
 /// Record a canary trigger (value was accessed/used).
-pub fn trigger_canary(
-    key: &str,
-    source: &str,
-    details: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), OpError> {
     // Update store
     let mut store = load_canaries()?;
     if let Some(canary) = store.canaries.get_mut(key) {
@@ -151,7 +149,7 @@ pub fn trigger_canary(
 }
 
 /// Check all canaries for triggers. Returns triggered ones.
-pub fn check_canaries() -> Result<Vec<CanarySecret>, Box<dyn std::error::Error>> {
+pub fn check_canaries() -> Result<Vec<CanarySecret>, OpError> {
     let store = load_canaries()?;
     Ok(store
         .canaries
@@ -162,7 +160,7 @@ pub fn check_canaries() -> Result<Vec<CanarySecret>, Box<dyn std::error::Error>>
 }
 
 /// Read canary alert log.
-pub fn read_alerts() -> Result<Vec<CanaryAlert>, Box<dyn std::error::Error>> {
+pub fn read_alerts() -> Result<Vec<CanaryAlert>, OpError> {
     let path = canary_log_path()?;
     if !path.exists() {
         return Ok(vec![]);
@@ -177,7 +175,7 @@ pub fn read_alerts() -> Result<Vec<CanaryAlert>, Box<dyn std::error::Error>> {
 }
 
 /// Delete a canary.
-pub fn delete_canary(key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+pub fn delete_canary(key: &str) -> Result<bool, OpError> {
     let mut store = load_canaries()?;
     let removed = store.canaries.remove(key).is_some();
     if removed {
@@ -270,9 +268,7 @@ mod tests {
             triggered: false,
             trigger_count: 0,
         };
-        store
-            .canaries
-            .insert("TEST_KEY".to_string(), canary.clone());
+        store.canaries.insert("TEST_KEY".to_string(), canary);
         std::fs::write(&store_path, toml::to_string_pretty(&store).unwrap()).unwrap();
 
         // Reload

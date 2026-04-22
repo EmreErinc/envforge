@@ -213,7 +213,7 @@ impl LanguageServer for Backend {
                     *w = lines;
                 }
                 if let Ok(mut w) = self.schema_uri.write() {
-                    *w = Some(uri.clone());
+                    *w = Some(uri);
                 }
                 self.republish_all();
             }
@@ -250,7 +250,7 @@ impl LanguageServer for Backend {
                         *w = lines;
                     }
                     if let Ok(mut w) = self.schema_uri.write() {
-                        *w = Some(uri.clone());
+                        *w = Some(uri);
                     }
                     self.republish_all();
                 }

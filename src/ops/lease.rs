@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::OpError;
+
 const LEASES_DIR: &str = "leases";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +27,7 @@ pub struct LeaseStatus {
 }
 
 /// Get leases directory path.
-pub fn leases_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn leases_dir() -> Result<PathBuf, OpError> {
     let dir = crate::config::config_dir()?.join(LEASES_DIR);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -44,7 +46,7 @@ pub fn create_lease(
     name: &str,
     ttl_seconds: i64,
     keys: Option<Vec<String>>,
-) -> Result<Lease, Box<dyn std::error::Error>> {
+) -> Result<Lease, OpError> {
     let now = Utc::now();
     let expires = now + chrono::Duration::seconds(ttl_seconds);
 
@@ -73,7 +75,7 @@ fn write_lease_at(dir: &std::path::Path, lease: &Lease) {
 }
 
 /// List all leases with their status.
-pub fn list_leases() -> Result<Vec<LeaseStatus>, Box<dyn std::error::Error>> {
+pub fn list_leases() -> Result<Vec<LeaseStatus>, OpError> {
     let dir = leases_dir()?;
     Ok(list_leases_in(&dir))
 }
@@ -120,12 +122,12 @@ fn list_leases_in(dir: &std::path::Path) -> Vec<LeaseStatus> {
 }
 
 /// Revoke a specific lease.
-pub fn revoke_lease(name: &str) -> Result<bool, Box<dyn std::error::Error>> {
+pub fn revoke_lease(name: &str) -> Result<bool, OpError> {
     let dir = leases_dir()?;
     revoke_lease_in(&dir, name)
 }
 
-fn revoke_lease_in(dir: &std::path::Path, name: &str) -> Result<bool, Box<dyn std::error::Error>> {
+fn revoke_lease_in(dir: &std::path::Path, name: &str) -> Result<bool, OpError> {
     let path = dir.join(format!("{}.toml", name));
 
     if !path.exists() {
@@ -142,12 +144,12 @@ fn revoke_lease_in(dir: &std::path::Path, name: &str) -> Result<bool, Box<dyn st
 }
 
 /// Revoke ALL leases (killswitch).
-pub fn revoke_all_leases() -> Result<usize, Box<dyn std::error::Error>> {
+pub fn revoke_all_leases() -> Result<usize, OpError> {
     let dir = leases_dir()?;
     revoke_all_in(&dir)
 }
 
-fn revoke_all_in(dir: &std::path::Path) -> Result<usize, Box<dyn std::error::Error>> {
+fn revoke_all_in(dir: &std::path::Path) -> Result<usize, OpError> {
     let mut count = 0;
 
     if !dir.exists() {
@@ -200,7 +202,7 @@ fn check_lease_access_in(dir: &std::path::Path, key: &str) -> Option<String> {
                     match &lease.keys {
                         None => return Some(lease.name), // all keys
                         Some(keys) if keys.iter().any(|k| k == key) => return Some(lease.name),
-                        _ => continue,
+                        _ => {}
                     }
                 }
             }
@@ -236,12 +238,12 @@ pub fn parse_lease_duration(s: &str) -> Result<i64, String> {
 }
 
 /// Clean up expired lease files.
-pub fn cleanup_expired() -> Result<usize, Box<dyn std::error::Error>> {
+pub fn cleanup_expired() -> Result<usize, OpError> {
     let dir = leases_dir()?;
     cleanup_expired_in(&dir)
 }
 
-fn cleanup_expired_in(dir: &std::path::Path) -> Result<usize, Box<dyn std::error::Error>> {
+fn cleanup_expired_in(dir: &std::path::Path) -> Result<usize, OpError> {
     let now = Utc::now();
     let mut removed = 0;
 

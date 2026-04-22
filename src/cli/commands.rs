@@ -132,7 +132,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             propagate,
         } => cmd_rotate(key, *dr || dry_run, *stale, *propagate),
         Commands::Hook { shell } => cmd_hook(shell),
-        Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()),
+        Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()).map_err(|e| e.into()),
         Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
         Commands::Check { only } => cmd_check(only.as_deref(), json),
         Commands::Snapshot { action } => cmd_snapshot(action, dry_run),
@@ -1007,8 +1007,8 @@ fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
                 .to_string_lossy();
 
             // Find the original filename (everything before the first timestamp-like segment)
-            let parts: Vec<&str> = file_name.splitn(2, '.').collect();
-            if parts.is_empty() {
+            let first_part = file_name.split('.').next();
+            if first_part.is_none() {
                 return Err("Cannot determine target file from backup name".into());
             }
 

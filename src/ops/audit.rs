@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 
+use super::OpError;
+
 #[derive(Debug, Clone)]
 pub struct AuditEntry {
     pub key: String,
@@ -18,7 +20,7 @@ pub fn get_audit_trail(
     since: Option<&str>,
     machine_filter: Option<&str>,
     limit: usize,
-) -> Result<Vec<AuditEntry>, Box<dyn std::error::Error>> {
+) -> Result<Vec<AuditEntry>, OpError> {
     let mut args = vec![
         "log".to_string(),
         "--pretty=format:%H|%h|%aI|%an|%s".to_string(),
@@ -314,10 +316,7 @@ fn detect_secret_in_line(line: &str) -> Vec<String> {
 }
 
 /// Scan git history for potential secret leaks in AI-assisted commits.
-pub fn scan_ai_leaks(
-    repo_path: &Path,
-    limit: usize,
-) -> Result<Vec<AiLeakEntry>, Box<dyn std::error::Error>> {
+pub fn scan_ai_leaks(repo_path: &Path, limit: usize) -> Result<Vec<AiLeakEntry>, OpError> {
     let output = Command::new("git")
         .args([
             "log",
@@ -339,7 +338,7 @@ pub fn scan_ai_leaks(
 }
 
 /// Parse git log output and find AI-assisted commits with leaked secrets.
-fn parse_ai_leak_log(log_output: &str) -> Result<Vec<AiLeakEntry>, Box<dyn std::error::Error>> {
+fn parse_ai_leak_log(log_output: &str) -> Result<Vec<AiLeakEntry>, OpError> {
     let mut leaks = Vec::new();
 
     // Split by commits

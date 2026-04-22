@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
 use crate::config::{load_or_create_default, safe_write};
+
+use super::OpError;
 use crate::ops::changelog::log_change;
 use crate::ops::encrypt::{encrypt_value, is_encrypted};
 use crate::ops::secrets::age::{load_sources, record_set};
@@ -47,7 +49,7 @@ pub fn mask_value(value: &str) -> String {
 }
 
 /// Build a rotation plan for a key by gathering all metadata.
-pub fn plan_rotation(key: &str) -> Result<RotationPlan, Box<dyn std::error::Error>> {
+pub fn plan_rotation(key: &str) -> Result<RotationPlan, OpError> {
     let config = load_or_create_default()?;
     let mut shell_files = Vec::new();
 
@@ -131,7 +133,7 @@ pub fn apply_rotation(
     key: &str,
     new_value: &str,
     plan: &RotationPlan,
-) -> Result<RotationResult, Box<dyn std::error::Error>> {
+) -> Result<RotationResult, OpError> {
     // Re-parse the source file fresh for safe_write
     let mut sf = parse_shell_file(&plan.source_file)?;
 

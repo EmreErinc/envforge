@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::config::load_or_create_default;
+
+use super::OpError;
 use crate::ops::dotenv::parse_dotenv;
 use crate::ops::encrypt::{decrypt_value, is_encrypted};
 use crate::parser::parse_shell_file;
@@ -162,7 +164,7 @@ _envforge_hook
 /// in the given directory's project config.
 ///
 /// Also saves previous values to `.envforge-prev` for clean unload.
-pub fn cmd_env(dir: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn cmd_env(dir: Option<&str>) -> Result<(), OpError> {
     let base_dir = match dir {
         Some(d) => PathBuf::from(d),
         None => std::env::current_dir()?,
@@ -215,7 +217,7 @@ pub fn cmd_env(dir: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
 /// ```toml
 /// profile = "dev"
 /// ```
-fn parse_project_config(path: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
+fn parse_project_config(path: &Path) -> Result<Option<String>, OpError> {
     let content = std::fs::read_to_string(path)?;
     let table: toml::Table = content.parse()?;
     Ok(table
@@ -228,7 +230,7 @@ fn parse_project_config(path: &Path) -> Result<Option<String>, Box<dyn std::erro
 fn collect_project_env(
     base_dir: &Path,
     profile_name: Option<&str>,
-) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+) -> Result<HashMap<String, String>, OpError> {
     let mut env: HashMap<String, String> = HashMap::new();
 
     // Strategy 1: Load from .env file in the directory
@@ -288,10 +290,7 @@ fn collect_project_env(
 
 /// Save previous shell values for the keys we're about to set.
 /// This allows clean unloading.
-fn save_prev_values(
-    base_dir: &Path,
-    env: &HashMap<String, String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn save_prev_values(base_dir: &Path, env: &HashMap<String, String>) -> Result<(), OpError> {
     let prev_path = base_dir.join(".envforge-prev");
     let mut prev_content = String::new();
 

@@ -874,17 +874,13 @@ fn test_provider_concurrent_validation_thread_safe() {
 fn test_provider_multiple_credentials_thread_safe() {
     use std::thread;
 
-    let creds_list: Vec<HashMap<String, String>> = (0..5)
+    let handles: Vec<_> = (0..5)
         .map(|i| {
             let mut c = HashMap::new();
-            c.insert("token".to_string(), format!("token-{}", i));
+            c.insert("token".to_string(), format!("token-{i}"));
             c.insert("provider".to_string(), "vault".to_string());
             c
         })
-        .collect();
-
-    let handles: Vec<_> = creds_list
-        .into_iter()
         .map(|creds| {
             thread::spawn(move || {
                 assert!(creds.contains_key("token"));

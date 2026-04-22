@@ -20,5 +20,6 @@ memory-bank/
 node_modules/
 package.json
 package-lock.json
-envforge-plan.md
 envforge-*.md
+skills-lock.json
+.agents

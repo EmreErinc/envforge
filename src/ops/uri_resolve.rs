@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use crate::ops::secrets::credentials::read_all_credentials;
+
+use super::OpError;
 use crate::ops::secrets::provider::ProviderRegistry;
 
 /// A parsed secret URI.
@@ -52,7 +54,7 @@ pub fn is_secret_uri(value: &str) -> bool {
 
 /// Parse a key=value file where values may be secret URIs.
 /// Returns (key, value_or_uri) pairs.
-pub fn parse_uri_file(path: &Path) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+pub fn parse_uri_file(path: &Path) -> Result<Vec<(String, String)>, OpError> {
     let content = std::fs::read_to_string(path)?;
     Ok(parse_uri_content(&content))
 }

@@ -516,14 +516,14 @@ impl App {
             KeyCode::Char('d') => {
                 if let Some(entry) = self.selected_entry() {
                     if entry.location == EntryLocation::InFile {
-                        self.mode = ViewMode::Confirming(ConfirmAction::Delete(entry.key.clone()));
+                        self.mode = ViewMode::Confirming(ConfirmAction::Delete(entry.key));
                     }
                 }
             }
             KeyCode::Char('m') => {
                 if let Some(entry) = self.selected_entry() {
                     if entry.location == EntryLocation::InFile {
-                        self.mode = ViewMode::Confirming(ConfirmAction::Move(entry.key.clone()));
+                        self.mode = ViewMode::Confirming(ConfirmAction::Move(entry.key));
                     }
                 }
             }
@@ -581,7 +581,7 @@ impl App {
                 if let Some(entry) = self.selected_entry() {
                     if entry.location == EntryLocation::Commented {
                         let source = entry.source_file.clone();
-                        let key_name = entry.key.clone();
+                        let key_name = entry.key;
                         if let Some(fi) = self.shell_files.iter().position(|sf| sf.path == source) {
                             self.snapshot(fi, &format!("Restore {}", key_name));
                             match undo_delete(&mut self.shell_files[fi], &key_name) {

@@ -479,12 +479,12 @@ export QUOTED_VAR='single_quoted'
     );
 
     // Verify managed comments are parsed correctly
-    let managed: Vec<&LineNode> = result
+    let managed_count = result
         .lines
         .iter()
         .filter(|n| matches!(n, LineNode::ManagedComment { .. }))
-        .collect();
-    assert_eq!(managed.len(), 2, "Expected 2 managed comments");
+        .count();
+    assert_eq!(managed_count, 2, "Expected 2 managed comments");
 }
 
 // ═══════════════════════════════════════════════════════════════
