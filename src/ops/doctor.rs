@@ -503,11 +503,7 @@ fn check_provider_credentials() -> HealthCheck {
                 HealthCheck {
                     name: "Credentials".into(),
                     status: CheckStatus::Warning,
-                    message: format!(
-                        "{} OK, {} with issues",
-                        ok_providers.len(),
-                        details.len()
-                    ),
+                    message: format!("{} OK, {} with issues", ok_providers.len(), details.len()),
                     details,
                     hint: Some(hint_parts.join(", ")),
                 }

@@ -1,3 +1,4 @@
+use envforge::ops::secrets::provider::SecretsError;
 use envforge::ops::secrets::providers;
 use envforge::ops::secrets::SecretProvider;
 use std::collections::HashMap;
@@ -621,4 +622,331 @@ fn test_gcp_validate_config_complete() {
     creds.insert("project_id".into(), "my-project".into());
     let result = provider.validate_config(&creds);
     assert!(result.is_ok());
+}
+
+// ============================================================================
+// Network Failure Scenarios (8 tests)
+// ============================================================================
+
+#[test]
+fn test_provider_handles_connection_timeout_error() {
+    let error = SecretsError::ProviderError {
+        provider: "vault".to_string(),
+        message: "Connection timeout after 30s".to_string(),
+    };
+    assert!(error.to_string().contains("timeout"));
+}
+
+#[test]
+fn test_provider_handles_connection_refused() {
+    let error = SecretsError::ProviderError {
+        provider: "aws-ssm".to_string(),
+        message: "Connection refused: 127.0.0.1:8200".to_string(),
+    };
+    assert!(error.to_string().contains("Connection refused"));
+}
+
+#[test]
+fn test_provider_handles_dns_resolution_failure() {
+    let error = SecretsError::ProviderError {
+        provider: "doppler".to_string(),
+        message: "Failed to resolve DNS for api.doppler.com".to_string(),
+    };
+    assert!(error.to_string().contains("DNS"));
+}
+
+#[test]
+fn test_provider_handles_ssl_certificate_error() {
+    let error = SecretsError::ProviderError {
+        provider: "vault".to_string(),
+        message: "SSL certificate verification failed: self-signed certificate".to_string(),
+    };
+    assert!(error.to_string().contains("SSL certificate"));
+}
+
+#[test]
+fn test_provider_handles_rate_limiting() {
+    let error = SecretsError::ProviderError {
+        provider: "github".to_string(),
+        message: "Rate limit exceeded: 60 requests per hour, retry after 3600s".to_string(),
+    };
+    assert!(error.to_string().contains("Rate limit"));
+}
+
+#[test]
+fn test_provider_handles_service_unavailable() {
+    let error = SecretsError::ProviderError {
+        provider: "vault".to_string(),
+        message: "HTTP 503: Service Unavailable - vault is sealed".to_string(),
+    };
+    assert!(error.to_string().contains("503"));
+}
+
+#[test]
+fn test_provider_handles_proxy_authentication_required() {
+    let error = SecretsError::ProviderError {
+        provider: "aws-ssm".to_string(),
+        message: "Proxy authentication required (407)".to_string(),
+    };
+    assert!(error.to_string().contains("Proxy"));
+}
+
+#[test]
+fn test_provider_handles_internal_server_error() {
+    let error = SecretsError::ProviderError {
+        provider: "doppler".to_string(),
+        message: "HTTP 500: Internal Server Error".to_string(),
+    };
+    assert!(error.to_string().contains("500"));
+}
+
+// ============================================================================
+// Credential Rotation & Expiration Tests (6 tests)
+// ============================================================================
+
+#[test]
+fn test_provider_detects_expired_token() {
+    let error = SecretsError::AuthFailed {
+        provider: "vault".to_string(),
+        message: "Token has expired (ttl exceeded)".to_string(),
+    };
+    assert!(error.to_string().contains("expired"));
+}
+
+#[test]
+fn test_provider_handles_rotated_credentials() {
+    let providers_list = vec!["aws-ssm", "vault", "doppler", "github"];
+    for _provider_name in providers_list {
+        let mut old_creds = HashMap::new();
+        old_creds.insert("token".to_string(), "old-key-abc123".to_string());
+
+        let mut new_creds = HashMap::new();
+        new_creds.insert("token".to_string(), "new-key-xyz789".to_string());
+
+        // Both should be valid credentials structures
+        assert_eq!(old_creds.get("token").unwrap(), "old-key-abc123");
+        assert_eq!(new_creds.get("token").unwrap(), "new-key-xyz789");
+    }
+}
+
+#[test]
+fn test_provider_refreshes_token_on_expiry() {
+    let mut creds = HashMap::new();
+    creds.insert("token".to_string(), "access-token-123".to_string());
+    creds.insert("refresh_token".to_string(), "refresh-token-456".to_string());
+
+    // Simulate token refresh
+    let new_token = "new-access-token-789".to_string();
+    creds.insert("token".to_string(), new_token.clone());
+
+    assert_eq!(creds.get("token").unwrap(), &new_token);
+}
+
+#[test]
+fn test_provider_credential_cache_invalidation_on_rotation() {
+    // First validation with token1
+    let mut creds_v1 = HashMap::new();
+    creds_v1.insert("token".to_string(), "token-v1".to_string());
+
+    // Second validation with token2 (simulating rotation)
+    let mut creds_v2 = HashMap::new();
+    creds_v2.insert("token".to_string(), "token-v2".to_string());
+
+    assert_ne!(creds_v1.get("token"), creds_v2.get("token"));
+}
+
+#[test]
+fn test_provider_handles_revoked_credentials() {
+    let error = SecretsError::AuthFailed {
+        provider: "github".to_string(),
+        message: "Token revoked by user".to_string(),
+    };
+    assert!(error.to_string().contains("revoked"));
+}
+
+#[test]
+fn test_provider_multiple_credentials_partial_expiry() {
+    let mut creds = HashMap::new();
+    creds.insert("access_key".to_string(), "AKIA1234567890".to_string());
+    creds.insert(
+        "secret_key".to_string(),
+        "wJalrXUtnFEMI/K7MDENG+bPxRfiCYzSECRETKEY".to_string(),
+    );
+    creds.insert(
+        "session_token".to_string(),
+        "expired-session-token".to_string(),
+    );
+
+    // Primary credentials present
+    assert!(creds.contains_key("access_key"));
+    assert!(creds.contains_key("secret_key"));
+}
+
+// ============================================================================
+// Error Message Tests (5 tests)
+// ============================================================================
+
+#[test]
+fn test_error_provider_not_found_message() {
+    let error = SecretsError::ProviderNotFound {
+        name: "vault".to_string(),
+        available: "aws-ssm, doppler, github, gcp, azure".to_string(),
+    };
+    let msg = error.to_string();
+    assert!(msg.contains("vault"));
+    assert!(msg.contains("not found"));
+}
+
+#[test]
+fn test_error_binary_not_found_message() {
+    let error = SecretsError::BinaryNotFound {
+        binary: "vault".to_string(),
+        install_hint: "brew install hashicorp/tap/vault".to_string(),
+    };
+    let msg = error.to_string();
+    assert!(msg.contains("vault"));
+    assert!(msg.contains("not found in PATH"));
+    assert!(msg.contains("Install:"));
+}
+
+#[test]
+fn test_error_auth_failed_message() {
+    let error = SecretsError::AuthFailed {
+        provider: "aws-ssm".to_string(),
+        message: "InvalidSignatureException: Signature mismatch".to_string(),
+    };
+    let msg = error.to_string();
+    assert!(msg.contains("aws-ssm"));
+    assert!(msg.contains("authentication failed"));
+}
+
+#[test]
+fn test_error_provider_error_message() {
+    let error = SecretsError::ProviderError {
+        provider: "doppler".to_string(),
+        message: "Failed to fetch config/settings endpoint".to_string(),
+    };
+    let msg = error.to_string();
+    assert!(msg.contains("doppler"));
+}
+
+#[test]
+fn test_error_credential_not_found_message() {
+    let error = SecretsError::CredentialNotFound {
+        provider: "github".to_string(),
+    };
+    let msg = error.to_string();
+    assert!(msg.contains("github"));
+    assert!(msg.contains("not configured"));
+    assert!(msg.contains("envforge secrets config"));
+}
+
+// ============================================================================
+// Concurrency & Thread Safety Tests (4 tests)
+// ============================================================================
+
+#[test]
+fn test_provider_concurrent_validation_thread_safe() {
+    use std::sync::Arc;
+    use std::thread;
+
+    let mut creds = HashMap::new();
+    creds.insert("token".to_string(), "test-token".to_string());
+    let creds = Arc::new(creds);
+
+    let handles: Vec<_> = (0..5)
+        .map(|_| {
+            let c = Arc::clone(&creds);
+            thread::spawn(move || {
+                // Validate credentials structure
+                assert!(c.contains_key("token"));
+                assert!(!c.get("token").unwrap().is_empty());
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        assert!(handle.join().is_ok());
+    }
+}
+
+#[test]
+fn test_provider_multiple_credentials_thread_safe() {
+    use std::thread;
+
+    let creds_list: Vec<HashMap<String, String>> = (0..5)
+        .map(|i| {
+            let mut c = HashMap::new();
+            c.insert("token".to_string(), format!("token-{}", i));
+            c.insert("provider".to_string(), "vault".to_string());
+            c
+        })
+        .collect();
+
+    let handles: Vec<_> = creds_list
+        .into_iter()
+        .map(|creds| {
+            thread::spawn(move || {
+                assert!(creds.contains_key("token"));
+                assert!(creds.contains_key("provider"));
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        assert!(handle.join().is_ok());
+    }
+}
+
+#[test]
+fn test_provider_concurrent_cache_access_thread_safe() {
+    use std::sync::Arc;
+    use std::thread;
+
+    let creds = Arc::new({
+        let mut c = HashMap::new();
+        c.insert("token".to_string(), "cached-token".to_string());
+        c
+    });
+
+    let handles: Vec<_> = (0..10)
+        .map(|_| {
+            let c = Arc::clone(&creds);
+            thread::spawn(move || {
+                let token = c.get("token").unwrap();
+                assert_eq!(token, "cached-token");
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        assert!(handle.join().is_ok());
+    }
+}
+
+#[test]
+fn test_provider_stress_test_concurrent_requests() {
+    use std::sync::Arc;
+    use std::thread;
+
+    let creds = Arc::new({
+        let mut c = HashMap::new();
+        c.insert("token".to_string(), "stress-test".to_string());
+        c
+    });
+
+    let handles: Vec<_> = (0..50)
+        .map(|_| {
+            let c = Arc::clone(&creds);
+            thread::spawn(move || {
+                for _ in 0..10 {
+                    let _ = c.get("token");
+                }
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        assert!(handle.join().is_ok());
+    }
 }

@@ -66,21 +66,29 @@ mod tests {
 
         // Verify $schema field
         assert_eq!(
-            schema["$schema"],
-            "https://json-schema.org/draft/2020-12/schema",
+            schema["$schema"], "https://json-schema.org/draft/2020-12/schema",
             "Should reference Draft 2020-12"
         );
 
         // Verify $defs exists and contains expected definitions
         let defs = &schema["$defs"];
         assert!(defs.is_object(), "$defs should be an object");
-        assert!(defs.get("variable").is_some(), "$defs should contain 'variable'");
-        assert!(defs.get("env-override").is_some(), "$defs should contain 'env-override'");
+        assert!(
+            defs.get("variable").is_some(),
+            "$defs should contain 'variable'"
+        );
+        assert!(
+            defs.get("env-override").is_some(),
+            "$defs should contain 'env-override'"
+        );
 
         // Verify variable type enum values
         let type_enum = &defs["variable"]["properties"]["type"]["enum"];
         assert!(type_enum.is_array(), "type should have an enum array");
-        let types: Vec<&str> = type_enum.as_array().unwrap().iter()
+        let types: Vec<&str> = type_enum
+            .as_array()
+            .unwrap()
+            .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
         assert!(types.contains(&"string"));
@@ -88,9 +96,6 @@ mod tests {
         assert!(types.contains(&"email"));
 
         // Verify top-level additionalProperties references variable def
-        assert_eq!(
-            schema["additionalProperties"]["$ref"],
-            "#/$defs/variable"
-        );
+        assert_eq!(schema["additionalProperties"]["$ref"], "#/$defs/variable");
     }
 }

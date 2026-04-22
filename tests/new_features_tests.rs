@@ -747,9 +747,7 @@ fn test_spawn_with_env() {
 fn test_redact_secrets_basic() {
     use envforge::ops::run::redact_secrets;
 
-    let secrets = vec![
-        ("API_KEY".to_string(), "sk-abc123".to_string()),
-    ];
+    let secrets = vec![("API_KEY".to_string(), "sk-abc123".to_string())];
     let text = "Connecting with key sk-abc123 to server";
     let result = redact_secrets(text, &secrets);
     assert_eq!(result, "Connecting with key [REDACTED:API_KEY] to server");
@@ -759,9 +757,7 @@ fn test_redact_secrets_basic() {
 fn test_redact_secrets_skips_short_values() {
     use envforge::ops::run::redact_secrets;
 
-    let secrets = vec![
-        ("API_KEY".to_string(), "abc".to_string()),
-    ];
+    let secrets = vec![("API_KEY".to_string(), "abc".to_string())];
     let text = "Value is abc here";
     let result = redact_secrets(text, &secrets);
     // Short values (< 4 chars) should NOT be redacted
@@ -772,9 +768,7 @@ fn test_redact_secrets_skips_short_values() {
 fn test_redact_secrets_skips_non_sensitive_keys() {
     use envforge::ops::run::redact_secrets;
 
-    let secrets = vec![
-        ("PORT".to_string(), "3000".to_string()),
-    ];
+    let secrets = vec![("PORT".to_string(), "3000".to_string())];
     let text = "Running on port 3000";
     let result = redact_secrets(text, &secrets);
     // PORT is not a sensitive key, so value should not be redacted
@@ -801,9 +795,7 @@ fn test_redact_secrets_multiple() {
 fn test_redact_secrets_no_match() {
     use envforge::ops::run::redact_secrets;
 
-    let secrets = vec![
-        ("API_KEY".to_string(), "sk-abc123".to_string()),
-    ];
+    let secrets = vec![("API_KEY".to_string(), "sk-abc123".to_string())];
     let text = "No secrets here at all";
     let result = redact_secrets(text, &secrets);
     assert_eq!(result, "No secrets here at all");

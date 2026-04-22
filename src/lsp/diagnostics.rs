@@ -18,8 +18,14 @@ pub fn compute_diagnostics(entries: &[EnvDocEntry], schema: Option<&EnvSchema>) 
             if eff.required && eff.default.is_none() && !present_keys.contains(var_name.as_str()) {
                 diags.push(Diagnostic {
                     range: LspRange {
-                        start: Position { line: 0, character: 0 },
-                        end: Position { line: 0, character: 0 },
+                        start: Position {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: 0,
+                            character: 0,
+                        },
                     },
                     severity: Some(DiagnosticSeverity::ERROR),
                     source: Some("envforge".into()),
@@ -59,7 +65,10 @@ pub fn compute_diagnostics(entries: &[EnvDocEntry], schema: Option<&EnvSchema>) 
                 range: entry.value_range,
                 severity: Some(DiagnosticSeverity::WARNING),
                 source: Some("envforge".into()),
-                message: format!("Sensitive value for '{}' — consider using a secret reference", entry.key),
+                message: format!(
+                    "Sensitive value for '{}' — consider using a secret reference",
+                    entry.key
+                ),
                 ..Default::default()
             });
         }

@@ -10,11 +10,10 @@ const ENCRYPTED_HEADER: &str = "ENVFORGE-ENCRYPTED\n";
 /// Returns content prefixed with "ENVFORGE-ENCRYPTED\n" followed by
 /// base64-encoded age-encrypted data.
 pub fn encrypt_snapshot(toml_content: &str) -> Result<String, SyncError> {
-    let key_content = crate::ops::encrypt::ensure_age_key().map_err(|e| {
-        SyncError::EncryptionFailed {
+    let key_content =
+        crate::ops::encrypt::ensure_age_key().map_err(|e| SyncError::EncryptionFailed {
             message: e.to_string(),
-        }
-    })?;
+        })?;
 
     let recipient = get_recipient(&key_content)?;
 
@@ -26,11 +25,12 @@ pub fn encrypt_snapshot(toml_content: &str) -> Result<String, SyncError> {
     })?;
 
     let mut encrypted = vec![];
-    let mut writer = encryptor
-        .wrap_output(&mut encrypted)
-        .map_err(|e| SyncError::EncryptionFailed {
-            message: e.to_string(),
-        })?;
+    let mut writer =
+        encryptor
+            .wrap_output(&mut encrypted)
+            .map_err(|e| SyncError::EncryptionFailed {
+                message: e.to_string(),
+            })?;
     writer
         .write_all(toml_content.as_bytes())
         .map_err(|e| SyncError::EncryptionFailed {
@@ -56,15 +56,13 @@ pub fn decrypt_snapshot(content: &str) -> Result<String, SyncError> {
     let encoded = &content[ENCRYPTED_HEADER.len()..];
     let decoded = base64_decode(encoded)?;
 
-    let key_content = crate::ops::encrypt::ensure_age_key().map_err(|e| {
-        SyncError::EncryptionFailed {
+    let key_content =
+        crate::ops::encrypt::ensure_age_key().map_err(|e| SyncError::EncryptionFailed {
             message: e.to_string(),
-        }
-    })?;
+        })?;
     let identity = get_identity(&key_content)?;
 
-    let decryptor =
-        age::Decryptor::new(&decoded[..]).map_err(|_| SyncError::DecryptionFailed)?;
+    let decryptor = age::Decryptor::new(&decoded[..]).map_err(|_| SyncError::DecryptionFailed)?;
 
     let mut reader = decryptor
         .decrypt(std::iter::once(&identity as &dyn age::Identity))

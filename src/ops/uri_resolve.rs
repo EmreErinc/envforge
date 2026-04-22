@@ -153,9 +153,7 @@ fn resolve_single_uri(
     registry_name: &str,
     registry: &ProviderRegistry,
 ) -> Result<String, String> {
-    let provider = registry
-        .get(registry_name)
-        .map_err(|e| format!("{}", e))?;
+    let provider = registry.get(registry_name).map_err(|e| format!("{}", e))?;
 
     let credentials = read_all_credentials(registry_name)
         .map_err(|e| format!("credentials for '{}': {}", registry_name, e))?;
@@ -177,7 +175,11 @@ pub fn format_as_export(entries: &[ResolvedEntry]) -> String {
     let mut output = String::new();
     for entry in entries {
         if entry.error.is_none() {
-            output.push_str(&format!("export {}='{}'\n", entry.key, escape_single_quote(&entry.value)));
+            output.push_str(&format!(
+                "export {}='{}'\n",
+                entry.key,
+                escape_single_quote(&entry.value)
+            ));
         }
     }
     output
@@ -203,7 +205,10 @@ fn escape_single_quote(s: &str) -> String {
 pub fn format_summary(entries: &[ResolvedEntry]) -> String {
     let total = entries.len();
     let uri_count = entries.iter().filter(|e| e.was_uri).count();
-    let resolved_count = entries.iter().filter(|e| e.was_uri && e.error.is_none()).count();
+    let resolved_count = entries
+        .iter()
+        .filter(|e| e.was_uri && e.error.is_none())
+        .count();
     let error_count = entries.iter().filter(|e| e.error.is_some()).count();
     let plain_count = total - uri_count;
 

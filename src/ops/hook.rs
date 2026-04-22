@@ -299,11 +299,7 @@ fn save_prev_values(
         match std::env::var(key) {
             Ok(old_value) => {
                 // Variable existed before -- restore it on unload
-                prev_content.push_str(&format!(
-                    "export {}={}\n",
-                    key,
-                    shell_escape(&old_value)
-                ));
+                prev_content.push_str(&format!("export {}={}\n", key, shell_escape(&old_value)));
             }
             Err(_) => {
                 // Variable did not exist -- unset it on unload

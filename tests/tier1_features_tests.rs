@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use envforge::model::{ExportStyle, QuoteStyle};
 use envforge::ops::check::{
     parse_category_filter, report_to_json, run_checks, CheckCategory, CheckReport, CheckResult,
     CheckStatus,
@@ -7,7 +8,6 @@ use envforge::ops::check::{
 use envforge::ops::export_format::{export_as, ExportFormat};
 use envforge::ops::secrets::age::{SecretAge, SecretSources};
 use envforge::ops::{EntryLocation, EnvEntry};
-use envforge::model::{ExportStyle, QuoteStyle};
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -214,7 +214,12 @@ fn test_docker_export_excludes_commented() {
 #[test]
 fn test_k8s_export_structure() {
     let entries = sample_entries();
-    let output = export_as(&entries, &ExportFormat::K8s, Some("app-secrets"), Some("prod"));
+    let output = export_as(
+        &entries,
+        &ExportFormat::K8s,
+        Some("app-secrets"),
+        Some("prod"),
+    );
     assert!(output.contains("apiVersion: v1"));
     assert!(output.contains("kind: Secret"));
     assert!(output.contains("name: app-secrets"));
@@ -244,7 +249,10 @@ fn test_k8s_export_defaults() {
 
 #[test]
 fn test_tfvars_export_lowercase_keys() {
-    let entries = vec![make_entry("DB_HOST", "localhost"), make_entry("API_KEY", "abc")];
+    let entries = vec![
+        make_entry("DB_HOST", "localhost"),
+        make_entry("API_KEY", "abc"),
+    ];
     let output = export_as(&entries, &ExportFormat::Tfvars, None, None);
     assert!(output.contains("db_host = \"localhost\""));
     assert!(output.contains("api_key = \"abc\""));
@@ -388,8 +396,14 @@ fn test_format_extensions() {
 
 #[test]
 fn test_check_category_parse_all() {
-    assert_eq!(CheckCategory::parse("doctor").unwrap(), CheckCategory::Doctor);
-    assert_eq!(CheckCategory::parse("validate").unwrap(), CheckCategory::Validate);
+    assert_eq!(
+        CheckCategory::parse("doctor").unwrap(),
+        CheckCategory::Doctor
+    );
+    assert_eq!(
+        CheckCategory::parse("validate").unwrap(),
+        CheckCategory::Validate
+    );
     assert_eq!(CheckCategory::parse("scan").unwrap(), CheckCategory::Scan);
     assert_eq!(CheckCategory::parse("age").unwrap(), CheckCategory::Age);
     assert_eq!(CheckCategory::parse("drift").unwrap(), CheckCategory::Drift);

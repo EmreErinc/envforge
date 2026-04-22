@@ -199,8 +199,8 @@ fn write_claude_settings(
 
     if path.exists() {
         let content = std::fs::read_to_string(&path)?;
-        let mut json: serde_json::Value = serde_json::from_str(&content)
-            .unwrap_or_else(|_| serde_json::json!({}));
+        let mut json: serde_json::Value =
+            serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}));
 
         // Check if all deny rules already present
         let existing_deny = json
@@ -289,10 +289,8 @@ mod tests {
         let cursorrules = std::fs::read_to_string(tmp.path().join(".cursorrules")).unwrap();
         assert!(cursorrules.contains("Never read .env files directly"));
 
-        let copilot = std::fs::read_to_string(
-            tmp.path().join(".github/copilot-instructions.md"),
-        )
-        .unwrap();
+        let copilot =
+            std::fs::read_to_string(tmp.path().join(".github/copilot-instructions.md")).unwrap();
         assert!(copilot.contains("## Secret Safety Rules"));
 
         let claude = std::fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
@@ -347,7 +345,10 @@ mod tests {
         let result = create_fence(tmp.path(), false).unwrap();
 
         // Claude settings should be updated (merged), not created
-        assert!(result.files_updated.iter().any(|p| p.ends_with("settings.json")));
+        assert!(result
+            .files_updated
+            .iter()
+            .any(|p| p.ends_with("settings.json")));
 
         let content = std::fs::read_to_string(claude_dir.join("settings.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -380,7 +381,10 @@ mod tests {
         std::fs::write(tmp.path().join(".cursorignore"), "node_modules/\n").unwrap();
 
         let result = create_fence(tmp.path(), false).unwrap();
-        assert!(result.files_updated.iter().any(|p| p.ends_with(".cursorignore")));
+        assert!(result
+            .files_updated
+            .iter()
+            .any(|p| p.ends_with(".cursorignore")));
 
         let content = std::fs::read_to_string(tmp.path().join(".cursorignore")).unwrap();
         assert!(content.contains("node_modules/"));

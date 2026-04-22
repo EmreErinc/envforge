@@ -17,7 +17,11 @@ pub fn completions(
 ) -> Vec<CompletionItem> {
     let line = content.lines().nth(position.line as usize).unwrap_or("");
     let col = position.character as usize;
-    let before_cursor = if col <= line.len() { &line[..col] } else { line };
+    let before_cursor = if col <= line.len() {
+        &line[..col]
+    } else {
+        line
+    };
 
     // After '=' — value completions
     if before_cursor.contains('=') {
@@ -109,7 +113,11 @@ fn key_completions(
         items.push(CompletionItem {
             label: mv.key.clone(),
             kind: Some(CompletionItemKind::VARIABLE),
-            detail: Some(if source.is_empty() { "envforge".into() } else { source }),
+            detail: Some(if source.is_empty() {
+                "envforge".into()
+            } else {
+                source
+            }),
             insert_text: Some(format!("{}=", mv.key)),
             sort_text: Some(format!("1_{}", mv.key)),
             ..Default::default()
@@ -214,7 +222,10 @@ fn value_completions(
     items
 }
 
-fn reference_completions(entries: &[EnvDocEntry], managed_vars: &[ManagedVar]) -> Vec<CompletionItem> {
+fn reference_completions(
+    entries: &[EnvDocEntry],
+    managed_vars: &[ManagedVar],
+) -> Vec<CompletionItem> {
     let mut seen = std::collections::HashSet::new();
     let mut items = Vec::new();
 

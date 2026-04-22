@@ -135,10 +135,7 @@ pub fn run_guard(
     if let Some(input) = tool_input {
         if let Some(findings) = run_external_scanner(input) {
             for finding in findings {
-                warnings.push(format!(
-                    "\u{26a0} EnvForge: External scanner: {}",
-                    finding
-                ));
+                warnings.push(format!("\u{26a0} EnvForge: External scanner: {}", finding));
             }
         }
     }
@@ -301,20 +298,16 @@ mod tests {
     #[test]
     fn test_pre_tool_no_warning_for_normal_read() {
         let secrets = vec![];
-        let result = run_guard(
-            GuardStage::PreTool,
-            "Read",
-            Some("src/main.rs"),
-            &secrets,
-        );
+        let result = run_guard(GuardStage::PreTool, "Read", Some("src/main.rs"), &secrets);
         assert!(result.warnings.is_empty());
     }
 
     #[test]
     fn test_pre_tool_catches_secret_in_bash_command() {
-        let secrets = vec![
-            ("API_KEY".to_string(), "super-secret-api-key-12345".to_string()),
-        ];
+        let secrets = vec![(
+            "API_KEY".to_string(),
+            "super-secret-api-key-12345".to_string(),
+        )];
         let result = run_guard(
             GuardStage::PreTool,
             "Bash",
@@ -327,15 +320,11 @@ mod tests {
 
     #[test]
     fn test_pre_tool_no_warning_for_safe_bash() {
-        let secrets = vec![
-            ("API_KEY".to_string(), "super-secret-api-key-12345".to_string()),
-        ];
-        let result = run_guard(
-            GuardStage::PreTool,
-            "Bash",
-            Some("ls -la"),
-            &secrets,
-        );
+        let secrets = vec![(
+            "API_KEY".to_string(),
+            "super-secret-api-key-12345".to_string(),
+        )];
+        let result = run_guard(GuardStage::PreTool, "Bash", Some("ls -la"), &secrets);
         assert!(result.warnings.is_empty());
     }
 
@@ -343,9 +332,10 @@ mod tests {
 
     #[test]
     fn test_post_tool_catches_secret_in_output() {
-        let secrets = vec![
-            ("DB_PASSWORD".to_string(), "my-database-password-xyz".to_string()),
-        ];
+        let secrets = vec![(
+            "DB_PASSWORD".to_string(),
+            "my-database-password-xyz".to_string(),
+        )];
         let result = run_guard(
             GuardStage::PostTool,
             "Bash",
@@ -358,9 +348,7 @@ mod tests {
 
     #[test]
     fn test_post_tool_no_warning_without_secrets() {
-        let secrets = vec![
-            ("API_KEY".to_string(), "long-secret-value-here".to_string()),
-        ];
+        let secrets = vec![("API_KEY".to_string(), "long-secret-value-here".to_string())];
         let result = run_guard(
             GuardStage::PostTool,
             "Bash",
@@ -376,29 +364,15 @@ mod tests {
     fn test_guard_skips_short_secret_values() {
         // Values < 8 chars should be filtered out before calling run_guard,
         // but even if passed, the guard checks length >= 8
-        let secrets = vec![
-            ("SHORT".to_string(), "abc".to_string()),
-        ];
-        let result = run_guard(
-            GuardStage::PreTool,
-            "Bash",
-            Some("echo abc"),
-            &secrets,
-        );
+        let secrets = vec![("SHORT".to_string(), "abc".to_string())];
+        let result = run_guard(GuardStage::PreTool, "Bash", Some("echo abc"), &secrets);
         assert!(result.warnings.is_empty());
     }
 
     #[test]
     fn test_guard_catches_exactly_8_char_secret() {
-        let secrets = vec![
-            ("TOKEN".to_string(), "12345678".to_string()),
-        ];
-        let result = run_guard(
-            GuardStage::PreTool,
-            "Bash",
-            Some("echo 12345678"),
-            &secrets,
-        );
+        let secrets = vec![("TOKEN".to_string(), "12345678".to_string())];
+        let result = run_guard(GuardStage::PreTool, "Bash", Some("echo 12345678"), &secrets);
         assert_eq!(result.warnings.len(), 1);
     }
 

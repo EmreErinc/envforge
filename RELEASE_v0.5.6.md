@@ -1,6 +1,6 @@
 # EnvForge v0.5.6 — Bug Fixes & Extended Test Suite
 
-Critical stability improvements and comprehensive test coverage. 697 tests, 0 failures.
+Critical stability improvements and comprehensive test coverage. 947 tests, 0 failures (100% pass rate).
 
 ## What's New in v0.5.6
 
@@ -53,37 +53,45 @@ format!("{}…", truncated)  // ✅ Safe
 ### Test Suite Expansion
 
 **Previous Release (v0.5.3)**: 664 tests  
-**This Release**: 697 tests (+33)  
+**v0.5.5 Baseline**: 697 tests  
+**This Release (v0.5.6)**: 947 tests (+250)  
 **Status**: 100% passing, 0 failures
 
 **Breakdown**:
 - Library unit tests: 389
-- Integration tests: 306 (11 test files)
-  - `config_tests`: 17
+- Integration tests: 556 (16 test files)
+  - `cli_integration_tests`: 49
+  - `config_tests`: 35
   - `dotenv_tests`: 14
   - `duplicates_tests`: 7
+  - `error_handling_tests`: 43
   - `grouping_tests`: 7
   - `new_features_tests`: 47
   - `ops_advanced_tests`: 23
   - `ops_tests`: 26
   - `parser_tests`: 35
-  - `secrets_provider_tests`: 59
+  - `phase2_parser_unicode_tests`: 65 (NEW)
+  - `phase3_concurrency_tests`: 22 (NEW)
+  - `phase3_property_tests`: 30 (NEW)
+  - `secrets_provider_tests`: 82 (enhanced)
   - `sync_tests`: 33
   - `tier1_features_tests`: 38
-- Doc tests: 2 (new)
+- Doc tests: 2
 
 ---
 
 ## Quality Metrics
 
-- **697 total tests**, 0 failures (100% passing)
+- **947 total tests**, 0 failures (100% passing)
 - **0 clippy warnings** (clean compilation)
+- **65% code coverage** (target achieved)
 - 18 AI safety tools across 5 layers
 - 80+ CLI subcommands
 - No new crate dependencies
 - Round-trip parser fidelity: ✅ verified
 - Lock safety: ✅ verified (RwLock poison handling from v0.5.5)
 - Regex optimization: ✅ verified (OnceLock lazy statics from v0.5.5)
+- Concurrency safety: ✅ verified (1000+ thread stress test)
 
 ---
 

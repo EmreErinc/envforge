@@ -1,6 +1,6 @@
-use tower_lsp::lsp_types::Range as LspRange;
-use tower_lsp::lsp_types::Position;
 use std::collections::HashMap;
+use tower_lsp::lsp_types::Position;
+use tower_lsp::lsp_types::Range as LspRange;
 
 #[derive(Debug, Clone)]
 pub struct DocumentState {
@@ -63,12 +63,24 @@ pub fn parse_env_document(content: &str) -> Vec<EnvDocEntry> {
                 key: key.to_string(),
                 value: value.to_string(),
                 key_range: LspRange {
-                    start: Position { line: ln, character: key_start },
-                    end: Position { line: ln, character: key_end },
+                    start: Position {
+                        line: ln,
+                        character: key_start,
+                    },
+                    end: Position {
+                        line: ln,
+                        character: key_end,
+                    },
                 },
                 value_range: LspRange {
-                    start: Position { line: ln, character: val_start_in_line },
-                    end: Position { line: ln, character: val_end },
+                    start: Position {
+                        line: ln,
+                        character: val_start_in_line,
+                    },
+                    end: Position {
+                        line: ln,
+                        character: val_end,
+                    },
                 },
                 line: ln,
             });

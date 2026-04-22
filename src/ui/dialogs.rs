@@ -301,10 +301,7 @@ pub fn render_profile_selector(f: &mut Frame, app: &App, selected_idx: usize) {
 /// Build a help shortcut line with styled key and description.
 fn help_shortcut(key: &str, desc: &str) -> Line<'static> {
     Line::from(vec![
-        Span::styled(
-            format!("  {:<10}", key),
-            Style::default().fg(Color::White),
-        ),
+        Span::styled(format!("  {:<10}", key), Style::default().fg(Color::White)),
         Span::styled(desc.to_string(), Style::default().fg(Color::DarkGray)),
     ])
 }

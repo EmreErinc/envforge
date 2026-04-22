@@ -41,12 +41,11 @@ pub fn rollback_to(sync_path: &Path, commit_hash: &str) -> Result<PathBuf, SyncE
     let old_content = git.show(commit_hash, SNAPSHOT_FILE)?;
 
     // Decrypt if needed, then verify it's valid TOML before writing
-    let toml_content =
-        super::encryption::decrypt_snapshot(&old_content).map_err(|_| {
-            SyncError::SnapshotParseError {
-                message: format!("snapshot at commit {} could not be decrypted", commit_hash),
-            }
-        })?;
+    let toml_content = super::encryption::decrypt_snapshot(&old_content).map_err(|_| {
+        SyncError::SnapshotParseError {
+            message: format!("snapshot at commit {} could not be decrypted", commit_hash),
+        }
+    })?;
 
     let _: SyncSnapshot =
         toml::from_str(&toml_content).map_err(|e| SyncError::SnapshotParseError {

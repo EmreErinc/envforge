@@ -220,8 +220,10 @@ pub fn list_all_cached() -> Result<Vec<CachedEntryInfo>, SecretsError> {
     }
 
     let mut entries = Vec::new();
-    let providers =
-        std::fs::read_dir(&dir).map_err(|e| SecretsError::IoError { path: dir, source: e })?;
+    let providers = std::fs::read_dir(&dir).map_err(|e| SecretsError::IoError {
+        path: dir,
+        source: e,
+    })?;
 
     for provider_entry in providers {
         let provider_entry = provider_entry.map_err(|e| SecretsError::CacheError(e.to_string()))?;
@@ -231,11 +233,10 @@ pub fn list_all_cached() -> Result<Vec<CachedEntryInfo>, SecretsError> {
         }
         let provider_name = provider_entry.file_name().to_string_lossy().to_string();
 
-        let files = std::fs::read_dir(&provider_path)
-            .map_err(|e| SecretsError::IoError {
-                path: provider_path.clone(),
-                source: e,
-            })?;
+        let files = std::fs::read_dir(&provider_path).map_err(|e| SecretsError::IoError {
+            path: provider_path.clone(),
+            source: e,
+        })?;
 
         for file_entry in files {
             let file_entry = file_entry.map_err(|e| SecretsError::CacheError(e.to_string()))?;
@@ -257,15 +258,15 @@ pub fn list_all_cached() -> Result<Vec<CachedEntryInfo>, SecretsError> {
                 Err(_) => continue,
             };
 
-            let expired =
-                if let Ok(fetched) = chrono::DateTime::parse_from_rfc3339(&cache_entry.fetched_at)
-                {
-                    let now = chrono::Utc::now();
-                    let elapsed = now.signed_duration_since(fetched).num_seconds() as u64;
-                    elapsed > cache_entry.ttl_secs
-                } else {
-                    true
-                };
+            let expired = if let Ok(fetched) =
+                chrono::DateTime::parse_from_rfc3339(&cache_entry.fetched_at)
+            {
+                let now = chrono::Utc::now();
+                let elapsed = now.signed_duration_since(fetched).num_seconds() as u64;
+                elapsed > cache_entry.ttl_secs
+            } else {
+                true
+            };
 
             entries.push(CachedEntryInfo {
                 provider: provider_name.clone(),

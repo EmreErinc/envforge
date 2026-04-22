@@ -4,10 +4,7 @@ use std::path::Path;
 /// Sanitize a file's content by replacing known secret values with ${KEY} placeholders.
 ///
 /// Returns the sanitized content and the number of replacements made.
-pub fn sanitize_content(
-    content: &str,
-    secrets: &[(String, String)],
-) -> (String, usize) {
+pub fn sanitize_content(content: &str, secrets: &[(String, String)]) -> (String, usize) {
     let mut result = content.to_string();
     let mut count = 0;
 
@@ -54,7 +51,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_replaces_values() {
-        let content = "DATABASE_URL=postgres://user:supersecretpass@localhost/db\nAPI_KEY=sk-abcdef123456";
+        let content =
+            "DATABASE_URL=postgres://user:supersecretpass@localhost/db\nAPI_KEY=sk-abcdef123456";
         let secrets = vec![
             ("DB_PASSWORD".to_string(), "supersecretpass".to_string()),
             ("API_KEY".to_string(), "sk-abcdef123456".to_string()),
@@ -73,8 +71,8 @@ mod tests {
     fn test_sanitize_skips_short_values() {
         let content = "PORT=80 and TOKEN=abc";
         let secrets = vec![
-            ("PORT".to_string(), "80".to_string()),    // len 2, skip
-            ("TOKEN".to_string(), "abc".to_string()),   // len 3, skip
+            ("PORT".to_string(), "80".to_string()),   // len 2, skip
+            ("TOKEN".to_string(), "abc".to_string()), // len 3, skip
         ];
 
         let (result, count) = sanitize_content(content, &secrets);

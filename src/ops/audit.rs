@@ -360,10 +360,7 @@ fn parse_ai_leak_log(log_output: &str) -> Result<Vec<AiLeakEntry>, Box<dyn std::
             if !current_hash.is_empty() {
                 // Flush last diff file
                 if !current_diff_file.is_empty() && !current_file_patterns.is_empty() {
-                    diff_findings.push((
-                        current_diff_file.clone(),
-                        current_file_patterns.clone(),
-                    ));
+                    diff_findings.push((current_diff_file.clone(), current_file_patterns.clone()));
                 }
 
                 if let Some(ref tool) = ai_tool {
@@ -423,17 +420,10 @@ fn parse_ai_leak_log(log_output: &str) -> Result<Vec<AiLeakEntry>, Box<dyn std::
             if line.starts_with("diff --git") {
                 // Flush previous file
                 if !current_diff_file.is_empty() && !current_file_patterns.is_empty() {
-                    diff_findings.push((
-                        current_diff_file.clone(),
-                        current_file_patterns.clone(),
-                    ));
+                    diff_findings.push((current_diff_file.clone(), current_file_patterns.clone()));
                 }
                 // Extract file path: "diff --git a/path b/path"
-                current_diff_file = line
-                    .split(" b/")
-                    .nth(1)
-                    .unwrap_or("unknown")
-                    .to_string();
+                current_diff_file = line.split(" b/").nth(1).unwrap_or("unknown").to_string();
                 current_file_patterns.clear();
                 continue;
             }
@@ -455,10 +445,7 @@ fn parse_ai_leak_log(log_output: &str) -> Result<Vec<AiLeakEntry>, Box<dyn std::
     // Flush last commit
     if !current_hash.is_empty() {
         if !current_diff_file.is_empty() && !current_file_patterns.is_empty() {
-            diff_findings.push((
-                current_diff_file.clone(),
-                current_file_patterns.clone(),
-            ));
+            diff_findings.push((current_diff_file.clone(), current_file_patterns.clone()));
         }
         if let Some(ref tool) = ai_tool {
             for (file_path, patterns) in &diff_findings {
@@ -729,6 +716,9 @@ diff --git a/config.env b/config.env
 +HOST=localhost
 ";
         let leaks = parse_ai_leak_log(log).unwrap();
-        assert!(leaks.is_empty(), "AI commit with clean diff should have no leaks");
+        assert!(
+            leaks.is_empty(),
+            "AI commit with clean diff should have no leaks"
+        );
     }
 }

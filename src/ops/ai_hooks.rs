@@ -22,11 +22,7 @@ impl AiTool {
 
 /// Parse a tool name string into an AiTool enum.
 pub fn parse_ai_tool(name: &str) -> Result<AiTool, String> {
-    match name
-        .to_lowercase()
-        .replace(['-', '_'], "")
-        .as_str()
-    {
+    match name.to_lowercase().replace(['-', '_'], "").as_str() {
         "claudecode" => Ok(AiTool::ClaudeCode),
         "cursor" => Ok(AiTool::Cursor),
         _ => Err(format!(
@@ -91,9 +87,7 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, Box
         .entry("hooks")
         .or_insert_with(|| serde_json::json!({}));
 
-    let hooks_obj = hooks
-        .as_object_mut()
-        .ok_or("hooks is not an object")?;
+    let hooks_obj = hooks.as_object_mut().ok_or("hooks is not an object")?;
 
     // Check if already installed (check both stages)
     let pre_arr = hooks_obj
@@ -403,7 +397,10 @@ mod tests {
         let pre = &content["hooks"]["PreToolUse"];
         assert!(pre.is_array());
         assert_eq!(pre.as_array().unwrap().len(), 1);
-        assert!(pre[0]["hook"].as_str().unwrap().contains("envforge ai-guard"));
+        assert!(pre[0]["hook"]
+            .as_str()
+            .unwrap()
+            .contains("envforge ai-guard"));
         assert_eq!(
             pre[0]["matcher"].as_str().unwrap(),
             "Read|Write|Edit|Bash|MultiEdit"
@@ -413,7 +410,10 @@ mod tests {
         let post = &content["hooks"]["PostToolUse"];
         assert!(post.is_array());
         assert_eq!(post.as_array().unwrap().len(), 1);
-        assert!(post[0]["hook"].as_str().unwrap().contains("envforge ai-guard"));
+        assert!(post[0]["hook"]
+            .as_str()
+            .unwrap()
+            .contains("envforge ai-guard"));
         assert_eq!(
             post[0]["matcher"].as_str().unwrap(),
             "Write|Edit|Bash|MultiEdit"
@@ -464,10 +464,7 @@ mod tests {
         // PreToolUse has existing + our new hook
         assert_eq!(content["hooks"]["PreToolUse"].as_array().unwrap().len(), 2);
         // PostToolUse has existing + our new hook
-        assert_eq!(
-            content["hooks"]["PostToolUse"].as_array().unwrap().len(),
-            2
-        );
+        assert_eq!(content["hooks"]["PostToolUse"].as_array().unwrap().len(), 2);
         // Permissions preserved
         assert!(content["permissions"]["allow"].is_array());
     }

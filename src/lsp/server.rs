@@ -47,10 +47,7 @@ impl Backend {
     fn is_env_file(uri: &Url) -> bool {
         let path = uri.path();
         let fname = path.rsplit('/').next().unwrap_or("");
-        fname == ".env"
-            || fname.starts_with(".env.")
-            || fname.ends_with(".env")
-            || fname == "env"
+        fname == ".env" || fname.starts_with(".env.") || fname.ends_with(".env") || fname == "env"
     }
 
     fn is_schema_file(uri: &Url) -> bool {
@@ -58,9 +55,7 @@ impl Backend {
     }
 
     fn load_schema_from_workspace(&self) {
-        let root = self.workspace_root.read()
-            .ok()
-            .and_then(|r| r.clone());
+        let root = self.workspace_root.read().ok().and_then(|r| r.clone());
         if let Some(root_url) = root {
             if let Ok(root_path) = root_url.to_file_path() {
                 let schema_path = root_path.join(".env.schema");
@@ -71,7 +66,9 @@ impl Backend {
                             if let Ok(mut w) = self.schema.write() {
                                 *w = Some(schema);
                             } else {
-                                eprintln!("LSP: Failed to acquire write lock on schema (lock poisoned)");
+                                eprintln!(
+                                    "LSP: Failed to acquire write lock on schema (lock poisoned)"
+                                );
                             }
                             if let Ok(mut w) = self.schema_lines.write() {
                                 *w = lines;
@@ -120,7 +117,9 @@ impl Backend {
                         if let Ok(mut w) = self.managed_vars.write() {
                             *w = managed;
                         } else {
-                            eprintln!("LSP: Failed to acquire write lock on managed_vars (lock poisoned)");
+                            eprintln!(
+                                "LSP: Failed to acquire write lock on managed_vars (lock poisoned)"
+                            );
                         }
                     }
                 }
@@ -130,9 +129,7 @@ impl Backend {
     }
 
     fn publish_diagnostics_for(&self, uri: &Url, doc: &DocumentState) {
-        let schema = self.schema.read()
-            .ok()
-            .and_then(|r| r.clone());
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
         let diags = compute_diagnostics(&doc.entries, schema.as_ref());
         let client = self.client.clone();
         let uri = uri.clone();
@@ -147,7 +144,7 @@ impl Backend {
             // Collect URIs to avoid holding lock across publish calls
             let uris: Vec<Url> = docs.keys().cloned().collect();
             drop(docs);
-            
+
             for uri in uris {
                 if let Ok(doc_map) = self.documents.read() {
                     if let Some(doc) = doc_map.get(&uri) {
@@ -297,7 +294,9 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
 
-        let doc = self.documents.read()
+        let doc = self
+            .documents
+            .read()
             .ok()
             .and_then(|docs| docs.get(uri).cloned());
         let doc = match doc {
@@ -305,9 +304,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let schema = self.schema.read()
-            .ok()
-            .and_then(|r| r.clone());
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
         Ok(hover_info(pos, &doc.entries, schema.as_ref()))
     }
 
@@ -315,7 +312,9 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
 
-        let doc = self.documents.read()
+        let doc = self
+            .documents
+            .read()
             .ok()
             .and_then(|docs| docs.get(uri).cloned());
         let doc = match doc {
@@ -323,10 +322,10 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let schema = self.schema.read()
-            .ok()
-            .and_then(|r| r.clone());
-        let managed = self.managed_vars.read()
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+        let managed = self
+            .managed_vars
+            .read()
             .ok()
             .map(|m| m.clone())
             .unwrap_or_default();
@@ -346,7 +345,9 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
 
-        let doc = self.documents.read()
+        let doc = self
+            .documents
+            .read()
             .ok()
             .and_then(|docs| docs.get(uri).cloned());
         let doc = match doc {
@@ -354,10 +355,10 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let schema_uri = self.schema_uri.read()
-            .ok()
-            .and_then(|r| r.clone());
-        let schema_lines = self.schema_lines.read()
+        let schema_uri = self.schema_uri.read().ok().and_then(|r| r.clone());
+        let schema_lines = self
+            .schema_lines
+            .read()
             .ok()
             .map(|lines| lines.clone())
             .unwrap_or_default();

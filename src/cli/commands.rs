@@ -6,7 +6,9 @@ use crate::model::*;
 use crate::ops::*;
 use crate::parser::*;
 
-use super::{AiHookAction, BackupAction, Commands, LeaseAction, McpAction, ShareAction, SnapshotAction};
+use super::{
+    AiHookAction, BackupAction, Commands, LeaseAction, McpAction, ShareAction, SnapshotAction,
+};
 
 /// Execute a CLI subcommand.
 pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
@@ -33,14 +35,26 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             } else if *env_example {
                 cmd_export_env_example(path.as_deref())
             } else if let Some(fmt) = format {
-                cmd_export_format(path.as_deref(), fmt, filter.as_deref(), k8s_name.as_deref(), k8s_namespace.as_deref())
+                cmd_export_format(
+                    path.as_deref(),
+                    fmt,
+                    filter.as_deref(),
+                    k8s_name.as_deref(),
+                    k8s_namespace.as_deref(),
+                )
             } else {
                 cmd_export(path.as_deref(), *exclude_sensitive, filter.as_deref())
             }
         }
         Commands::Git { action } => cmd_git(action),
         Commands::Duplicates => cmd_duplicates(json),
-        Commands::Scan { path, staged, install_hook, remove_hook, mcp } => {
+        Commands::Scan {
+            path,
+            staged,
+            install_hook,
+            remove_hook,
+            mcp,
+        } => {
             if *mcp {
                 cmd_scan_mcp(json)
             } else if *install_hook {
@@ -111,21 +125,61 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Schema { action } => cmd_schema(action, json),
         Commands::Init { schema, output } => cmd_init_schema(schema.as_deref(), output),
         Commands::Explain { key } => cmd_explain(key, json),
-        Commands::Rotate { key, dry_run: dr, stale, propagate } => cmd_rotate(key, *dr || dry_run, *stale, *propagate),
+        Commands::Rotate {
+            key,
+            dry_run: dr,
+            stale,
+            propagate,
+        } => cmd_rotate(key, *dr || dry_run, *stale, *propagate),
         Commands::Hook { shell } => cmd_hook(shell),
         Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()),
         Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
         Commands::Check { only } => cmd_check(only.as_deref(), json),
         Commands::Snapshot { action } => cmd_snapshot(action, dry_run),
         Commands::Share { action } => cmd_share(action, dry_run),
-        Commands::ResolveUri { file, env, output } => cmd_resolve_uri(file, *env, output.as_deref(), json),
+        Commands::ResolveUri { file, env, output } => {
+            cmd_resolve_uri(file, *env, output.as_deref(), json)
+        }
         Commands::Mcp { action } => cmd_mcp(action, dry_run, json),
-        Commands::Audit { key, since, machine, n, ai_leaks, access } => cmd_audit(key.as_deref(), since.as_deref(), machine.as_deref(), *n, json, *ai_leaks, *access),
+        Commands::Audit {
+            key,
+            since,
+            machine,
+            n,
+            ai_leaks,
+            access,
+        } => cmd_audit(
+            key.as_deref(),
+            since.as_deref(),
+            machine.as_deref(),
+            *n,
+            json,
+            *ai_leaks,
+            *access,
+        ),
         Commands::Fence => cmd_fence(dry_run),
         Commands::Sanitize { file, output } => cmd_sanitize(file, output.as_deref()),
         Commands::AiHook { action } => cmd_ai_hook(action),
-        Commands::AiGuard { stage, tool_name, tool_input } => cmd_ai_guard(stage, tool_name, tool_input.as_deref()),
-        Commands::Proxy { port, keys, profile, allow_origins, require_lease, require_approval } => cmd_proxy(*port, keys.as_deref(), profile.as_deref(), allow_origins.as_deref(), *require_lease, *require_approval),
+        Commands::AiGuard {
+            stage,
+            tool_name,
+            tool_input,
+        } => cmd_ai_guard(stage, tool_name, tool_input.as_deref()),
+        Commands::Proxy {
+            port,
+            keys,
+            profile,
+            allow_origins,
+            require_lease,
+            require_approval,
+        } => cmd_proxy(
+            *port,
+            keys.as_deref(),
+            profile.as_deref(),
+            allow_origins.as_deref(),
+            *require_lease,
+            *require_approval,
+        ),
         Commands::Lease { action } => cmd_lease(action),
         Commands::Canary { action } => cmd_canary(action),
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref()),
@@ -421,7 +475,8 @@ fn cmd_export_format(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::export_format::{export_as, ExportFormat};
 
-    let format = ExportFormat::parse(format_name).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+    let format =
+        ExportFormat::parse(format_name).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
     let (_config, shell_files) = load_context()?;
     let entries = collect_all_entries(&shell_files);
@@ -437,7 +492,15 @@ fn cmd_export_format(
     match path {
         Some(p) => {
             std::fs::write(p, &output)?;
-            println!("Exported {} entries to {} ({})", filtered.iter().filter(|e| e.location != EntryLocation::Commented).count(), p, format_name);
+            println!(
+                "Exported {} entries to {} ({})",
+                filtered
+                    .iter()
+                    .filter(|e| e.location != EntryLocation::Commented)
+                    .count(),
+                p,
+                format_name
+            );
         }
         None => {
             print!("{}", output);
@@ -776,7 +839,9 @@ fn cmd_scan(
 }
 
 fn cmd_scan_mcp(json: bool) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::ops::mcp_scan::{scan_mcp_configs, scanned_file_count, findings_to_json, suggestion_for};
+    use crate::ops::mcp_scan::{
+        findings_to_json, scan_mcp_configs, scanned_file_count, suggestion_for,
+    };
 
     let findings = scan_mcp_configs();
     let files_scanned = scanned_file_count();
@@ -810,14 +875,8 @@ fn cmd_scan_mcp(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     for (file, file_findings) in &by_file {
         println!("{}", file);
         for f in file_findings {
-            println!(
-                "  \x1b[33m!\x1b[0m {} = {}",
-                f.path, f.value_preview
-            );
-            println!(
-                "    \x1b[36m-> {}\x1b[0m",
-                suggestion_for(f)
-            );
+            println!("  \x1b[33m!\x1b[0m {} = {}", f.path, f.value_preview);
+            println!("    \x1b[36m-> {}\x1b[0m", suggestion_for(f));
         }
         println!();
     }
@@ -831,7 +890,11 @@ fn cmd_scan_mcp(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     process::exit(1);
 }
 
-fn cmd_mcp(action: &McpAction, dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_mcp(
+    action: &McpAction,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         McpAction::Harden => cmd_mcp_harden(dry_run, json),
     }
@@ -855,11 +918,14 @@ fn cmd_mcp_harden(dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::E
                 })
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "hardened_files": items.len(),
-            "dry_run": dry_run,
-            "results": items,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "hardened_files": items.len(),
+                "dry_run": dry_run,
+                "results": items,
+            }))?
+        );
         return Ok(());
     }
 
@@ -877,16 +943,10 @@ fn cmd_mcp_harden(dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::E
     let mut all_keys = Vec::new();
     for (path, count, keys, backup) in &results {
         if dry_run {
-            println!(
-                "\x1b[33m~\x1b[0m {}",
-                path.to_string_lossy()
-            );
+            println!("\x1b[33m~\x1b[0m {}", path.to_string_lossy());
             println!("  {} secret(s) would be replaced", count);
         } else {
-            println!(
-                "\x1b[32m\u{2713}\x1b[0m {}",
-                path.to_string_lossy()
-            );
+            println!("\x1b[32m\u{2713}\x1b[0m {}", path.to_string_lossy());
             if let Some(bak) = backup {
                 println!(
                     "  {} secret(s) replaced (backup: {})",
@@ -1237,7 +1297,10 @@ fn install_fig_spec(spec: &str, shell: &str) -> Result<(), Box<dyn std::error::E
     if shell == "kiro" {
         // Configure devCompletionsFolder and developerMode
         for (key, value) in [
-            ("autocomplete.devCompletionsFolder", specs_dir.to_str().unwrap_or("")),
+            (
+                "autocomplete.devCompletionsFolder",
+                specs_dir.to_str().unwrap_or(""),
+            ),
             ("autocomplete.developerMode", "true"),
         ] {
             let status = std::process::Command::new("kiro-cli")
@@ -1250,7 +1313,10 @@ fn install_fig_spec(spec: &str, shell: &str) -> Result<(), Box<dyn std::error::E
                     eprintln!("Configured: kiro-cli {} → {}", key, value);
                 }
                 _ => {
-                    eprintln!("Note: Run manually: kiro-cli settings {} \"{}\"", key, value);
+                    eprintln!(
+                        "Note: Run manually: kiro-cli settings {} \"{}\"",
+                        key, value
+                    );
                 }
             }
         }
@@ -1280,7 +1346,8 @@ fn install_shell_completion(script: &str, shell: &str) -> Result<(), Box<dyn std
             dir.join("_envforge")
         }
         "bash" => {
-            let dir = std::path::PathBuf::from(&home).join(".local/share/bash-completion/completions");
+            let dir =
+                std::path::PathBuf::from(&home).join(".local/share/bash-completion/completions");
             std::fs::create_dir_all(&dir)?;
             dir.join("envforge")
         }
@@ -1290,7 +1357,10 @@ fn install_shell_completion(script: &str, shell: &str) -> Result<(), Box<dyn std
             dir.join("envforge.fish")
         }
         _ => {
-            eprintln!("--install not supported for '{}'. Pipe output to a file instead.", shell);
+            eprintln!(
+                "--install not supported for '{}'. Pipe output to a file instead.",
+                shell
+            );
             return Ok(());
         }
     };
@@ -1880,7 +1950,10 @@ fn cmd_init_schema(
     Ok(())
 }
 
-#[expect(clippy::too_many_arguments, reason = "Legitimate API with shell run configuration")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Legitimate API with shell run configuration"
+)]
 fn cmd_run(
     profile: Option<&str>,
     resolve: bool,
@@ -2162,7 +2235,12 @@ fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn cmd_rotate(key: &str, dry_run: bool, stale: bool, propagate: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_rotate(
+    key: &str,
+    dry_run: bool,
+    stale: bool,
+    propagate: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::rotate::{apply_rotation, mask_value, plan_rotation};
     use crate::ops::secrets::age::get_age_report;
     use std::io::{self, BufRead, Write};
@@ -2183,7 +2261,10 @@ fn cmd_rotate(key: &str, dry_run: bool, stale: bool, propagate: bool) -> Result<
         );
 
         for entry in &stale_entries {
-            println!("--- {} ({} days old, from {})", entry.key, entry.age_days, entry.provider);
+            println!(
+                "--- {} ({} days old, from {})",
+                entry.key, entry.age_days, entry.provider
+            );
 
             let plan = match plan_rotation(&entry.key) {
                 Ok(p) => p,
@@ -2361,11 +2442,7 @@ fn cmd_rotate(key: &str, dry_run: bool, stale: bool, propagate: bool) -> Result<
 }
 
 /// Auto-propagate rotation to provider and sync (used with --propagate).
-fn propagate_rotation(
-    key: &str,
-    new_value: &str,
-    plan: &crate::ops::rotate::RotationPlan,
-) {
+fn propagate_rotation(key: &str, new_value: &str, plan: &crate::ops::rotate::RotationPlan) {
     if plan.has_provider {
         let _ = propagate_to_provider(key, new_value, plan);
     }
@@ -2381,8 +2458,8 @@ fn propagate_to_provider(
     new_value: &str,
     plan: &crate::ops::rotate::RotationPlan,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::ops::secrets::providers::create_default_registry;
     use crate::ops::secrets::modes::push_secrets;
+    use crate::ops::secrets::providers::create_default_registry;
 
     let provider_name = plan.provider_name.as_deref().unwrap_or("?");
     let provider_path = plan.provider_path.as_deref().unwrap_or("");
@@ -2392,7 +2469,10 @@ fn propagate_to_provider(
 
     match push_secrets(&registry, provider_name, provider_path, &secrets, None) {
         Ok(result) => {
-            println!("  \u{2713} Pushed to {} ({} keys)", provider_name, result.keys_pushed);
+            println!(
+                "  \u{2713} Pushed to {} ({} keys)",
+                provider_name, result.keys_pushed
+            );
             Ok(())
         }
         Err(e) => {
@@ -2403,12 +2483,9 @@ fn propagate_to_provider(
 }
 
 /// Push a rotated secret to sync. Returns Ok on success.
-fn propagate_to_sync(
-    key: &str,
-    new_value: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::ops::sync::{sync_dir, is_initialized};
+fn propagate_to_sync(key: &str, new_value: &str) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::sync::push::push as sync_push;
+    use crate::ops::sync::{is_initialized, sync_dir};
 
     let sync_path = sync_dir()?;
     if !is_initialized(&sync_path) {
@@ -2457,11 +2534,8 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
                 return Ok(());
             }
 
-            let path = snapshot::create_snapshot(
-                &snap_name,
-                &active_entries,
-                &config.profiles.active,
-            )?;
+            let path =
+                snapshot::create_snapshot(&snap_name, &active_entries, &config.profiles.active)?;
             println!(
                 "Snapshot '{}' created ({} variables)\n  {}",
                 snap_name,
@@ -2496,7 +2570,8 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
             let identifier = if *last {
                 "last".to_string()
             } else {
-                name.clone().ok_or("Specify a snapshot name or use --last")?
+                name.clone()
+                    .ok_or("Specify a snapshot name or use --last")?
             };
 
             let snap = snapshot::load_snapshot(&identifier)?;
@@ -2562,7 +2637,8 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
             let identifier = if *last {
                 "last".to_string()
             } else {
-                name.clone().ok_or("Specify a snapshot name or use --last")?
+                name.clone()
+                    .ok_or("Specify a snapshot name or use --last")?
             };
 
             let snap = snapshot::load_snapshot(&identifier)?;
@@ -2607,10 +2683,7 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
                         );
                     }
                     snapshot::DiffStatus::Changed => {
-                        println!(
-                            "  \x1b[33m~ {:<30}\x1b[0m",
-                            entry.key
-                        );
+                        println!("  \x1b[33m~ {:<30}\x1b[0m", entry.key);
                         println!(
                             "    \x1b[31m- {}\x1b[0m",
                             entry.snapshot_value.as_deref().unwrap_or("")
@@ -2658,7 +2731,7 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
 }
 
 fn cmd_share(action: &ShareAction, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::ops::share::{create_share, receive_share, is_expired};
+    use crate::ops::share::{create_share, is_expired, receive_share};
 
     match action {
         ShareAction::Create {
@@ -2728,8 +2801,8 @@ fn cmd_share(action: &ShareAction, dry_run: bool) -> Result<(), Box<dyn std::err
         }
 
         ShareAction::Receive { file, import } => {
-            let data = std::fs::read(file)
-                .map_err(|e| format!("Cannot read file '{}': {}", file, e))?;
+            let data =
+                std::fs::read(file).map_err(|e| format!("Cannot read file '{}': {}", file, e))?;
 
             let package = receive_share(&data)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
@@ -2741,8 +2814,10 @@ fn cmd_share(action: &ShareAction, dry_run: bool) -> Result<(), Box<dyn std::err
             println!("  Keys:    {}", package.metadata.key_count);
 
             if is_expired(&package) {
-                println!("  \x1b[33m⚠ This share has expired ({})\x1b[0m",
-                    package.metadata.expires_at.as_deref().unwrap_or("?"));
+                println!(
+                    "  \x1b[33m⚠ This share has expired ({})\x1b[0m",
+                    package.metadata.expires_at.as_deref().unwrap_or("?")
+                );
             }
 
             println!();
@@ -2850,10 +2925,7 @@ fn cmd_audit(
         } else {
             println!("AI-Assisted Commit Secret Leaks\n");
             for leak in &leaks {
-                println!(
-                    "  {} {} [{}]",
-                    leak.commit_hash, leak.date, leak.ai_tool
-                );
+                println!("  {} {} [{}]", leak.commit_hash, leak.date, leak.ai_tool);
                 println!("    File: {}", leak.file_path);
                 for pattern in &leak.leaked_patterns {
                     println!("    \u{26a0} {}", pattern);
@@ -2866,7 +2938,7 @@ fn cmd_audit(
     }
 
     use crate::ops::audit::get_audit_trail;
-    use crate::ops::sync::{sync_dir, is_initialized};
+    use crate::ops::sync::{is_initialized, sync_dir};
 
     let sync_path = sync_dir()?;
     if !is_initialized(&sync_path) {
@@ -3009,26 +3081,17 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     for path in &result.files_created {
-        let display = path
-            .strip_prefix(&project_dir)
-            .unwrap_or(path)
-            .display();
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
         println!("\x1b[32m\u{2713}\x1b[0m Created {}", display);
     }
 
     for path in &result.files_updated {
-        let display = path
-            .strip_prefix(&project_dir)
-            .unwrap_or(path)
-            .display();
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
         println!("\x1b[32m\u{2713}\x1b[0m Updated {}", display);
     }
 
     for path in &result.files_skipped {
-        let display = path
-            .strip_prefix(&project_dir)
-            .unwrap_or(path)
-            .display();
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
         println!("\x1b[90m- Skipped {} (already configured)\x1b[0m", display);
     }
 
@@ -3037,7 +3100,11 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "\n{} file(s) {}. AI tools will now respect secret boundaries.",
             total,
-            if dry_run { "would be written" } else { "written" }
+            if dry_run {
+                "would be written"
+            } else {
+                "written"
+            }
         );
     } else {
         println!("\nAll files already configured. Nothing to do.");
@@ -3088,7 +3155,8 @@ fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> 
 
     match action {
         AiHookAction::Install { tool } => {
-            let ai_tool = parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            let ai_tool =
+                parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             let result = install_ai_hook(&ai_tool, &cwd)?;
             if result.installed {
                 println!("{}", result.message);
@@ -3098,7 +3166,8 @@ fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> 
             }
         }
         AiHookAction::Remove { tool } => {
-            let ai_tool = parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            let ai_tool =
+                parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             let result = remove_ai_hook(&ai_tool, &cwd)?;
             println!("{}", result.message);
             if result.config_path.exists() {
@@ -3201,7 +3270,8 @@ fn cmd_proxy(
         redact: false,
     };
 
-    let env = collect_env(&run_config).map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+    let env = collect_env(&run_config)
+        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
     if require_lease {
         eprintln!("Lease enforcement: ON (requests require an active lease)");
@@ -3210,7 +3280,14 @@ fn cmd_proxy(
         eprintln!("Human approval: ON (each secret access requires approval)");
     }
 
-    start_proxy(port, &env, allowed_keys.as_deref(), allowed_origins.as_deref(), require_lease, require_approval)?;
+    start_proxy(
+        port,
+        &env,
+        allowed_keys.as_deref(),
+        allowed_origins.as_deref(),
+        require_lease,
+        require_approval,
+    )?;
 
     Ok(())
 }
@@ -3228,7 +3305,9 @@ fn cmd_canary(action: &super::CanaryAction) -> Result<(), Box<dyn std::error::Er
             println!("  Pattern: {}", canary.pattern);
             println!();
             println!("Add to your .env: {}={}", canary.key, canary.fake_value);
-            println!("If this value appears in logs, git, or API calls \u{2014} an agent leaked it.");
+            println!(
+                "If this value appears in logs, git, or API calls \u{2014} an agent leaked it."
+            );
         }
         super::CanaryAction::List => {
             let canaries = canary::list_canaries()?;
@@ -3237,7 +3316,10 @@ fn cmd_canary(action: &super::CanaryAction) -> Result<(), Box<dyn std::error::Er
                 println!("Create one with: envforge canary create KEY --pattern generic");
                 return Ok(());
             }
-            println!("{:<25} {:<15} {:<10} {:<8}", "KEY", "PATTERN", "TRIGGERED", "COUNT");
+            println!(
+                "{:<25} {:<15} {:<10} {:<8}",
+                "KEY", "PATTERN", "TRIGGERED", "COUNT"
+            );
             println!("{}", "-".repeat(60));
             for c in &canaries {
                 println!(
@@ -3256,18 +3338,31 @@ fn cmd_canary(action: &super::CanaryAction) -> Result<(), Box<dyn std::error::Er
                 println!("No canaries have been triggered. All clear.");
                 return Ok(());
             }
-            println!("\u{1f6a8} {} canary secret(s) TRIGGERED:\n", triggered.len());
+            println!(
+                "\u{1f6a8} {} canary secret(s) TRIGGERED:\n",
+                triggered.len()
+            );
             for c in &triggered {
-                println!("  {} (pattern: {}, triggered {} time(s))", c.key, c.pattern, c.trigger_count);
+                println!(
+                    "  {} (pattern: {}, triggered {} time(s))",
+                    c.key, c.pattern, c.trigger_count
+                );
             }
 
             // Show recent alerts
             let alerts = canary::read_alerts()?;
             if !alerts.is_empty() {
                 println!("\nRecent alerts:");
-                let start = if alerts.len() > 10 { alerts.len() - 10 } else { 0 };
+                let start = if alerts.len() > 10 {
+                    alerts.len() - 10
+                } else {
+                    0
+                };
                 for alert in &alerts[start..] {
-                    println!("  [{}] {} via {} - {}", alert.timestamp, alert.key, alert.source, alert.details);
+                    println!(
+                        "  [{}] {} via {} - {}",
+                        alert.timestamp, alert.key, alert.source, alert.details
+                    );
                 }
             }
         }
@@ -3298,7 +3393,11 @@ fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
     }
 
     // Take the last N entries
-    let start = if entries.len() > n { entries.len() - n } else { 0 };
+    let start = if entries.len() > n {
+        entries.len() - n
+    } else {
+        0
+    };
     let display = &entries[start..];
 
     if json {
@@ -3324,7 +3423,11 @@ fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
             }))?
         );
     } else {
-        println!("Proxy Access Audit Log ({} of {} entries)\n", display.len(), entries.len());
+        println!(
+            "Proxy Access Audit Log ({} of {} entries)\n",
+            display.len(),
+            entries.len()
+        );
         println!(
             "{:<24} {:<10} {:<20} {:<22} {:<8}",
             "TIMESTAMP", "ACTION", "KEY", "CLIENT", "GRANTED"
@@ -3380,10 +3483,7 @@ fn cmd_lease(action: &LeaseAction) -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("No leases found.");
                 return Ok(());
             }
-            println!(
-                "{:<25} {:<12} {:<12} KEYS",
-                "NAME", "STATUS", "REMAINING"
-            );
+            println!("{:<25} {:<12} {:<12} KEYS", "NAME", "STATUS", "REMAINING");
             println!("{}", "-".repeat(65));
             for s in &statuses {
                 let status = if s.revoked {
@@ -3494,10 +3594,7 @@ fn cmd_deps(key: &str, include_source: bool) -> Result<(), Box<dyn std::error::E
         println!("{}:", ref_type);
         for dep in items {
             // Show relative path if possible
-            let display_path = dep
-                .file
-                .strip_prefix(&project_dir)
-                .unwrap_or(&dep.file);
+            let display_path = dep.file.strip_prefix(&project_dir).unwrap_or(&dep.file);
             println!(
                 "  {}:{}  {}",
                 display_path.display(),
@@ -3565,4 +3662,3 @@ fn truncate_context(s: &str, max: usize) -> String {
         format!("{}...", &s[..max])
     }
 }
-

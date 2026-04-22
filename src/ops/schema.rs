@@ -351,7 +351,11 @@ pub(crate) fn resolve_effective(var: &SchemaVariable, environment: Option<&str>)
     eff
 }
 
-pub(crate) fn validate_value(key: &str, value: &str, eff: &EffectiveVar) -> Option<SchemaValidationError> {
+pub(crate) fn validate_value(
+    key: &str,
+    value: &str,
+    eff: &EffectiveVar,
+) -> Option<SchemaValidationError> {
     match eff.var_type {
         VarType::Number => match value.parse::<f64>() {
             Ok(n) => {
@@ -712,8 +716,7 @@ pub fn emit_ai_context(schema: Option<&EnvSchema>, entries: &[(String, String)])
             if let Some(ref desc) = var.description {
                 output.push_str(&format!("- **Description**: {}\n", desc));
             }
-            let is_sensitive =
-                var.sensitive || crate::ops::dotenv::is_sensitive_key(key);
+            let is_sensitive = var.sensitive || crate::ops::dotenv::is_sensitive_key(key);
             if is_sensitive {
                 output.push_str("- **Sensitive**: YES — do not hardcode or log\n");
             } else {
@@ -732,10 +735,8 @@ pub fn emit_ai_context(schema: Option<&EnvSchema>, entries: &[(String, String)])
     }
 
     // Inferred variables (entries not already covered by schema)
-    let mut inferred: Vec<&(String, String)> = entries
-        .iter()
-        .filter(|(k, _)| !seen.contains(k))
-        .collect();
+    let mut inferred: Vec<&(String, String)> =
+        entries.iter().filter(|(k, _)| !seen.contains(k)).collect();
     inferred.sort_by_key(|(k, _)| k.clone());
 
     for (key, value) in inferred {
@@ -821,7 +822,10 @@ mod tests {
         let entries = vec![
             ("API_KEY".to_string(), "sk-proj-abc123".to_string()),
             ("PORT".to_string(), "3000".to_string()),
-            ("DATABASE_URL".to_string(), "postgres://localhost/mydb".to_string()),
+            (
+                "DATABASE_URL".to_string(),
+                "postgres://localhost/mydb".to_string(),
+            ),
         ];
         let content = emit_ai_context(None, &entries);
         assert!(content.contains("# Environment Variables (AI Context)"));

@@ -228,10 +228,7 @@ fn walk_and_scan(
 /// Scan source files for language-specific env var access patterns.
 fn scan_source_files(key: &str, dir: &Path, out: &mut Vec<DepReference>) {
     let patterns = build_source_patterns(key);
-    let regexes: Vec<Regex> = patterns
-        .iter()
-        .filter_map(|p| Regex::new(p).ok())
-        .collect();
+    let regexes: Vec<Regex> = patterns.iter().filter_map(|p| Regex::new(p).ok()).collect();
 
     walk_source_files(dir, &regexes, out);
 }
@@ -265,8 +262,8 @@ fn build_source_patterns(key: &str) -> Vec<String> {
 
 /// Source code file extensions to scan.
 const SOURCE_EXTENSIONS: &[&str] = &[
-    "rs", "js", "ts", "jsx", "tsx", "py", "java", "go", "rb", "php", "c", "cpp", "h", "cs",
-    "sh", "bash", "zsh", "toml", "yaml", "yml", "json", "xml", "tf", "hcl",
+    "rs", "js", "ts", "jsx", "tsx", "py", "java", "go", "rb", "php", "c", "cpp", "h", "cs", "sh",
+    "bash", "zsh", "toml", "yaml", "yml", "json", "xml", "tf", "hcl",
 ];
 
 fn walk_source_files(dir: &Path, regexes: &[Regex], out: &mut Vec<DepReference>) {
@@ -339,20 +336,26 @@ mod tests {
             (".env.production", "DB_PASSWORD=prod_secret\nPORT=443\n"),
         ]);
 
-        let refs =
-            find_dependencies("DB_PASSWORD", tmp.path(), false, &[]).unwrap();
+        let refs = find_dependencies("DB_PASSWORD", tmp.path(), false, &[]).unwrap();
 
         assert!(!refs.is_empty());
         assert!(refs.iter().all(|r| r.ref_type == RefType::EnvFile));
         assert_eq!(refs.len(), 2);
-        assert!(refs.iter().any(|r| r.context.contains("DB_PASSWORD=secret123")));
-        assert!(refs.iter().any(|r| r.context.contains("DB_PASSWORD=prod_secret")));
+        assert!(refs
+            .iter()
+            .any(|r| r.context.contains("DB_PASSWORD=secret123")));
+        assert!(refs
+            .iter()
+            .any(|r| r.context.contains("DB_PASSWORD=prod_secret")));
     }
 
     #[test]
     fn test_scan_finds_source_code_patterns() {
         let tmp = setup_project(&[
-            ("src/db.rs", "fn connect() {\n    let pass = env::var(\"DB_PASSWORD\")?;\n}\n"),
+            (
+                "src/db.rs",
+                "fn connect() {\n    let pass = env::var(\"DB_PASSWORD\")?;\n}\n",
+            ),
             (
                 "src/config.py",
                 "import os\ndb_pass = os.environ[\"DB_PASSWORD\"]\n",
@@ -367,8 +370,7 @@ mod tests {
             ),
         ]);
 
-        let refs =
-            find_dependencies("DB_PASSWORD", tmp.path(), true, &[]).unwrap();
+        let refs = find_dependencies("DB_PASSWORD", tmp.path(), true, &[]).unwrap();
 
         let source_refs: Vec<_> = refs
             .iter()
@@ -385,8 +387,7 @@ mod tests {
             ("src/app.js", "const x = process.env.DB_PASSWORD;\n"),
         ]);
 
-        let refs =
-            find_dependencies("DB_PASSWORD", tmp.path(), true, &[]).unwrap();
+        let refs = find_dependencies("DB_PASSWORD", tmp.path(), true, &[]).unwrap();
 
         // Should only find the src/app.js reference, not .git or node_modules
         let source_refs: Vec<_> = refs
@@ -394,17 +395,17 @@ mod tests {
             .filter(|r| r.ref_type == RefType::SourceCode)
             .collect();
         assert_eq!(source_refs.len(), 1);
-        assert!(source_refs[0]
-            .file
-            .to_string_lossy()
-            .contains("src/app.js"));
+        assert!(source_refs[0].file.to_string_lossy().contains("src/app.js"));
     }
 
     #[test]
     fn test_ref_type_classification() {
         let tmp = setup_project(&[
             (".env", "API_KEY=abc\n"),
-            (".env.schema", "[API_KEY]\ntype = \"string\"\nrequired = true\n"),
+            (
+                ".env.schema",
+                "[API_KEY]\ntype = \"string\"\nrequired = true\n",
+            ),
             (
                 "docker-compose.yml",
                 "services:\n  web:\n    environment:\n      - API_KEY=${API_KEY}\n",
@@ -435,8 +436,7 @@ mod tests {
             ("Dockerfile", "ENV DB_HOST=${DB_HOST}\n"),
         ]);
 
-        let refs =
-            find_dependencies("DB_HOST", tmp.path(), false, &[]).unwrap();
+        let refs = find_dependencies("DB_HOST", tmp.path(), false, &[]).unwrap();
 
         let config_refs: Vec<_> = refs
             .iter()
@@ -455,13 +455,7 @@ mod tests {
         )
         .unwrap();
 
-        let refs = find_dependencies(
-            "DB_PASSWORD",
-            tmp.path(),
-            false,
-            &[shell_file],
-        )
-        .unwrap();
+        let refs = find_dependencies("DB_PASSWORD", tmp.path(), false, &[shell_file]).unwrap();
 
         let shell_refs: Vec<_> = refs
             .iter()
@@ -501,10 +495,7 @@ mod tests {
 
     #[test]
     fn test_no_results_for_missing_key() {
-        let tmp = setup_project(&[
-            (".env", "PORT=8080\n"),
-            ("src/main.rs", "fn main() {}\n"),
-        ]);
+        let tmp = setup_project(&[(".env", "PORT=8080\n"), ("src/main.rs", "fn main() {}\n")]);
 
         let refs = find_dependencies("NONEXISTENT_KEY", tmp.path(), true, &[]).unwrap();
         assert!(refs.is_empty());

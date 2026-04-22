@@ -88,7 +88,10 @@ pub struct CheckReport {
 
 impl CheckReport {
     pub fn ok_count(&self) -> usize {
-        self.results.iter().filter(|r| r.status == CheckStatus::Ok).count()
+        self.results
+            .iter()
+            .filter(|r| r.status == CheckStatus::Ok)
+            .count()
     }
 
     pub fn warning_count(&self) -> usize {
@@ -177,12 +180,10 @@ fn check_prerequisites(cat: &CheckCategory) -> Result<(), String> {
             // Always attempt scan — graceful if no sensitive entries
             Ok(())
         }
-        CheckCategory::Age => {
-            match load_sources() {
-                Ok(sources) if !sources.secrets.is_empty() => Ok(()),
-                _ => Err("No tracked secrets. Pull secrets to start tracking.".into()),
-            }
-        }
+        CheckCategory::Age => match load_sources() {
+            Ok(sources) if !sources.secrets.is_empty() => Ok(()),
+            _ => Err("No tracked secrets. Pull secrets to start tracking.".into()),
+        },
         CheckCategory::Drift => {
             if find_schema().is_none() {
                 return Err("No .env.schema found for drift detection".into());
@@ -193,7 +194,9 @@ fn check_prerequisites(cat: &CheckCategory) -> Result<(), String> {
                 .map(|entries| {
                     entries.filter_map(|e| e.ok()).any(|e| {
                         let name = e.file_name().to_string_lossy().to_string();
-                        name.starts_with(".env.") && name != ".env.schema" && name != ".envforgeignore"
+                        name.starts_with(".env.")
+                            && name != ".env.schema"
+                            && name != ".envforgeignore"
                     })
                 })
                 .unwrap_or(false);
@@ -434,8 +437,14 @@ fn run_drift_checks() -> Vec<CheckResult> {
     }
 
     let drift = detect_drift(&envs, Some(&schema));
-    let differ_count = drift.iter().filter(|d| d.status == DriftStatus::Differs).count();
-    let missing_count = drift.iter().filter(|d| d.status == DriftStatus::Missing).count();
+    let differ_count = drift
+        .iter()
+        .filter(|d| d.status == DriftStatus::Differs)
+        .count();
+    let missing_count = drift
+        .iter()
+        .filter(|d| d.status == DriftStatus::Missing)
+        .count();
 
     if differ_count == 0 && missing_count == 0 {
         vec![CheckResult {
@@ -468,8 +477,11 @@ pub fn print_report(report: &CheckReport) {
     let categories = CheckCategory::all();
 
     for cat in &categories {
-        let cat_results: Vec<&CheckResult> =
-            report.results.iter().filter(|r| r.category == *cat).collect();
+        let cat_results: Vec<&CheckResult> = report
+            .results
+            .iter()
+            .filter(|r| r.category == *cat)
+            .collect();
 
         let is_skipped = report.skipped.iter().any(|(c, _)| c == cat);
 
@@ -627,7 +639,10 @@ mod tests {
     #[test]
     fn test_category_parse() {
         assert_eq!(CheckCategory::parse("doctor"), Some(CheckCategory::Doctor));
-        assert_eq!(CheckCategory::parse("VALIDATE"), Some(CheckCategory::Validate));
+        assert_eq!(
+            CheckCategory::parse("VALIDATE"),
+            Some(CheckCategory::Validate)
+        );
         assert_eq!(CheckCategory::parse("scan"), Some(CheckCategory::Scan));
         assert_eq!(CheckCategory::parse("age"), Some(CheckCategory::Age));
         assert_eq!(CheckCategory::parse("drift"), Some(CheckCategory::Drift));

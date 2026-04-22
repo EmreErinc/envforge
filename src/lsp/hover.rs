@@ -44,7 +44,13 @@ pub fn hover_info(
     }
     if let Some(ref vals) = var_def.values {
         if var_def.var_type == VarType::Enum {
-            lines.push(format!("Values: {}", vals.iter().map(|v| format!("`{}`", v)).collect::<Vec<_>>().join(", ")));
+            lines.push(format!(
+                "Values: {}",
+                vals.iter()
+                    .map(|v| format!("`{}`", v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
     }
     if let Some(min) = var_def.min {

@@ -84,7 +84,13 @@ pub fn create_snapshot(
 
     let safe_name: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
 
     let filename = format!("{}-{}.toml", timestamp, safe_name);
@@ -148,9 +154,7 @@ pub fn load_snapshot(name_or_last: &str) -> Result<Snapshot, Box<dyn std::error:
     toml_files.sort_by_key(|a| std::cmp::Reverse(a.file_name()));
 
     if name_or_last == "last" {
-        let entry = toml_files
-            .first()
-            .ok_or("No snapshots found")?;
+        let entry = toml_files.first().ok_or("No snapshots found")?;
         let content = fs::read_to_string(entry.path())?;
         let snapshot: Snapshot = toml::from_str(&content)?;
         return Ok(snapshot);
@@ -221,10 +225,7 @@ pub fn delete_snapshot(name: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 // ── Diff ───────────────────────────────────────────────────
 
-pub fn diff_snapshot(
-    snapshot: &Snapshot,
-    current: &[(String, String)],
-) -> Vec<SnapshotDiffEntry> {
+pub fn diff_snapshot(snapshot: &Snapshot, current: &[(String, String)]) -> Vec<SnapshotDiffEntry> {
     let current_map: BTreeMap<String, String> = current.iter().cloned().collect();
 
     let mut all_keys: Vec<String> = Vec::new();
@@ -444,13 +445,23 @@ mod tests {
 
         // Create 5 snapshots
         for i in 0..5 {
-            create_test_snapshot(dir.path(), &format!("snap-{}", i), &entries, &format!("1{}0000", i));
+            create_test_snapshot(
+                dir.path(),
+                &format!("snap-{}", i),
+                &entries,
+                &format!("1{}0000", i),
+            );
         }
 
         let files_before: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "toml").unwrap_or(false))
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "toml")
+                    .unwrap_or(false)
+            })
             .collect();
         assert_eq!(files_before.len(), 5);
 
@@ -475,7 +486,12 @@ mod tests {
         let files_after: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "toml").unwrap_or(false))
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "toml")
+                    .unwrap_or(false)
+            })
             .collect();
         assert_eq!(files_after.len(), 3);
     }

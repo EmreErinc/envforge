@@ -67,7 +67,12 @@ fn entries_to_map(entries: &[EnvEntry]) -> BTreeMap<String, String> {
 }
 
 /// Export entries in the specified format.
-pub fn export_as(entries: &[EnvEntry], format: &ExportFormat, k8s_name: Option<&str>, k8s_namespace: Option<&str>) -> String {
+pub fn export_as(
+    entries: &[EnvEntry],
+    format: &ExportFormat,
+    k8s_name: Option<&str>,
+    k8s_namespace: Option<&str>,
+) -> String {
     match format {
         ExportFormat::Dotenv => export_dotenv(entries),
         ExportFormat::Json => export_json(entries),
@@ -84,7 +89,13 @@ fn export_dotenv(entries: &[EnvEntry]) -> String {
     let map = entries_to_map(entries);
     let mut out = String::new();
     for (k, v) in &map {
-        if v.contains(' ') || v.contains('#') || v.contains('"') || v.contains('\'') || v.contains('\n') || v.is_empty() {
+        if v.contains(' ')
+            || v.contains('#')
+            || v.contains('"')
+            || v.contains('\'')
+            || v.contains('\n')
+            || v.is_empty()
+        {
             out.push_str(&format!("{}=\"{}\"\n", k, v.replace('"', "\\\"")));
         } else {
             out.push_str(&format!("{}={}\n", k, v));
@@ -122,7 +133,10 @@ fn needs_yaml_quoting(v: &str) -> bool {
     }
     // YAML special values
     let lower = v.to_lowercase();
-    if matches!(lower.as_str(), "true" | "false" | "yes" | "no" | "null" | "~" | "on" | "off") {
+    if matches!(
+        lower.as_str(),
+        "true" | "false" | "yes" | "no" | "null" | "~" | "on" | "off"
+    ) {
         return true;
     }
     // Numeric strings
@@ -130,11 +144,26 @@ fn needs_yaml_quoting(v: &str) -> bool {
         return true;
     }
     // Contains special chars
-    v.contains(':') || v.contains('#') || v.contains('{') || v.contains('}')
-        || v.contains('[') || v.contains(']') || v.contains(',') || v.contains('&')
-        || v.contains('*') || v.contains('!') || v.contains('|') || v.contains('>')
-        || v.contains('\'') || v.contains('"') || v.contains('%') || v.contains('@')
-        || v.contains('`') || v.contains('\n') || v.starts_with(' ') || v.ends_with(' ')
+    v.contains(':')
+        || v.contains('#')
+        || v.contains('{')
+        || v.contains('}')
+        || v.contains('[')
+        || v.contains(']')
+        || v.contains(',')
+        || v.contains('&')
+        || v.contains('*')
+        || v.contains('!')
+        || v.contains('|')
+        || v.contains('>')
+        || v.contains('\'')
+        || v.contains('"')
+        || v.contains('%')
+        || v.contains('@')
+        || v.contains('`')
+        || v.contains('\n')
+        || v.starts_with(' ')
+        || v.ends_with(' ')
 }
 
 fn export_toml(entries: &[EnvEntry]) -> String {
@@ -142,7 +171,11 @@ fn export_toml(entries: &[EnvEntry]) -> String {
     let mut out = String::new();
     for (k, v) in &map {
         // TOML: all string values must be quoted
-        out.push_str(&format!("{} = \"{}\"\n", k, v.replace('\\', "\\\\").replace('"', "\\\"")));
+        out.push_str(&format!(
+            "{} = \"{}\"\n",
+            k,
+            v.replace('\\', "\\\\").replace('"', "\\\"")
+        ));
     }
     out
 }
@@ -187,7 +220,11 @@ fn export_tfvars(entries: &[EnvEntry]) -> String {
     for (k, v) in &map {
         // Terraform: variable_name = "value" (lowercase convention)
         let tf_key = k.to_lowercase();
-        out.push_str(&format!("{} = \"{}\"\n", tf_key, v.replace('\\', "\\\\").replace('"', "\\\"")));
+        out.push_str(&format!(
+            "{} = \"{}\"\n",
+            tf_key,
+            v.replace('\\', "\\\\").replace('"', "\\\"")
+        ));
     }
     out
 }
@@ -220,8 +257,8 @@ fn export_docker_secrets(entries: &[EnvEntry]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use crate::model::{ExportStyle, QuoteStyle};
+    use std::path::PathBuf;
 
     fn make_entries() -> Vec<EnvEntry> {
         vec![
@@ -276,9 +313,15 @@ mod tests {
         assert_eq!(ExportFormat::parse("toml").unwrap(), ExportFormat::Toml);
         assert_eq!(ExportFormat::parse("docker").unwrap(), ExportFormat::Docker);
         assert_eq!(ExportFormat::parse("k8s").unwrap(), ExportFormat::K8s);
-        assert_eq!(ExportFormat::parse("kubernetes").unwrap(), ExportFormat::K8s);
+        assert_eq!(
+            ExportFormat::parse("kubernetes").unwrap(),
+            ExportFormat::K8s
+        );
         assert_eq!(ExportFormat::parse("tfvars").unwrap(), ExportFormat::Tfvars);
-        assert_eq!(ExportFormat::parse("terraform").unwrap(), ExportFormat::Tfvars);
+        assert_eq!(
+            ExportFormat::parse("terraform").unwrap(),
+            ExportFormat::Tfvars
+        );
         assert_eq!(ExportFormat::parse("tf").unwrap(), ExportFormat::Tfvars);
         assert!(ExportFormat::parse("xml").is_err());
     }
@@ -425,8 +468,14 @@ mod tests {
 
     #[test]
     fn test_format_parse_docker_secrets() {
-        assert_eq!(ExportFormat::parse("docker-secrets").unwrap(), ExportFormat::DockerSecrets);
-        assert_eq!(ExportFormat::parse("compose-secrets").unwrap(), ExportFormat::DockerSecrets);
+        assert_eq!(
+            ExportFormat::parse("docker-secrets").unwrap(),
+            ExportFormat::DockerSecrets
+        );
+        assert_eq!(
+            ExportFormat::parse("compose-secrets").unwrap(),
+            ExportFormat::DockerSecrets
+        );
     }
 
     #[test]

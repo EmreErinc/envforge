@@ -4,7 +4,7 @@ use crate::config::{load_or_create_default, safe_write};
 use crate::ops::changelog::log_change;
 use crate::ops::encrypt::{encrypt_value, is_encrypted};
 use crate::ops::secrets::age::{load_sources, record_set};
-use crate::ops::sync::{sync_dir, read_config, CONFIG_FILE};
+use crate::ops::sync::{read_config, sync_dir, CONFIG_FILE};
 use crate::ops::{collect_all_entries, edit_entry, EntryLocation};
 use crate::parser::{parse_shell_file, serialize_shell_file};
 

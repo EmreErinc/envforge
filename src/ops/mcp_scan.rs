@@ -199,7 +199,11 @@ fn detect_known_prefix(value: &str) -> Option<String> {
     }
 
     // AWS secret key pattern: 40 chars base64
-    if value.len() == 40 && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/') {
+    if value.len() == 40
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
+    {
         // Check the path for AWS context
         let path_lower = value.to_lowercase();
         if !path_lower.contains("sha") {
@@ -232,8 +236,17 @@ fn detect_connection_string(value: &str) -> bool {
 /// Check if a JSON path segment name suggests it holds a secret.
 fn is_secret_key_name(path_lower: &str) -> bool {
     let secret_keywords = [
-        "token", "secret", "password", "passwd", "credential", "api_key",
-        "apikey", "api-key", "access_key", "private_key", "auth",
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "credential",
+        "api_key",
+        "apikey",
+        "api-key",
+        "access_key",
+        "private_key",
+        "auth",
     ];
     secret_keywords.iter().any(|kw| path_lower.contains(kw))
 }
@@ -296,8 +309,14 @@ pub fn suggestion_for(finding: &McpFinding) -> String {
     if finding.path.contains("[") {
         format!(
             "Move to env section: \"{}\": \"${{{}}}\"",
-            finding.key.trim_start_matches("args[").trim_end_matches(']'),
-            finding.key.to_uppercase().replace(|c: char| !c.is_ascii_alphanumeric(), "_")
+            finding
+                .key
+                .trim_start_matches("args[")
+                .trim_end_matches(']'),
+            finding
+                .key
+                .to_uppercase()
+                .replace(|c: char| !c.is_ascii_alphanumeric(), "_")
         )
     } else {
         format!("Replace with: ${{{}}}", finding.key)
@@ -341,7 +360,11 @@ fn replace_in_json(json: &mut serde_json::Value, json_path: &str, key: &str) -> 
                 if let Ok(idx) = idx_str.parse::<usize>() {
                     if let Some(arr) = current.get_mut(arr_key).and_then(|v| v.as_array_mut()) {
                         if idx < arr.len() {
-                            let ref_value = format!("${{{}}}", key.to_uppercase().replace(|c: char| !c.is_ascii_alphanumeric(), "_"));
+                            let ref_value = format!(
+                                "${{{}}}",
+                                key.to_uppercase()
+                                    .replace(|c: char| !c.is_ascii_alphanumeric(), "_")
+                            );
                             arr[idx] = serde_json::Value::String(ref_value);
                             return true;
                         }
@@ -372,7 +395,10 @@ fn replace_in_json(json: &mut serde_json::Value, json_path: &str, key: &str) -> 
 
 /// Harden an MCP config file by replacing plaintext secrets with env var references.
 /// Returns (modified_count, list of replaced keys, backup_path).
-#[expect(clippy::type_complexity, reason = "Return type is appropriate for operation result")]
+#[expect(
+    clippy::type_complexity,
+    reason = "Return type is appropriate for operation result"
+)]
 pub fn harden_mcp_config(
     file_path: &Path,
     dry_run: bool,
@@ -573,7 +599,11 @@ mod tests {
             }
         }"#;
         let findings = scan_json_str(json);
-        assert!(findings.is_empty(), "Expected no findings, got: {:?}", findings);
+        assert!(
+            findings.is_empty(),
+            "Expected no findings, got: {:?}",
+            findings
+        );
     }
 
     #[test]
@@ -740,7 +770,8 @@ mod tests {
 
     #[test]
     fn test_replace_in_json_nested_path() {
-        let mut json: serde_json::Value = serde_json::from_str(r#"{
+        let mut json: serde_json::Value = serde_json::from_str(
+            r#"{
             "mcpServers": {
                 "slack": {
                     "env": {
@@ -748,9 +779,12 @@ mod tests {
                     }
                 }
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
-        let replaced = replace_in_json(&mut json, "mcpServers.slack.env.SLACK_TOKEN", "SLACK_TOKEN");
+        let replaced =
+            replace_in_json(&mut json, "mcpServers.slack.env.SLACK_TOKEN", "SLACK_TOKEN");
         assert!(replaced);
         assert_eq!(
             json["mcpServers"]["slack"]["env"]["SLACK_TOKEN"],
@@ -760,7 +794,8 @@ mod tests {
 
     #[test]
     fn test_replace_in_json_preserves_non_secrets() {
-        let mut json: serde_json::Value = serde_json::from_str(r#"{
+        let mut json: serde_json::Value = serde_json::from_str(
+            r#"{
             "mcpServers": {
                 "my-server": {
                     "command": "node",
@@ -771,7 +806,9 @@ mod tests {
                     }
                 }
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let replaced = replace_in_json(&mut json, "mcpServers.my-server.env.API_KEY", "API_KEY");
         assert!(replaced);
@@ -781,21 +818,18 @@ mod tests {
             "${API_KEY}"
         );
         // Non-secret preserved
-        assert_eq!(
-            json["mcpServers"]["my-server"]["env"]["PORT"],
-            "3000"
-        );
-        assert_eq!(
-            json["mcpServers"]["my-server"]["command"],
-            "node"
-        );
+        assert_eq!(json["mcpServers"]["my-server"]["env"]["PORT"], "3000");
+        assert_eq!(json["mcpServers"]["my-server"]["command"], "node");
     }
 
     #[test]
     fn test_replace_in_json_nonexistent_path() {
-        let mut json: serde_json::Value = serde_json::from_str(r#"{
+        let mut json: serde_json::Value = serde_json::from_str(
+            r#"{
             "mcpServers": {}
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let replaced = replace_in_json(&mut json, "mcpServers.missing.env.KEY", "KEY");
         assert!(!replaced);
@@ -803,21 +837,21 @@ mod tests {
 
     #[test]
     fn test_replace_in_json_array_index() {
-        let mut json: serde_json::Value = serde_json::from_str(r#"{
+        let mut json: serde_json::Value = serde_json::from_str(
+            r#"{
             "mcpServers": {
                 "api": {
                     "command": "node",
                     "args": ["server.js", "--token", "ghp_FAKE00TEST00TOKEN00VALUE00000000"]
                 }
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let replaced = replace_in_json(&mut json, "mcpServers.api.args[2]", "args[2]");
         assert!(replaced);
-        assert_eq!(
-            json["mcpServers"]["api"]["args"][2],
-            "${ARGS_2_}"
-        );
+        assert_eq!(json["mcpServers"]["api"]["args"][2], "${ARGS_2_}");
         // Other args preserved
         assert_eq!(json["mcpServers"]["api"]["args"][0], "server.js");
         assert_eq!(json["mcpServers"]["api"]["args"][1], "--token");

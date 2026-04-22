@@ -103,7 +103,12 @@ pub fn extract_host_from_origin(origin: &str) -> String {
     // Strip port
     let host = if host_port.starts_with('[') {
         // IPv6 like [::1]:port
-        host_port.split(']').next().unwrap_or(host_port).trim_start_matches('[').to_string()
+        host_port
+            .split(']')
+            .next()
+            .unwrap_or(host_port)
+            .trim_start_matches('[')
+            .to_string()
     } else {
         host_port.split(':').next().unwrap_or(host_port).to_string()
     };
@@ -129,7 +134,10 @@ pub fn is_origin_allowed(origin: Option<&str>, allowed_origins: Option<&[String]
     let host = extract_host_from_origin(origin).to_ascii_lowercase();
 
     // Loopback is always allowed
-    if DEFAULT_SAFE_HOSTS.iter().any(|h| h.eq_ignore_ascii_case(&host)) {
+    if DEFAULT_SAFE_HOSTS
+        .iter()
+        .any(|h| h.eq_ignore_ascii_case(&host))
+    {
         return true;
     }
 
@@ -168,10 +176,7 @@ pub fn extract_user_agent(request: &str) -> Option<String> {
 
 /// Check lease access for a request path. Returns an error response if denied.
 /// Returns None if access is granted (or lease not required).
-pub fn check_lease_for_request(
-    path: &str,
-    require_lease: bool,
-) -> Option<(String, String)> {
+pub fn check_lease_for_request(path: &str, require_lease: bool) -> Option<(String, String)> {
     if !require_lease {
         return None;
     }
@@ -229,10 +234,7 @@ pub fn route_request(
     }
 
     match path {
-        "/health" => (
-            "200 OK".to_string(),
-            r#"{"status":"ok"}"#.to_string(),
-        ),
+        "/health" => ("200 OK".to_string(), r#"{"status":"ok"}"#.to_string()),
         "/env" => {
             let filtered: HashMap<&String, &String> = if let Some(keys) = allowed_keys {
                 env.iter()
@@ -296,7 +298,9 @@ fn build_audit_entry(
     allowed_keys: Option<&[String]>,
 ) -> AuditEntry {
     let granted = status.starts_with("200");
-    let now = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string();
+    let now = chrono::Local::now()
+        .format("%Y-%m-%dT%H:%M:%S%z")
+        .to_string();
 
     match path {
         "/health" => AuditEntry {
@@ -331,7 +335,11 @@ fn build_audit_entry(
             AuditEntry {
                 timestamp: now,
                 action: "access".to_string(),
-                key: if key_name.is_empty() { None } else { Some(key_name.to_string()) },
+                key: if key_name.is_empty() {
+                    None
+                } else {
+                    Some(key_name.to_string())
+                },
                 keys_served: None,
                 client_addr: client_addr.to_string(),
                 user_agent,
@@ -354,7 +362,10 @@ fn build_audit_entry(
 /// Returns true if approved, false otherwise.
 fn prompt_approval(description: &str, client_addr: &str) -> bool {
     use std::io::BufRead;
-    eprint!("\u{1f512} Secret access request: {} from {}\n   Approve? [y/N]: ", description, client_addr);
+    eprint!(
+        "\u{1f512} Secret access request: {} from {}\n   Approve? [y/N]: ",
+        description, client_addr
+    );
     let stdin = std::io::stdin();
     let mut line = String::new();
     if stdin.lock().read_line(&mut line).is_ok() {
@@ -522,14 +533,8 @@ pub fn start_proxy(
 
                 let (status, body) = route_request(method, path, env, allowed_keys);
 
-                let entry = build_audit_entry(
-                    path,
-                    &status,
-                    &client_addr,
-                    user_agent,
-                    env,
-                    allowed_keys,
-                );
+                let entry =
+                    build_audit_entry(path, &status, &client_addr, user_agent, env, allowed_keys);
                 log_audit(&entry);
 
                 let response = format_response(&status, &body);
@@ -549,7 +554,10 @@ mod tests {
 
     fn sample_env() -> HashMap<String, String> {
         let mut m = HashMap::new();
-        m.insert("DATABASE_URL".to_string(), "postgres://localhost/db".to_string());
+        m.insert(
+            "DATABASE_URL".to_string(),
+            "postgres://localhost/db".to_string(),
+        );
         m.insert("API_KEY".to_string(), "sk-test-123".to_string());
         m.insert("APP_NAME".to_string(), "myapp".to_string());
         m
@@ -747,9 +755,18 @@ mod tests {
 
     #[test]
     fn test_extract_host_from_origin() {
-        assert_eq!(extract_host_from_origin("http://example.com:3000/path"), "example.com");
-        assert_eq!(extract_host_from_origin("https://localhost:8080"), "localhost");
-        assert_eq!(extract_host_from_origin("http://127.0.0.1:9000"), "127.0.0.1");
+        assert_eq!(
+            extract_host_from_origin("http://example.com:3000/path"),
+            "example.com"
+        );
+        assert_eq!(
+            extract_host_from_origin("https://localhost:8080"),
+            "localhost"
+        );
+        assert_eq!(
+            extract_host_from_origin("http://127.0.0.1:9000"),
+            "127.0.0.1"
+        );
         assert_eq!(extract_host_from_origin("example.com"), "example.com");
     }
 
@@ -757,7 +774,10 @@ mod tests {
     fn test_origin_allowed_no_origin_header() {
         // No origin header → allowed (direct/curl request)
         assert!(is_origin_allowed(None, None));
-        assert!(is_origin_allowed(None, Some(&["http://example.com".to_string()])));
+        assert!(is_origin_allowed(
+            None,
+            Some(&["http://example.com".to_string()])
+        ));
     }
 
     #[test]
@@ -777,9 +797,15 @@ mod tests {
     #[test]
     fn test_origin_allowed_with_allowlist() {
         let allowed = vec!["http://myapp.com".to_string()];
-        assert!(is_origin_allowed(Some("http://myapp.com:443"), Some(&allowed)));
+        assert!(is_origin_allowed(
+            Some("http://myapp.com:443"),
+            Some(&allowed)
+        ));
         // Loopback still allowed
-        assert!(is_origin_allowed(Some("http://localhost:3000"), Some(&allowed)));
+        assert!(is_origin_allowed(
+            Some("http://localhost:3000"),
+            Some(&allowed)
+        ));
     }
 
     #[test]
@@ -799,8 +825,14 @@ mod tests {
     fn test_loopback_always_allowed() {
         // Even with a restrictive allowlist, loopback is always permitted
         let allowed = vec!["http://only-this.com".to_string()];
-        assert!(is_origin_allowed(Some("http://127.0.0.1:5000"), Some(&allowed)));
-        assert!(is_origin_allowed(Some("http://localhost:5000"), Some(&allowed)));
+        assert!(is_origin_allowed(
+            Some("http://127.0.0.1:5000"),
+            Some(&allowed)
+        ));
+        assert!(is_origin_allowed(
+            Some("http://localhost:5000"),
+            Some(&allowed)
+        ));
     }
 
     // ─── Build audit entry tests ──────────────────────────
@@ -860,16 +892,21 @@ mod tests {
     #[test]
     fn test_build_audit_entry_unknown_path() {
         let env = sample_env();
-        let entry =
-            build_audit_entry("/unknown", "404 Not Found", "127.0.0.1:12345", None, &env, None);
+        let entry = build_audit_entry(
+            "/unknown",
+            "404 Not Found",
+            "127.0.0.1:12345",
+            None,
+            &env,
+            None,
+        );
         assert_eq!(entry.action, "denied");
         assert!(!entry.granted);
     }
 
     #[test]
     fn test_extract_user_agent() {
-        let req =
-            "GET /env HTTP/1.1\r\nHost: localhost\r\nUser-Agent: curl/8.4.0\r\n\r\n";
+        let req = "GET /env HTTP/1.1\r\nHost: localhost\r\nUser-Agent: curl/8.4.0\r\n\r\n";
         assert_eq!(extract_user_agent(req), Some("curl/8.4.0".to_string()));
     }
 

@@ -76,7 +76,10 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
                 &current_examples,
             );
 
-            current_category = line.strip_prefix("## ").map(|s| s.trim().to_string()).unwrap_or_default();
+            current_category = line
+                .strip_prefix("## ")
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
             current_command.clear();
             current_desc.clear();
             current_usage.clear();
@@ -116,7 +119,13 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
         }
 
         // Description (first non-empty line after command heading)
-        if current_desc.is_empty() && !line.trim().is_empty() && !line.starts_with('|') && !line.starts_with("**") && !line.starts_with("```") && !line.starts_with("---") {
+        if current_desc.is_empty()
+            && !line.trim().is_empty()
+            && !line.starts_with('|')
+            && !line.starts_with("**")
+            && !line.starts_with("```")
+            && !line.starts_with("---")
+        {
             current_desc = line.trim().to_string();
             continue;
         }
@@ -129,7 +138,10 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
         }
 
         // Flags table
-        if line.starts_with("| Flag") || line.starts_with("| Argument") || line.starts_with("| Option") {
+        if line.starts_with("| Flag")
+            || line.starts_with("| Argument")
+            || line.starts_with("| Option")
+        {
             in_flags_table = true;
             in_examples = false;
             continue;
@@ -142,7 +154,11 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
 
         // Parse table rows for flags
         if in_flags_table && line.starts_with('|') {
-            let cols: Vec<&str> = line.split('|').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            let cols: Vec<&str> = line
+                .split('|')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
             if cols.len() >= 2 {
                 let flag = cols[0].replace('`', "");
                 let desc = cols[1].replace('`', "");
@@ -327,7 +343,9 @@ pub fn format_man_index(pages: &BTreeMap<String, ManPage>) -> String {
         "\x1b[1mVERSION\x1b[0m\n       {}\n\n",
         env!("CARGO_PKG_VERSION")
     ));
-    out.push_str("\x1b[1mUSAGE\x1b[0m\n       envforge man <command>     Show man page for a command\n");
+    out.push_str(
+        "\x1b[1mUSAGE\x1b[0m\n       envforge man <command>     Show man page for a command\n",
+    );
     out.push_str("       envforge man list          Show envforge-list man page\n");
     out.push_str("       envforge man sync push     Show envforge-sync-push man page\n");
 
@@ -349,7 +367,11 @@ pub fn suggest_similar(query: &str, pages: &BTreeMap<String, ManPage>) -> Vec<St
             }
         })
         .take(5)
-        .map(|k| k.strip_prefix("envforge ").map(|s| s.to_string()).unwrap_or_else(|| k.clone()))
+        .map(|k| {
+            k.strip_prefix("envforge ")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| k.clone())
+        })
         .collect()
 }
 
@@ -420,6 +442,9 @@ mod tests {
         // Both "list" and "envforge list" should exist
         let has_short = pages.contains_key("list");
         let has_long = pages.contains_key("envforge list");
-        assert!(has_short || has_long, "Should have at least one form of 'list'");
+        assert!(
+            has_short || has_long,
+            "Should have at least one form of 'list'"
+        );
     }
 }

@@ -102,7 +102,10 @@ pub trait SecretProvider: Send + Sync {
             if let Ok(Some(expired_at)) = super::credentials::check_expiry(self.name(), field) {
                 return Err(SecretsError::CredentialError(format!(
                     "Token '{}' expired at {}. Run: envforge secrets config {} --set {}=<value>",
-                    field, expired_at, self.name(), field
+                    field,
+                    expired_at,
+                    self.name(),
+                    field
                 )));
             }
         }

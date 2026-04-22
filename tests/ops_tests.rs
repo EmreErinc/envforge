@@ -398,7 +398,10 @@ fn test_emit_ai_context_with_inference() {
     use envforge::ops::schema::emit_ai_context;
 
     let entries = vec![
-        ("DATABASE_URL".to_string(), "postgres://localhost/db".to_string()),
+        (
+            "DATABASE_URL".to_string(),
+            "postgres://localhost/db".to_string(),
+        ),
         ("API_SECRET".to_string(), "super-secret-123".to_string()),
         ("PORT".to_string(), "8080".to_string()),
         ("DEBUG".to_string(), "true".to_string()),
@@ -458,7 +461,9 @@ fn test_emit_ai_context_sensitive_detection() {
 
     // APP_NAME should NOT be sensitive
     let app_name_section = output.split("## APP_NAME").nth(1).unwrap();
-    let next_section = app_name_section.find("\n## ").unwrap_or(app_name_section.len());
+    let next_section = app_name_section
+        .find("\n## ")
+        .unwrap_or(app_name_section.len());
     let app_name_block = &app_name_section[..next_section];
     assert!(
         app_name_block.contains("**Sensitive**: no"),
@@ -485,7 +490,10 @@ description = "DB connection"
 
     // Extra entry not in schema
     let entries = vec![
-        ("DATABASE_URL".to_string(), "postgres://localhost/db".to_string()),
+        (
+            "DATABASE_URL".to_string(),
+            "postgres://localhost/db".to_string(),
+        ),
         ("EXTRA_TOKEN".to_string(), "tok_xyz".to_string()),
     ];
 

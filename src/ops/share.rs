@@ -79,9 +79,12 @@ pub fn create_share(
         .map_err(|e| ShareError::EncryptFailed(format!("TOML serialization failed: {}", e)))?;
 
     // Parse recipient public key
-    let recipient: age::x25519::Recipient = recipient_pubkey
-        .parse()
-        .map_err(|_| ShareError::EncryptFailed(format!("Invalid recipient public key: {}", recipient_pubkey)))?;
+    let recipient: age::x25519::Recipient = recipient_pubkey.parse().map_err(|_| {
+        ShareError::EncryptFailed(format!(
+            "Invalid recipient public key: {}",
+            recipient_pubkey
+        ))
+    })?;
 
     // Encrypt with age
     let recipients: Vec<&dyn age::Recipient> = vec![&recipient];

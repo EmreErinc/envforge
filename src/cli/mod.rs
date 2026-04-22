@@ -698,7 +698,5 @@ pub enum CanaryAction {
     /// Check for triggered canaries
     Check,
     /// Delete a canary
-    Delete {
-        key: String,
-    },
+    Delete { key: String },
 }

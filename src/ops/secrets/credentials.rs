@@ -192,10 +192,7 @@ pub fn parse_duration(s: &str) -> Result<i64, String> {
             .map(|d| d * 86400)
             .map_err(|e| e.to_string())
     } else {
-        Err(format!(
-            "Invalid duration '{}'. Use: 8h, 24h, 7d, 30d",
-            s
-        ))
+        Err(format!("Invalid duration '{}'. Use: 8h, 24h, 7d, 30d", s))
     }
 }
 
@@ -436,9 +433,7 @@ mod tests {
             "token_expires".to_string(),
             "2026-04-21T01:00:00Z".to_string(),
         );
-        store
-            .providers
-            .insert("vault._meta".to_string(), meta);
+        store.providers.insert("vault._meta".to_string(), meta);
 
         save_store(&path, &store).unwrap();
         let loaded = load_store(&path).unwrap();
@@ -469,9 +464,7 @@ mod tests {
             "token_expires".to_string(),
             "2020-01-01T00:00:00Z".to_string(),
         );
-        store
-            .providers
-            .insert("vault._meta".to_string(), meta);
+        store.providers.insert("vault._meta".to_string(), meta);
         save_store(&path, &store).unwrap();
 
         // check_expiry reads from the default credentials_path,
@@ -491,9 +484,7 @@ mod tests {
             "token_expires".to_string(),
             "2099-12-31T23:59:59Z".to_string(),
         );
-        store
-            .providers
-            .insert("vault._meta".to_string(), meta);
+        store.providers.insert("vault._meta".to_string(), meta);
 
         let meta_map = store.providers.get("vault._meta").unwrap();
         let expires_str = meta_map.get("token_expires").unwrap();
@@ -508,10 +499,7 @@ mod tests {
         assert_eq!(format_ttl_remaining(3600), "1h 0m remaining");
         assert_eq!(format_ttl_remaining(7200 + 1800), "2h 30m remaining");
         assert_eq!(format_ttl_remaining(86400), "1d 0h remaining");
-        assert_eq!(
-            format_ttl_remaining(86400 + 3600 * 5),
-            "1d 5h remaining"
-        );
+        assert_eq!(format_ttl_remaining(86400 + 3600 * 5), "1d 5h remaining");
     }
 
     #[test]
@@ -526,9 +514,7 @@ mod tests {
             "api_key_expires".to_string(),
             "2099-12-31T23:59:59Z".to_string(),
         );
-        store
-            .providers
-            .insert("vault._meta".to_string(), meta);
+        store.providers.insert("vault._meta".to_string(), meta);
 
         // Check which are expired by inspecting the store directly
         let meta_map = store.providers.get("vault._meta").unwrap();

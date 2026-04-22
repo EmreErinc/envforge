@@ -125,10 +125,7 @@ pub fn revoke_lease(name: &str) -> Result<bool, Box<dyn std::error::Error>> {
     revoke_lease_in(&dir, name)
 }
 
-fn revoke_lease_in(
-    dir: &std::path::Path,
-    name: &str,
-) -> Result<bool, Box<dyn std::error::Error>> {
+fn revoke_lease_in(dir: &std::path::Path, name: &str) -> Result<bool, Box<dyn std::error::Error>> {
     let path = dir.join(format!("{}.toml", name));
 
     if !path.exists() {
@@ -202,9 +199,7 @@ fn check_lease_access_in(dir: &std::path::Path, key: &str) -> Option<String> {
                     // Active lease -- check if key is allowed
                     match &lease.keys {
                         None => return Some(lease.name), // all keys
-                        Some(keys) if keys.iter().any(|k| k == key) => {
-                            return Some(lease.name)
-                        }
+                        Some(keys) if keys.iter().any(|k| k == key) => return Some(lease.name),
                         _ => continue,
                     }
                 }
@@ -263,9 +258,7 @@ fn cleanup_expired_in(dir: &std::path::Path) -> Result<usize, Box<dyn std::error
                     if lease.revoked {
                         std::fs::remove_file(&path)?;
                         removed += 1;
-                    } else if let Ok(expires) =
-                        DateTime::parse_from_rfc3339(&lease.expires_at)
-                    {
+                    } else if let Ok(expires) = DateTime::parse_from_rfc3339(&lease.expires_at) {
                         if expires.with_timezone(&Utc) <= now {
                             std::fs::remove_file(&path)?;
                             removed += 1;
@@ -331,8 +324,7 @@ mod tests {
         write_lease_at(&dir, &lease);
 
         // Read back
-        let content =
-            std::fs::read_to_string(dir.join("test-session.toml")).unwrap();
+        let content = std::fs::read_to_string(dir.join("test-session.toml")).unwrap();
         let parsed: Lease = toml::from_str(&content).unwrap();
         assert_eq!(parsed.name, "test-session");
         assert!(!parsed.revoked);
@@ -439,10 +431,7 @@ mod tests {
         assert_eq!(count, 3);
 
         // Directory should be empty
-        let remaining: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .collect();
+        let remaining: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
         assert!(remaining.is_empty());
     }
 
@@ -478,7 +467,11 @@ mod tests {
         write_lease_at(&dir, &make_expired_lease("expired"));
         write_lease_at(
             &dir,
-            &make_lease("scoped", 3600, Some(vec!["K1".to_string(), "K2".to_string()])),
+            &make_lease(
+                "scoped",
+                3600,
+                Some(vec!["K1".to_string(), "K2".to_string()]),
+            ),
         );
 
         let statuses = list_leases_in(&dir);
@@ -507,8 +500,7 @@ mod tests {
         assert!(revoked);
 
         // Read back and verify revoked flag
-        let content =
-            std::fs::read_to_string(dir.join("mysession.toml")).unwrap();
+        let content = std::fs::read_to_string(dir.join("mysession.toml")).unwrap();
         let lease: Lease = toml::from_str(&content).unwrap();
         assert!(lease.revoked);
 

@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use tower_lsp::lsp_types::{
-    GotoDefinitionResponse, Location, Position, Range as LspRange, Url,
-};
+use tower_lsp::lsp_types::{GotoDefinitionResponse, Location, Position, Range as LspRange, Url};
 
 use super::document::EnvDocEntry;
 
@@ -26,8 +24,14 @@ pub fn goto_definition(
     Some(GotoDefinitionResponse::Scalar(Location {
         uri: schema_uri.clone(),
         range: LspRange {
-            start: Position { line: *line, character: 0 },
-            end: Position { line: *line, character: 0 },
+            start: Position {
+                line: *line,
+                character: 0,
+            },
+            end: Position {
+                line: *line,
+                character: 0,
+            },
         },
     }))
 }

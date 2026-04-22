@@ -7,8 +7,8 @@ use crate::ops::listing::{collect_all_entries, EntryLocation, EnvEntry};
 use crate::ops::schema::{find_schema, parse_schema};
 use crate::ops::secrets::age::load_sources;
 use crate::ops::secrets::cache::{is_reference, SecretRef};
-use crate::ops::sync::{is_initialized, read_config, sync_dir, CONFIG_FILE, KeyStatus};
 use crate::ops::sync::marking::get_key_status;
+use crate::ops::sync::{is_initialized, read_config, sync_dir, KeyStatus, CONFIG_FILE};
 use crate::parser::parse_shell_file;
 
 // ─── Data Structures ────────────────────────────────────────

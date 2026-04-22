@@ -9,7 +9,9 @@ use crate::model::{ExportStyle, LineNode, ParseError, QuoteStyle, ShellFile};
 // Lazy-initialized regexes for parsing shell files (compiled once at first use)
 fn envforge_tag_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^#\[envforge:([^\]]+)\]\s*(.*)$").expect("invalid envforge tag regex"))
+    RE.get_or_init(|| {
+        Regex::new(r"^#\[envforge:([^\]]+)\]\s*(.*)$").expect("invalid envforge tag regex")
+    })
 }
 
 fn source_regex() -> &'static Regex {

@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use serde::{Serialize, Deserialize};
 
 const CANARY_FILE: &str = "canaries.toml";
 const CANARY_LOG: &str = "canary-alerts.jsonl";
@@ -10,7 +10,7 @@ pub struct CanarySecret {
     pub key: String,
     pub fake_value: String,
     pub created_at: String,
-    pub pattern: String,  // "aws_key", "api_token", "generic"
+    pub pattern: String, // "aws_key", "api_token", "generic"
     pub triggered: bool,
     pub trigger_count: usize,
 }
@@ -25,17 +25,19 @@ pub struct CanaryStore {
 pub struct CanaryAlert {
     pub timestamp: String,
     pub key: String,
-    pub source: String,  // "proxy", "file_read", "git_commit"
+    pub source: String, // "proxy", "file_read", "git_commit"
     pub details: String,
 }
 
 /// Generate a fake but plausible credential value for a given pattern.
 pub fn generate_fake_value(pattern: &str) -> String {
     // Generate deterministic-looking but fake values
-    let suffix: String = (0..20).map(|i| {
-        let chars = b"abcdefghijklmnopqrstuvwxyz0123456789";
-        chars[(i * 7 + 13) % chars.len()] as char
-    }).collect();
+    let suffix: String = (0..20)
+        .map(|i| {
+            let chars = b"abcdefghijklmnopqrstuvwxyz0123456789";
+            chars[(i * 7 + 13) % chars.len()] as char
+        })
+        .collect();
 
     match pattern {
         "aws_key" => format!("AKIA{}", &suffix[..16].to_uppercase()),
@@ -63,7 +65,9 @@ fn canary_log_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
 pub fn load_canaries() -> Result<CanaryStore, Box<dyn std::error::Error>> {
     let path = canary_store_path()?;
     if !path.exists() {
-        return Ok(CanaryStore { canaries: BTreeMap::new() });
+        return Ok(CanaryStore {
+            canaries: BTreeMap::new(),
+        });
     }
     let content = std::fs::read_to_string(&path)?;
     Ok(toml::from_str(&content)?)
@@ -106,7 +110,11 @@ pub fn list_canaries() -> Result<Vec<CanarySecret>, Box<dyn std::error::Error>> 
 }
 
 /// Record a canary trigger (value was accessed/used).
-pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn trigger_canary(
+    key: &str,
+    source: &str,
+    details: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Update store
     let mut store = load_canaries()?;
     if let Some(canary) = store.canaries.get_mut(key) {
@@ -134,7 +142,10 @@ pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), Box<
     writeln!(file, "{}", serde_json::to_string(&alert)?)?;
 
     // Print alert to stderr
-    eprintln!("\u{1f6a8} CANARY TRIGGERED: {} (source: {}, {})", key, source, details);
+    eprintln!(
+        "\u{1f6a8} CANARY TRIGGERED: {} (source: {}, {})",
+        key, source, details
+    );
 
     Ok(())
 }
@@ -142,7 +153,12 @@ pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), Box<
 /// Check all canaries for triggers. Returns triggered ones.
 pub fn check_canaries() -> Result<Vec<CanarySecret>, Box<dyn std::error::Error>> {
     let store = load_canaries()?;
-    Ok(store.canaries.values().filter(|c| c.triggered).cloned().collect())
+    Ok(store
+        .canaries
+        .values()
+        .filter(|c| c.triggered)
+        .cloned()
+        .collect())
 }
 
 /// Read canary alert log.
@@ -193,8 +209,10 @@ mod tests {
         let val = generate_fake_value("aws_key");
         assert!(val.starts_with("AKIA"));
         assert_eq!(val.len(), 4 + 16); // "AKIA" + 16 uppercase chars
-        // Should be uppercase after AKIA
-        assert!(val[4..].chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
+                                       // Should be uppercase after AKIA
+        assert!(val[4..]
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
     }
 
     #[test]
@@ -241,7 +259,9 @@ mod tests {
         let store_path = tmp.path().join(CANARY_FILE);
 
         // Manually create and save
-        let mut store = CanaryStore { canaries: BTreeMap::new() };
+        let mut store = CanaryStore {
+            canaries: BTreeMap::new(),
+        };
         let canary = CanarySecret {
             key: "TEST_KEY".to_string(),
             fake_value: "CANARY_fake123".to_string(),
@@ -250,7 +270,9 @@ mod tests {
             triggered: false,
             trigger_count: 0,
         };
-        store.canaries.insert("TEST_KEY".to_string(), canary.clone());
+        store
+            .canaries
+            .insert("TEST_KEY".to_string(), canary.clone());
         std::fs::write(&store_path, toml::to_string_pretty(&store).unwrap()).unwrap();
 
         // Reload
@@ -283,13 +305,17 @@ mod tests {
         };
 
         // Direct check against store (is_canary_value uses config dir, so test logic here)
-        let found = store.canaries.values()
+        let found = store
+            .canaries
+            .values()
             .find(|c| c.fake_value == "CANARY_unique_value_xyz")
             .map(|c| c.key.clone());
         assert_eq!(found, Some("MY_SECRET".to_string()));
 
         // Not found
-        let not_found = store.canaries.values()
+        let not_found = store
+            .canaries
+            .values()
             .find(|c| c.fake_value == "totally_different_value")
             .map(|c| c.key.clone());
         assert_eq!(not_found, None);
@@ -302,15 +328,20 @@ mod tests {
         let log_path = tmp.path().join(CANARY_LOG);
 
         // Create initial store
-        let mut store = CanaryStore { canaries: BTreeMap::new() };
-        store.canaries.insert("TRAP_KEY".to_string(), CanarySecret {
-            key: "TRAP_KEY".to_string(),
-            fake_value: "CANARY_trap_value".to_string(),
-            created_at: "2026-04-20T00:00:00Z".to_string(),
-            pattern: "generic".to_string(),
-            triggered: false,
-            trigger_count: 0,
-        });
+        let mut store = CanaryStore {
+            canaries: BTreeMap::new(),
+        };
+        store.canaries.insert(
+            "TRAP_KEY".to_string(),
+            CanarySecret {
+                key: "TRAP_KEY".to_string(),
+                fake_value: "CANARY_trap_value".to_string(),
+                created_at: "2026-04-20T00:00:00Z".to_string(),
+                pattern: "generic".to_string(),
+                triggered: false,
+                trigger_count: 0,
+            },
+        );
         std::fs::write(&store_path, toml::to_string_pretty(&store).unwrap()).unwrap();
 
         // Simulate trigger by updating store directly
@@ -360,36 +391,44 @@ mod tests {
     fn test_check_canaries_returns_only_triggered() {
         let store = CanaryStore {
             canaries: BTreeMap::from([
-                ("SAFE_KEY".to_string(), CanarySecret {
-                    key: "SAFE_KEY".to_string(),
-                    fake_value: "CANARY_safe".to_string(),
-                    created_at: "2026-04-20T00:00:00Z".to_string(),
-                    pattern: "generic".to_string(),
-                    triggered: false,
-                    trigger_count: 0,
-                }),
-                ("LEAKED_KEY".to_string(), CanarySecret {
-                    key: "LEAKED_KEY".to_string(),
-                    fake_value: "CANARY_leaked".to_string(),
-                    created_at: "2026-04-20T00:00:00Z".to_string(),
-                    pattern: "generic".to_string(),
-                    triggered: true,
-                    trigger_count: 3,
-                }),
-                ("ANOTHER_SAFE".to_string(), CanarySecret {
-                    key: "ANOTHER_SAFE".to_string(),
-                    fake_value: "CANARY_another".to_string(),
-                    created_at: "2026-04-20T00:00:00Z".to_string(),
-                    pattern: "aws_key".to_string(),
-                    triggered: false,
-                    trigger_count: 0,
-                }),
+                (
+                    "SAFE_KEY".to_string(),
+                    CanarySecret {
+                        key: "SAFE_KEY".to_string(),
+                        fake_value: "CANARY_safe".to_string(),
+                        created_at: "2026-04-20T00:00:00Z".to_string(),
+                        pattern: "generic".to_string(),
+                        triggered: false,
+                        trigger_count: 0,
+                    },
+                ),
+                (
+                    "LEAKED_KEY".to_string(),
+                    CanarySecret {
+                        key: "LEAKED_KEY".to_string(),
+                        fake_value: "CANARY_leaked".to_string(),
+                        created_at: "2026-04-20T00:00:00Z".to_string(),
+                        pattern: "generic".to_string(),
+                        triggered: true,
+                        trigger_count: 3,
+                    },
+                ),
+                (
+                    "ANOTHER_SAFE".to_string(),
+                    CanarySecret {
+                        key: "ANOTHER_SAFE".to_string(),
+                        fake_value: "CANARY_another".to_string(),
+                        created_at: "2026-04-20T00:00:00Z".to_string(),
+                        pattern: "aws_key".to_string(),
+                        triggered: false,
+                        trigger_count: 0,
+                    },
+                ),
             ]),
         };
 
-        let triggered: Vec<&CanarySecret> = store.canaries.values()
-            .filter(|c| c.triggered)
-            .collect();
+        let triggered: Vec<&CanarySecret> =
+            store.canaries.values().filter(|c| c.triggered).collect();
         assert_eq!(triggered.len(), 1);
         assert_eq!(triggered[0].key, "LEAKED_KEY");
         assert_eq!(triggered[0].trigger_count, 3);
