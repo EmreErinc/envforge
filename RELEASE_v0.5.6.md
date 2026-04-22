@@ -199,9 +199,3 @@ None introduced in this release. All known limitations from v0.5.5 remain docume
 ## Full Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for complete details across all versions.
-
----
-
-**Released**: 2026-04-22  
-**Status**: Stable, Production Ready  
-**Support**: [CONTRIBUTING.md](CONTRIBUTING.md) | [SECURITY.md](SECURITY.md)
