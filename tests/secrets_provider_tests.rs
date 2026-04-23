@@ -294,7 +294,7 @@ fn test_azure_provider_metadata() {
 fn test_registry_has_all_providers() {
     let registry = providers::create_default_registry();
     let names = registry.list_names();
-    assert_eq!(names.len(), 7);
+    assert_eq!(names.len(), 13);
     assert!(names.contains(&"vault".to_string()));
     assert!(names.contains(&"aws-ssm".to_string()));
     assert!(names.contains(&"1password".to_string()));
@@ -302,6 +302,12 @@ fn test_registry_has_all_providers() {
     assert!(names.contains(&"infisical".to_string()));
     assert!(names.contains(&"gcp".to_string()));
     assert!(names.contains(&"azure".to_string()));
+    assert!(names.contains(&"bitwarden".to_string()));
+    assert!(names.contains(&"akeyless".to_string()));
+    assert!(names.contains(&"conjur".to_string()));
+    assert!(names.contains(&"sops".to_string()));
+    assert!(names.contains(&"pass".to_string()));
+    assert!(names.contains(&"keeper".to_string()));
 }
 
 #[test]
@@ -315,6 +321,12 @@ fn test_registry_get_each_provider() {
         "infisical",
         "gcp",
         "azure",
+        "bitwarden",
+        "akeyless",
+        "conjur",
+        "sops",
+        "pass",
+        "keeper",
     ] {
         let provider = registry.get(name).unwrap();
         assert_eq!(provider.name(), *name);
@@ -944,5 +956,1012 @@ fn test_provider_stress_test_concurrent_requests() {
 
     for handle in handles {
         assert!(handle.join().is_ok());
+    }
+}
+
+// ─── Bitwarden Tests ───────────────────────────────────────
+
+#[test]
+fn test_bitwarden_parse_output_basic() {
+    let json = r#"[
+        {"id": "uuid-1", "key": "DB_HOST", "value": "localhost", "organizationId": "org1"},
+        {"id": "uuid-2", "key": "DB_PORT", "value": "5432", "organizationId": "org1"}
+    ]"#;
+
+    let result = providers::bitwarden::parse_bitwarden_output(json).unwrap();
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0], ("DB_HOST".to_string(), "localhost".to_string()));
+    assert_eq!(result[1], ("DB_PORT".to_string(), "5432".to_string()));
+}
+
+#[test]
+fn test_bitwarden_parse_output_empty() {
+    let json = r#"[]"#;
+    let result = providers::bitwarden::parse_bitwarden_output(json).unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_bitwarden_parse_output_skips_empty_key() {
+    let json = r#"[
+        {"id": "uuid-1", "key": "", "value": "secret"},
+        {"id": "uuid-2", "key": "VALID", "value": "yes"}
+    ]"#;
+
+    let result = providers::bitwarden::parse_bitwarden_output(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].0, "VALID");
+}
+
+#[test]
+fn test_bitwarden_parse_output_missing_fields() {
+    let json = r#"[
+        {"id": "uuid-1", "key": "HAS_KEY"},
+        {"id": "uuid-2", "value": "has_value"},
+        {"id": "uuid-3", "key": "BOTH", "value": "yes"}
+    ]"#;
+
+    let result = providers::bitwarden::parse_bitwarden_output(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], ("BOTH".to_string(), "yes".to_string()));
+}
+
+#[test]
+fn test_bitwarden_parse_output_invalid_json() {
+    let result = providers::bitwarden::parse_bitwarden_output("not json");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_bitwarden_parse_output_sorted() {
+    let json = r#"[
+        {"id": "1", "key": "ZEBRA", "value": "z"},
+        {"id": "2", "key": "ALPHA", "value": "a"},
+        {"id": "3", "key": "MIDDLE", "value": "m"}
+    ]"#;
+
+    let result = providers::bitwarden::parse_bitwarden_output(json).unwrap();
+    assert_eq!(result[0].0, "ALPHA");
+    assert_eq!(result[1].0, "MIDDLE");
+    assert_eq!(result[2].0, "ZEBRA");
+}
+
+#[test]
+fn test_bitwarden_build_env() {
+    let mut creds = HashMap::new();
+    creds.insert("access_token".into(), "0.token.secret".into());
+
+    let env = providers::bitwarden::build_env(&creds);
+    assert_eq!(env.len(), 1);
+    assert_eq!(env[0].0, "BWS_ACCESS_TOKEN");
+    assert_eq!(env[0].1, "0.token.secret");
+}
+
+#[test]
+fn test_bitwarden_build_env_empty() {
+    let creds = HashMap::new();
+    let env = providers::bitwarden::build_env(&creds);
+    assert!(env.is_empty());
+}
+
+#[test]
+fn test_bitwarden_provider_metadata() {
+    let provider = providers::BitwardenProvider;
+    assert_eq!(provider.name(), "bitwarden");
+    assert_eq!(provider.display_name(), "Bitwarden Secrets Manager");
+    assert_eq!(provider.binary_name(), "bws");
+    assert_eq!(provider.credential_fields(), vec!["access_token"]);
+    assert_eq!(provider.optional_credential_fields(), vec!["project_id"]);
+}
+
+#[test]
+fn test_bitwarden_validate_config_missing_token() {
+    let provider = providers::BitwardenProvider;
+    let result = provider.validate_config(&HashMap::new());
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_bitwarden_validate_config_complete() {
+    let provider = providers::BitwardenProvider;
+    let mut creds = HashMap::new();
+    creds.insert("access_token".into(), "0.xxx.yyy".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_ok());
+}
+
+// ─── Akeyless Tests ────────────────────────────────────────
+
+#[test]
+fn test_akeyless_parse_list_basic() {
+    let json = r#"[
+        {"item_name": "/app/DB_HOST", "item_type": "STATIC_SECRET", "item_id": 1},
+        {"item_name": "/app/API_KEY", "item_type": "STATIC_SECRET", "item_id": 2}
+    ]"#;
+
+    let result = providers::akeyless::parse_akeyless_list(json).unwrap();
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0], "/app/API_KEY");
+    assert_eq!(result[1], "/app/DB_HOST");
+}
+
+#[test]
+fn test_akeyless_parse_list_filters_non_static() {
+    let json = r#"[
+        {"item_name": "/app/STATIC", "item_type": "STATIC_SECRET"},
+        {"item_name": "/app/DYNAMIC", "item_type": "DYNAMIC_SECRET"},
+        {"item_name": "/app/ROTATED", "item_type": "ROTATED_SECRET"}
+    ]"#;
+
+    let result = providers::akeyless::parse_akeyless_list(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], "/app/STATIC");
+}
+
+#[test]
+fn test_akeyless_parse_list_empty() {
+    let result = providers::akeyless::parse_akeyless_list("[]").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_akeyless_parse_list_empty_string() {
+    let result = providers::akeyless::parse_akeyless_list("").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_akeyless_parse_list_invalid_json() {
+    let result = providers::akeyless::parse_akeyless_list("not json");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_akeyless_parse_value() {
+    let json = r#"{"/app/DB_HOST": "localhost"}"#;
+    let result = providers::akeyless::parse_akeyless_value(json, "/app/DB_HOST").unwrap();
+    assert_eq!(result, "localhost");
+}
+
+#[test]
+fn test_akeyless_parse_value_single_key() {
+    let json = r#"{"/app/SECRET": "my-secret"}"#;
+    let result = providers::akeyless::parse_akeyless_value(json, "/other/path").unwrap();
+    assert_eq!(result, "my-secret");
+}
+
+#[test]
+fn test_akeyless_parse_value_invalid_json() {
+    let result = providers::akeyless::parse_akeyless_value("not json", "/path");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_akeyless_extract_key_name() {
+    assert_eq!(
+        providers::akeyless::extract_key_name("/app/prod/DB_HOST"),
+        "DB_HOST"
+    );
+    assert_eq!(providers::akeyless::extract_key_name("/SECRET"), "SECRET");
+    assert_eq!(providers::akeyless::extract_key_name("SIMPLE"), "SIMPLE");
+    assert_eq!(providers::akeyless::extract_key_name("/a/b/c/DEEP"), "DEEP");
+}
+
+#[test]
+fn test_akeyless_build_env_empty() {
+    let creds = HashMap::new();
+    let env = providers::akeyless::build_env(&creds);
+    assert!(env.is_empty());
+}
+
+#[test]
+fn test_akeyless_provider_metadata() {
+    let provider = providers::AkeylessProvider;
+    assert_eq!(provider.name(), "akeyless");
+    assert_eq!(provider.display_name(), "Akeyless Vault");
+    assert_eq!(provider.binary_name(), "akeyless");
+    assert_eq!(
+        provider.credential_fields(),
+        vec!["access_id", "access_key"]
+    );
+}
+
+#[test]
+fn test_akeyless_validate_config_missing_fields() {
+    let provider = providers::AkeylessProvider;
+    let result = provider.validate_config(&HashMap::new());
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_akeyless_validate_config_partial() {
+    let provider = providers::AkeylessProvider;
+    let mut creds = HashMap::new();
+    creds.insert("access_id".into(), "p-xxx".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_akeyless_validate_config_complete() {
+    let provider = providers::AkeylessProvider;
+    let mut creds = HashMap::new();
+    creds.insert("access_id".into(), "p-xxx".into());
+    creds.insert("access_key".into(), "key123".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_ok());
+}
+
+// ─── Conjur Tests ──────────────────────────────────────────
+
+#[test]
+fn test_conjur_parse_list_basic() {
+    let json = r#"[
+        "myorg:variable:app/db/host",
+        "myorg:variable:app/db/password",
+        "myorg:variable:app/api_key"
+    ]"#;
+
+    let result = providers::conjur::parse_conjur_list(json, "myorg").unwrap();
+    assert_eq!(result.len(), 3);
+    assert!(result.contains(&"app/db/host".to_string()));
+    assert!(result.contains(&"app/db/password".to_string()));
+    assert!(result.contains(&"app/api_key".to_string()));
+}
+
+#[test]
+fn test_conjur_parse_list_strips_prefix() {
+    let json = r#"["acme:variable:secrets/DB_URL"]"#;
+    let result = providers::conjur::parse_conjur_list(json, "acme").unwrap();
+    assert_eq!(result[0], "secrets/DB_URL");
+}
+
+#[test]
+fn test_conjur_parse_list_mismatched_account() {
+    let json = r#"["other:variable:path/key"]"#;
+    let result = providers::conjur::parse_conjur_list(json, "myorg").unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], "path/key");
+}
+
+#[test]
+fn test_conjur_parse_list_empty() {
+    let result = providers::conjur::parse_conjur_list("[]", "myorg").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_conjur_parse_list_empty_string() {
+    let result = providers::conjur::parse_conjur_list("", "myorg").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_conjur_parse_list_invalid_json() {
+    let result = providers::conjur::parse_conjur_list("not json", "myorg");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_conjur_extract_key() {
+    assert_eq!(providers::conjur::extract_conjur_key("app/db/HOST"), "HOST");
+    assert_eq!(providers::conjur::extract_conjur_key("SIMPLE"), "SIMPLE");
+    assert_eq!(providers::conjur::extract_conjur_key("a/b/c/DEEP"), "DEEP");
+}
+
+#[test]
+fn test_conjur_provider_metadata() {
+    let provider = providers::ConjurProvider;
+    assert_eq!(provider.name(), "conjur");
+    assert_eq!(provider.display_name(), "CyberArk Conjur");
+    assert_eq!(provider.binary_name(), "conjur");
+    assert_eq!(
+        provider.credential_fields(),
+        vec!["url", "account", "login", "api_key"]
+    );
+}
+
+#[test]
+fn test_conjur_validate_config_missing_fields() {
+    let provider = providers::ConjurProvider;
+    let result = provider.validate_config(&HashMap::new());
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_conjur_validate_config_partial() {
+    let provider = providers::ConjurProvider;
+    let mut creds = HashMap::new();
+    creds.insert("url".into(), "https://conjur.example.com".into());
+    creds.insert("account".into(), "myorg".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_conjur_validate_config_complete() {
+    let provider = providers::ConjurProvider;
+    let mut creds = HashMap::new();
+    creds.insert("url".into(), "https://conjur.example.com".into());
+    creds.insert("account".into(), "myorg".into());
+    creds.insert("login".into(), "admin".into());
+    creds.insert("api_key".into(), "abc123".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_ok());
+}
+
+// ─── SOPS Tests ────────────────────────────────────────────
+
+#[test]
+fn test_sops_parse_output_basic() {
+    let json = r#"{"DB_HOST": "localhost", "DB_PORT": "5432"}"#;
+    let result = providers::sops::parse_sops_output(json).unwrap();
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0], ("DB_HOST".to_string(), "localhost".to_string()));
+    assert_eq!(result[1], ("DB_PORT".to_string(), "5432".to_string()));
+}
+
+#[test]
+fn test_sops_parse_output_filters_metadata() {
+    let json = r#"{
+        "API_KEY": "secret123",
+        "sops": {"kms": [], "pgp": [], "lastmodified": "2024-01-01"},
+        "DB_URL": "postgres://localhost"
+    }"#;
+
+    let result = providers::sops::parse_sops_output(json).unwrap();
+    assert_eq!(result.len(), 2);
+    let keys: Vec<&str> = result.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(keys.contains(&"API_KEY"));
+    assert!(keys.contains(&"DB_URL"));
+    assert!(!keys.contains(&"sops"));
+}
+
+#[test]
+fn test_sops_parse_output_empty() {
+    let result = providers::sops::parse_sops_output("{}").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_sops_parse_output_empty_string() {
+    let result = providers::sops::parse_sops_output("").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_sops_parse_output_invalid_json() {
+    let result = providers::sops::parse_sops_output("not json");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sops_parse_output_non_string_values() {
+    let json = r#"{"DEBUG": true, "PORT": 3000, "NAME": "app"}"#;
+    let result = providers::sops::parse_sops_output(json).unwrap();
+    assert_eq!(result.len(), 3);
+    let map: HashMap<String, String> = result.into_iter().collect();
+    assert_eq!(map["NAME"], "app");
+    assert_eq!(map["DEBUG"], "true");
+    assert_eq!(map["PORT"], "3000");
+}
+
+#[test]
+fn test_sops_parse_output_sorted() {
+    let json = r#"{"ZEBRA": "z", "ALPHA": "a", "MIDDLE": "m"}"#;
+    let result = providers::sops::parse_sops_output(json).unwrap();
+    assert_eq!(result[0].0, "ALPHA");
+    assert_eq!(result[1].0, "MIDDLE");
+    assert_eq!(result[2].0, "ZEBRA");
+}
+
+#[test]
+fn test_sops_build_env() {
+    let mut creds = HashMap::new();
+    creds.insert("key_file".into(), "/home/user/.sops/age.key".into());
+
+    let env = providers::sops::build_env(&creds);
+    assert_eq!(env.len(), 1);
+    assert_eq!(env[0].0, "SOPS_AGE_KEY_FILE");
+    assert_eq!(env[0].1, "/home/user/.sops/age.key");
+}
+
+#[test]
+fn test_sops_build_env_empty() {
+    let creds = HashMap::new();
+    let env = providers::sops::build_env(&creds);
+    assert!(env.is_empty());
+}
+
+#[test]
+fn test_sops_provider_metadata() {
+    let provider = providers::SopsProvider;
+    assert_eq!(provider.name(), "sops");
+    assert_eq!(provider.display_name(), "Mozilla SOPS");
+    assert_eq!(provider.binary_name(), "sops");
+    assert_eq!(provider.credential_fields(), vec!["key_file"]);
+    assert_eq!(
+        provider.optional_credential_fields(),
+        vec!["encryption_type"]
+    );
+}
+
+#[test]
+fn test_sops_validate_config_missing_key_file() {
+    let provider = providers::SopsProvider;
+    let result = provider.validate_config(&HashMap::new());
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sops_validate_config_complete() {
+    let provider = providers::SopsProvider;
+    let mut creds = HashMap::new();
+    creds.insert("key_file".into(), "/path/to/key".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_ok());
+}
+
+// ─── pass/gopass Tests ─────────────────────────────────────
+
+#[test]
+fn test_pass_build_env_with_store_path() {
+    let mut creds = HashMap::new();
+    creds.insert("store_path".into(), "/custom/store".into());
+
+    let env = providers::pass::build_env(&creds);
+    assert_eq!(env.len(), 1);
+    assert_eq!(env[0].0, "PASSWORD_STORE_DIR");
+    assert_eq!(env[0].1, "/custom/store");
+}
+
+#[test]
+fn test_pass_build_env_empty() {
+    let creds = HashMap::new();
+    let env = providers::pass::build_env(&creds);
+    assert!(env.is_empty());
+}
+
+#[test]
+fn test_pass_provider_metadata() {
+    let provider = providers::PassProvider;
+    assert_eq!(provider.name(), "pass");
+    assert_eq!(provider.display_name(), "pass/gopass");
+    assert_eq!(provider.binary_name(), "pass");
+    assert!(provider.credential_fields().is_empty());
+    assert_eq!(
+        provider.optional_credential_fields(),
+        vec!["store_path", "binary"]
+    );
+}
+
+#[test]
+fn test_pass_validate_config_always_ok() {
+    let provider = providers::PassProvider;
+    let result = provider.validate_config(&HashMap::new());
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_pass_scan_nonexistent_store() {
+    use std::path::Path;
+    let result = providers::pass::scan_password_store(Path::new("/nonexistent/store"), "").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_pass_scan_store_with_prefix_filter() {
+    let temp = std::env::temp_dir().join("envforge-test-pass-scan");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(temp.join("app")).unwrap();
+    std::fs::create_dir_all(temp.join("db")).unwrap();
+    std::fs::write(temp.join("app/KEY1.gpg"), b"").unwrap();
+    std::fs::write(temp.join("app/KEY2.gpg"), b"").unwrap();
+    std::fs::write(temp.join("db/HOST.gpg"), b"").unwrap();
+    std::fs::write(temp.join(".gpg-id"), b"ABCD1234").unwrap();
+
+    let all = providers::pass::scan_password_store(&temp, "").unwrap();
+    assert_eq!(all.len(), 3);
+
+    let app_only = providers::pass::scan_password_store(&temp, "app/").unwrap();
+    assert_eq!(app_only.len(), 2);
+    assert!(app_only.iter().all(|k| k.starts_with("app/")));
+
+    let none = providers::pass::scan_password_store(&temp, "nonexistent/").unwrap();
+    assert!(none.is_empty());
+
+    assert!(!all.iter().any(|k| k.contains(".gpg-id")));
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+// ─── Keeper Tests ──────────────────────────────────────────
+
+#[test]
+fn test_keeper_parse_list_basic() {
+    let json = r#"[
+        {"uid": "uid-1", "title": "DB_PASSWORD", "record_type": "login"},
+        {"uid": "uid-2", "title": "API_KEY", "record_type": "login"}
+    ]"#;
+
+    let result = providers::keeper::parse_keeper_list(json).unwrap();
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0], ("uid-1".to_string(), "DB_PASSWORD".to_string()));
+    assert_eq!(result[1], ("uid-2".to_string(), "API_KEY".to_string()));
+}
+
+#[test]
+fn test_keeper_parse_list_empty() {
+    let result = providers::keeper::parse_keeper_list("[]").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_keeper_parse_list_empty_string() {
+    let result = providers::keeper::parse_keeper_list("").unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_keeper_parse_list_invalid_json() {
+    let result = providers::keeper::parse_keeper_list("not json");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_keeper_parse_record_password() {
+    let json = r#"{
+        "uid": "uid-1",
+        "title": "DB_PASSWORD",
+        "type": "login",
+        "fields": [
+            {"type": "login", "value": ["admin"]},
+            {"type": "password", "value": ["s3cret!"]}
+        ]
+    }"#;
+
+    let result = providers::keeper::parse_keeper_record(json).unwrap();
+    assert_eq!(result, "s3cret!");
+}
+
+#[test]
+fn test_keeper_parse_record_login_fallback() {
+    let json = r#"{
+        "uid": "uid-1",
+        "title": "Service",
+        "type": "login",
+        "fields": [
+            {"type": "login", "value": ["admin"]},
+            {"type": "url", "value": ["https://example.com"]}
+        ]
+    }"#;
+
+    let result = providers::keeper::parse_keeper_record(json).unwrap();
+    assert_eq!(result, "admin");
+}
+
+#[test]
+fn test_keeper_parse_record_no_extractable_value() {
+    let json = r#"{
+        "uid": "uid-1",
+        "title": "Empty",
+        "type": "login",
+        "fields": [
+            {"type": "url", "value": ["https://example.com"]},
+            {"type": "fileRef", "value": []}
+        ]
+    }"#;
+
+    let result = providers::keeper::parse_keeper_record(json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_keeper_parse_record_empty_value_array() {
+    let json = r#"{
+        "uid": "uid-1",
+        "title": "Empty PW",
+        "type": "login",
+        "fields": [
+            {"type": "password", "value": []}
+        ]
+    }"#;
+
+    let result = providers::keeper::parse_keeper_record(json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_keeper_parse_record_missing_fields() {
+    let json = r#"{"uid": "uid-1", "title": "No Fields"}"#;
+    let result = providers::keeper::parse_keeper_record(json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_keeper_parse_record_invalid_json() {
+    let result = providers::keeper::parse_keeper_record("not json");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_keeper_provider_metadata() {
+    let provider = providers::KeeperProvider;
+    assert_eq!(provider.name(), "keeper");
+    assert_eq!(provider.display_name(), "Keeper Secrets Manager");
+    assert_eq!(provider.binary_name(), "ksm");
+    assert!(provider.credential_fields().is_empty());
+    assert_eq!(provider.optional_credential_fields(), vec!["profile"]);
+}
+
+#[test]
+fn test_keeper_validate_config_always_ok() {
+    let provider = providers::KeeperProvider;
+    let result = provider.validate_config(&HashMap::new());
+    assert!(result.is_ok());
+}
+
+// ─── Updated Registry Tests ────────────────────────────────
+
+#[test]
+fn test_registry_has_all_13_providers() {
+    let registry = providers::create_default_registry();
+    let names = registry.list_names();
+    assert_eq!(names.len(), 13);
+    assert!(names.contains(&"vault".to_string()));
+    assert!(names.contains(&"aws-ssm".to_string()));
+    assert!(names.contains(&"1password".to_string()));
+    assert!(names.contains(&"doppler".to_string()));
+    assert!(names.contains(&"infisical".to_string()));
+    assert!(names.contains(&"gcp".to_string()));
+    assert!(names.contains(&"azure".to_string()));
+    assert!(names.contains(&"bitwarden".to_string()));
+    assert!(names.contains(&"akeyless".to_string()));
+    assert!(names.contains(&"conjur".to_string()));
+    assert!(names.contains(&"sops".to_string()));
+    assert!(names.contains(&"pass".to_string()));
+    assert!(names.contains(&"keeper".to_string()));
+}
+
+#[test]
+fn test_registry_get_new_providers() {
+    let registry = providers::create_default_registry();
+    for name in &["bitwarden", "akeyless", "conjur", "sops", "pass", "keeper"] {
+        let provider = registry.get(name).unwrap();
+        assert_eq!(provider.name(), *name);
+    }
+}
+
+// ─── Akeyless Additional Tests ────────────────────────────
+
+#[test]
+fn test_akeyless_parse_value_no_match_multiple_keys() {
+    let json = r#"{"/app/KEY1": "val1", "/app/KEY2": "val2"}"#;
+    let result = providers::akeyless::parse_akeyless_value(json, "/app/KEY3");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_akeyless_parse_list_missing_item_name() {
+    let json = r#"[
+        {"item_type": "STATIC_SECRET"},
+        {"item_name": "/app/VALID", "item_type": "STATIC_SECRET"}
+    ]"#;
+    let result = providers::akeyless::parse_akeyless_list(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], "/app/VALID");
+}
+
+#[test]
+fn test_akeyless_parse_list_missing_item_type() {
+    let json = r#"[{"item_name": "/app/NO_TYPE"}]"#;
+    let result = providers::akeyless::parse_akeyless_list(json).unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_akeyless_extract_key_name_empty_string() {
+    assert_eq!(providers::akeyless::extract_key_name(""), "");
+}
+
+#[test]
+fn test_akeyless_extract_key_name_trailing_slash() {
+    assert_eq!(providers::akeyless::extract_key_name("/app/"), "");
+}
+
+#[test]
+fn test_akeyless_parse_value_non_string_value() {
+    let json = r#"{"/app/KEY": 42}"#;
+    let result = providers::akeyless::parse_akeyless_value(json, "/app/KEY");
+    assert!(result.is_err());
+}
+
+// ─── Bitwarden Additional Tests ───────────────────────────
+
+#[test]
+fn test_bitwarden_parse_output_preserves_empty_value() {
+    let json = r#"[
+        {"id": "uuid-1", "key": "HAS_EMPTY", "value": ""}
+    ]"#;
+    let result = providers::bitwarden::parse_bitwarden_output(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], ("HAS_EMPTY".to_string(), "".to_string()));
+}
+
+#[test]
+fn test_bitwarden_validate_config_with_optional_project_id() {
+    let provider = providers::BitwardenProvider;
+    let mut creds = HashMap::new();
+    creds.insert("access_token".into(), "0.xxx.yyy".into());
+    creds.insert("project_id".into(), "pid-123".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_ok());
+}
+
+// ─── Conjur Additional Tests ──────────────────────────────
+
+#[test]
+fn test_conjur_parse_list_filters_non_variable_resources() {
+    let json = r#"[
+        "myorg:variable:app/secret",
+        "myorg:policy:app",
+        "myorg:host:app/server"
+    ]"#;
+    let result = providers::conjur::parse_conjur_list(json, "myorg").unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], "app/secret");
+}
+
+#[test]
+fn test_conjur_parse_list_empty_account() {
+    let json = r#"[":variable:global/key"]"#;
+    let result = providers::conjur::parse_conjur_list(json, "").unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], "global/key");
+}
+
+#[test]
+fn test_conjur_extract_key_empty_string() {
+    assert_eq!(providers::conjur::extract_conjur_key(""), "");
+}
+
+#[test]
+fn test_conjur_extract_key_single_segment() {
+    assert_eq!(providers::conjur::extract_conjur_key("SECRET"), "SECRET");
+}
+
+#[test]
+fn test_conjur_parse_list_malformed_entries() {
+    let json = r#"["no-colon-at-all", "single:colon"]"#;
+    let result = providers::conjur::parse_conjur_list(json, "myorg").unwrap();
+    assert!(result.is_empty());
+}
+
+// ─── SOPS Additional Tests ────────────────────────────────
+
+#[test]
+fn test_sops_parse_output_only_sops_metadata() {
+    let json = r#"{"sops": {"version": "3.7.3"}}"#;
+    let result = providers::sops::parse_sops_output(json).unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_sops_parse_output_nested_object_value() {
+    let json = r#"{"CONFIG": {"nested": "value"}}"#;
+    let result = providers::sops::parse_sops_output(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].0, "CONFIG");
+    assert!(result[0].1.contains("nested"));
+}
+
+#[test]
+fn test_sops_parse_output_null_value() {
+    let json = r#"{"KEY": null}"#;
+    let result = providers::sops::parse_sops_output(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], ("KEY".to_string(), "null".to_string()));
+}
+
+#[test]
+fn test_sops_validate_config_with_encryption_type() {
+    let provider = providers::SopsProvider;
+    let mut creds = HashMap::new();
+    creds.insert("key_file".into(), "/path/to/key".into());
+    creds.insert("encryption_type".into(), "pgp".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_ok());
+}
+
+// ─── pass/gopass Additional Tests ─────────────────────────
+
+#[test]
+fn test_pass_scan_store_skips_hidden_directories() {
+    let temp = std::env::temp_dir().join("envforge-test-pass-hidden");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(temp.join(".hidden")).unwrap();
+    std::fs::create_dir_all(temp.join("visible")).unwrap();
+    std::fs::write(temp.join(".hidden/SECRET.gpg"), b"").unwrap();
+    std::fs::write(temp.join("visible/KEY.gpg"), b"").unwrap();
+
+    let result = providers::pass::scan_password_store(&temp, "").unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], "visible/KEY");
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_pass_scan_store_empty_dir() {
+    let temp = std::env::temp_dir().join("envforge-test-pass-empty");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let result = providers::pass::scan_password_store(&temp, "").unwrap();
+    assert!(result.is_empty());
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_pass_scan_store_ignores_non_gpg_files() {
+    let temp = std::env::temp_dir().join("envforge-test-pass-nongpg");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+    std::fs::write(temp.join("README.md"), b"notes").unwrap();
+    std::fs::write(temp.join("config.txt"), b"").unwrap();
+    std::fs::write(temp.join("REAL.gpg"), b"").unwrap();
+
+    let result = providers::pass::scan_password_store(&temp, "").unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], "REAL");
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_pass_validate_config_with_custom_binary() {
+    let provider = providers::PassProvider;
+    let mut creds = HashMap::new();
+    creds.insert("binary".into(), "gopass".into());
+    let result = provider.validate_config(&creds);
+    assert!(result.is_ok());
+}
+
+// ─── Keeper Additional Tests ──────────────────────────────
+
+#[test]
+fn test_keeper_parse_list_missing_uid() {
+    let json = r#"[
+        {"title": "NO_UID"},
+        {"uid": "uid-1", "title": "HAS_UID"}
+    ]"#;
+    let result = providers::keeper::parse_keeper_list(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], ("uid-1".to_string(), "HAS_UID".to_string()));
+}
+
+#[test]
+fn test_keeper_parse_list_missing_title() {
+    let json = r#"[
+        {"uid": "uid-1"},
+        {"uid": "uid-2", "title": "Valid"}
+    ]"#;
+    let result = providers::keeper::parse_keeper_list(json).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], ("uid-2".to_string(), "Valid".to_string()));
+}
+
+#[test]
+fn test_keeper_parse_record_prefers_password_over_login() {
+    let json = r#"{
+        "uid": "uid-1",
+        "title": "Both",
+        "type": "login",
+        "fields": [
+            {"type": "login", "value": ["admin"]},
+            {"type": "password", "value": ["supersecret"]}
+        ]
+    }"#;
+    let result = providers::keeper::parse_keeper_record(json).unwrap();
+    assert_eq!(result, "supersecret");
+}
+
+#[test]
+fn test_keeper_parse_record_empty_password_falls_to_login() {
+    let json = r#"{
+        "uid": "uid-1",
+        "title": "EmptyPW",
+        "type": "login",
+        "fields": [
+            {"type": "password", "value": [""]},
+            {"type": "login", "value": ["fallback-user"]}
+        ]
+    }"#;
+    let result = providers::keeper::parse_keeper_record(json).unwrap();
+    assert_eq!(result, "fallback-user");
+}
+
+#[test]
+fn test_keeper_parse_record_secret_type_field() {
+    let json = r#"{
+        "uid": "uid-1",
+        "title": "SecretType",
+        "type": "login",
+        "fields": [
+            {"type": "secret", "value": ["my-api-key"]}
+        ]
+    }"#;
+    let result = providers::keeper::parse_keeper_record(json).unwrap();
+    assert_eq!(result, "my-api-key");
+}
+
+#[test]
+fn test_keeper_parse_record_text_type_field() {
+    let json = r#"{
+        "uid": "uid-1",
+        "title": "TextType",
+        "type": "login",
+        "fields": [
+            {"type": "text", "value": ["plain-text-value"]}
+        ]
+    }"#;
+    let result = providers::keeper::parse_keeper_record(json).unwrap();
+    assert_eq!(result, "plain-text-value");
+}
+
+// ─── Cross-Provider Edge Case Tests ───────────────────────
+
+#[test]
+fn test_all_new_providers_have_non_empty_display_name() {
+    let registry = providers::create_default_registry();
+    for name in &["bitwarden", "akeyless", "conjur", "sops", "pass", "keeper"] {
+        let provider = registry.get(name).unwrap();
+        assert!(
+            !provider.display_name().is_empty(),
+            "{} has empty display_name",
+            name
+        );
+    }
+}
+
+#[test]
+fn test_all_new_providers_have_non_empty_binary_name() {
+    let registry = providers::create_default_registry();
+    for name in &["bitwarden", "akeyless", "conjur", "sops", "pass", "keeper"] {
+        let provider = registry.get(name).unwrap();
+        assert!(
+            !provider.binary_name().is_empty(),
+            "{} has empty binary_name",
+            name
+        );
+    }
+}
+
+#[test]
+fn test_all_new_providers_have_install_hint() {
+    let registry = providers::create_default_registry();
+    for name in &["bitwarden", "akeyless", "conjur", "sops", "pass", "keeper"] {
+        let provider = registry.get(name).unwrap();
+        assert!(
+            !provider.install_hint().is_empty(),
+            "{} has empty install_hint",
+            name
+        );
+    }
+}
+
+#[test]
+fn test_all_providers_name_matches_registry_key() {
+    let registry = providers::create_default_registry();
+    let names = registry.list_names();
+    for name in &names {
+        let provider = registry.get(name).unwrap();
+        assert_eq!(
+            provider.name(),
+            name.as_str(),
+            "provider.name() mismatch for registry key '{}'",
+            name
+        );
     }
 }

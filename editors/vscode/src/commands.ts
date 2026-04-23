@@ -10,19 +10,30 @@ export function registerCommands(
     treeProvider: EnvTreeProvider,
     profileProvider: ProfileTreeProvider,
 ) {
-    const commands: [string, () => Promise<void>][] = [
-        ['envforge.list', cmdList],
+    // Commands that accept an optional URI argument (from explorer/editor context menus)
+    const fileAwareCommands: [string, (uri?: vscode.Uri) => Promise<void>][] = [
         ['envforge.validate', cmdValidate],
         ['envforge.scan', cmdScan],
-        ['envforge.profileSwitch', cmdProfileSwitch],
-        ['envforge.profileDiff', cmdProfileDiff],
         ['envforge.schemaGenerate', cmdSchemaGenerate],
         ['envforge.export', cmdExport],
+        ['envforge.check', cmdCheck],
+    ];
+
+    for (const [id, handler] of fileAwareCommands) {
+        context.subscriptions.push(
+            vscode.commands.registerCommand(id, handler)
+        );
+    }
+
+    // Commands that do not need a URI argument
+    const commands: [string, () => Promise<void>][] = [
+        ['envforge.list', cmdList],
+        ['envforge.profileSwitch', cmdProfileSwitch],
+        ['envforge.profileDiff', cmdProfileDiff],
         ['envforge.syncStatus', cmdSyncStatus],
         ['envforge.syncPush', cmdSyncPush],
         ['envforge.syncPull', cmdSyncPull],
         ['envforge.doctor', cmdDoctor],
-        ['envforge.check', cmdCheck],
         ['envforge.restartLsp', cmdRestartLsp],
     ];
 
@@ -53,6 +64,66 @@ export function registerCommands(
                 vscode.window.showInformationMessage(`Key copied: ${key}`);
             }
         }),
+        vscode.commands.registerCommand('envforge.copyKeyValue', (arg: any) => {
+            const key = arg?.envVar?.key;
+            const value = arg?.envVar?.value;
+            if (typeof key === 'string' && typeof value === 'string') {
+                vscode.env.clipboard.writeText(`${key}=${value}`);
+                vscode.window.showInformationMessage(`Copied: ${key}=...`);
+            }
+        }),
+        vscode.commands.registerCommand('envforge.profileContextSwitch', async (item: vscode.TreeItem) => {
+            const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
+            if (!name) return;
+            try {
+                await run(['profile', 'switch', name]);
+                vscode.window.showInformationMessage(`Switched to profile: ${name}`);
+                profileProvider.refresh();
+                treeProvider.refresh();
+                statusBar.update();
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+            }
+        }),
+        vscode.commands.registerCommand('envforge.profileContextDiff', async (item: vscode.TreeItem) => {
+            const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
+            if (!name) return;
+            try {
+                // Find the active profile to diff against
+                const { stdout } = await run(['profile', 'list', '--json']);
+                const profiles: string[] = JSON.parse(stdout);
+                // If this is the active profile, let user pick another
+                if (item.contextValue === 'envProfileActive') {
+                    const other = await vscode.window.showQuickPick(
+                        profiles.filter(p => p !== name),
+                        { placeHolder: 'Diff with profile' }
+                    );
+                    if (!other) return;
+                    await runAndShow('Profile Diff', ['profile', 'diff', name, other]);
+                } else {
+                    // Diff inactive profile against the active one
+                    // Find active profile name from tree description
+                    await runAndShow('Profile Diff', ['profile', 'diff', name]);
+                }
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+            }
+        }),
+        vscode.commands.registerCommand('envforge.profileOpenFile', async (item: vscode.TreeItem) => {
+            // description holds the file name for inactive profiles, 'active' for active
+            const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
+            if (!name) return;
+            const wsFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!wsFolder) return;
+            // Profile file is typically .env.<name>
+            const fileUri = vscode.Uri.joinPath(wsFolder.uri, `.env.${name}`);
+            try {
+                const doc = await vscode.workspace.openTextDocument(fileUri);
+                await vscode.window.showTextDocument(doc);
+            } catch {
+                vscode.window.showErrorMessage(`Could not open file for profile: ${name}`);
+            }
+        }),
         vscode.commands.registerCommand('envforge.toggleGrouping', () => {
             treeProvider.toggleGrouping();
         }),
@@ -76,13 +147,30 @@ function cwd(): string {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
 }
 
-function run(args: string[]): Promise<{ stdout: string; stderr: string }> {
+/** Resolve working directory from an optional URI (file explorer context) */
+function cwdFromUri(uri?: vscode.Uri): string {
+    if (uri) {
+        // If the URI points to a file, use its parent directory
+        const stat = uri.fsPath;
+        const path = require('path');
+        return path.dirname(stat);
+    }
+    // Fallback to active editor's directory
+    const activeUri = vscode.window.activeTextEditor?.document.uri;
+    if (activeUri && activeUri.scheme === 'file') {
+        const path = require('path');
+        return path.dirname(activeUri.fsPath);
+    }
+    return cwd();
+}
+
+function run(args: string[], workingDir?: string): Promise<{ stdout: string; stderr: string }> {
     const binary = getEnvforgePath();
     const out = getOutputChannel();
     out.appendLine(`> ${binary} ${args.join(' ')}`);
 
     return new Promise((resolve, reject) => {
-        cp.execFile(binary, args, { cwd: cwd(), timeout: 30000 }, (err, stdout, stderr) => {
+        cp.execFile(binary, args, { cwd: workingDir || cwd(), timeout: 30000 }, (err, stdout, stderr) => {
             if (err && !stdout) {
                 const msg = stderr?.trim() || err.message;
                 out.appendLine(`ERROR: ${msg}`);
@@ -103,9 +191,9 @@ function showOutput(title: string, content: string) {
     out.show(true);
 }
 
-async function runAndShow(title: string, args: string[]) {
+async function runAndShow(title: string, args: string[], workingDir?: string) {
     try {
-        const { stdout } = await run(args);
+        const { stdout } = await run(args, workingDir);
         showOutput(title, stdout);
     } catch (e: any) {
         vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
@@ -120,12 +208,12 @@ async function cmdList() {
     await runAndShow('Variables', ['list']);
 }
 
-async function cmdValidate() {
-    await runAndShow('Schema Validation', ['validate', '--json']);
+async function cmdValidate(uri?: vscode.Uri) {
+    await runAndShow('Schema Validation', ['validate', '--json'], cwdFromUri(uri));
 }
 
-async function cmdScan() {
-    await runAndShow('Secret Scan', ['scan', '--json']);
+async function cmdScan(uri?: vscode.Uri) {
+    await runAndShow('Secret Scan', ['scan', '--json'], cwdFromUri(uri));
 }
 
 async function cmdProfileSwitch() {
@@ -176,9 +264,10 @@ async function cmdProfileDiff() {
     }
 }
 
-async function cmdSchemaGenerate() {
+async function cmdSchemaGenerate(uri?: vscode.Uri) {
     try {
-        await run(['schema', 'generate', '--output', '.env.schema']);
+        const dir = cwdFromUri(uri);
+        await run(['schema', 'generate', '--output', '.env.schema'], dir);
         vscode.window.showInformationMessage('Generated .env.schema');
         const doc = await vscode.workspace.openTextDocument(
             vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, '.env.schema')
@@ -189,14 +278,14 @@ async function cmdSchemaGenerate() {
     }
 }
 
-async function cmdExport() {
+async function cmdExport(uri?: vscode.Uri) {
     const formats = ['dotenv', 'json', 'yaml', 'toml', 'docker', 'k8s', 'tfvars'];
     const format = await vscode.window.showQuickPick(formats, {
         placeHolder: 'Export format',
     });
     if (!format) return;
 
-    await runAndShow(`Export (${format})`, ['export', '--format', format]);
+    await runAndShow(`Export (${format})`, ['export', '--format', format], cwdFromUri(uri));
 }
 
 async function cmdSyncStatus() {
@@ -227,8 +316,8 @@ async function cmdDoctor() {
     await runAndShow('Health Check', ['doctor']);
 }
 
-async function cmdCheck() {
-    await runAndShow('All Checks', ['check', '--json']);
+async function cmdCheck(uri?: vscode.Uri) {
+    await runAndShow('All Checks', ['check', '--json'], cwdFromUri(uri));
 }
 
 async function cmdRestartLsp() {

@@ -2,7 +2,7 @@
 
 The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **10+ AI safety tools**, 7 secret provider integrations, encrypted sync, and 70+ commands.
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **22 AI safety tools**, 13 secret provider integrations, encrypted sync, and 90+ commands.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
@@ -99,7 +99,7 @@ envforge revoke --all
 | **Profiles** | Dev/staging/prod, shared files, profile diff, `--profiles` multi-merge |
 | **Encryption** | Age (X25519) encryption at rest, encrypted sync, per-value encrypt/decrypt |
 | **Remote Sync** | Git-based cross-machine sync, age-encrypted, selective keys, rollback |
-| **Secret Managers** | 7 providers, URI refs (`vault://`), TTL, offline fallback, cache |
+| **Secret Managers** | 13 providers, URI refs (`vault://`), TTL, offline fallback, cache |
 | **IDE Extensions** | VS Code + IntelliJ — LSP diagnostics, hover, completions, go-to-definition |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
 | **Health Check** | `envforge doctor` + `envforge check` — 15+ checks with fix suggestions |
@@ -533,7 +533,7 @@ envforge sync machine                           # Show machine identity
 
 ### Secret Manager Integration
 
-Pull, push, and reference secrets from 7 providers:
+Pull, push, and reference secrets from 13 providers:
 
 | Provider | Binary | Auth Method |
 |----------|--------|-------------|
@@ -544,6 +544,12 @@ Pull, push, and reference secrets from 7 providers:
 | Infisical | `infisical` | Token, machine identity |
 | GCP Secret Manager | `gcloud` | Application default credentials |
 | Azure Key Vault | `az` | Azure CLI login |
+| Bitwarden Secrets Manager | `bws` | Machine account access token |
+| Akeyless Vault | `akeyless` | Access ID + Access Key |
+| CyberArk Conjur | `conjur` | API key + account |
+| Mozilla SOPS | `sops` | age/PGP/KMS key file |
+| pass/gopass | `pass`/`gopass` | GPG keyring |
+| Keeper Secrets Manager | `ksm` | Device config (one-time token) |
 
 ```bash
 # Configure provider credentials (encrypted with age)
@@ -570,7 +576,7 @@ eval "$(envforge secrets resolve)"
 envforge run --resolve -- npm start
 
 # Manage providers
-envforge secrets providers                      # List all 7 with status
+envforge secrets providers                      # List all 13 with status
 envforge secrets status                         # Show configured providers
 envforge secrets config vault --show            # Show stored credentials
 envforge secrets age [--threshold N]             # Show secret ages, flag stale
@@ -610,7 +616,7 @@ $ envforge doctor
 ✓ References         — 0 reference(s), 0 encrypted
 ✓ AI safety          — no .env in project root
 ✓ Sync               — in sync, no local changes
-✓ Providers          — 0/7 binaries found
+✓ Providers          — 0/13 binaries found
 ✓ Credentials        — no providers configured
 
   10 checks: 8 ok, 2 warning(s), 0 error(s)
@@ -1231,7 +1237,7 @@ Use EnvForge in your CI/CD pipelines with the official GitHub Action:
 | Mode | Description |
 |------|-------------|
 | `validate` | Check `.env` against `.env.schema`, fail on errors |
-| `secrets-pull` | Pull from 7 providers → `GITHUB_ENV` (masked by default) |
+| `secrets-pull` | Pull from 13 providers → `GITHUB_ENV` (masked by default) |
 | `export` | Export EnvForge-managed vars into workflow |
 | `run` | Process-scoped injection — secrets don't persist |
 | `drift` | Compare `.env` files, detect config drift |
@@ -1516,7 +1522,7 @@ src/
 │   │   └── model.rs     # Sync data types
 │   │
 │   │── ── Secret Managers ──────────────
-│   └── secrets/         # 7 provider integrations
+│   └── secrets/         # 13 provider integrations
 │       ├── provider.rs  # SecretProvider trait & registry
 │       ├── modes.rs     # Pull/push/reference modes
 │       ├── cache.rs     # TTL cache with offline fallback
@@ -1529,7 +1535,13 @@ src/
 │           ├── doppler.rs   # Doppler
 │           ├── infisical.rs # Infisical
 │           ├── gcp.rs       # GCP Secret Manager
-│           └── azure.rs     # Azure Key Vault
+│           ├── azure.rs     # Azure Key Vault
+│           ├── bitwarden.rs # Bitwarden Secrets Manager
+│           ├── akeyless.rs  # Akeyless Vault
+│           ├── conjur.rs    # CyberArk Conjur
+│           ├── sops.rs      # Mozilla SOPS
+│           ├── pass.rs      # pass/gopass
+│           └── keeper.rs    # Keeper Secrets Manager
 │
 ├── ui/                  # Ratatui TUI
 │   ├── app.rs           # App state (View/Edit/Add/Search modes)

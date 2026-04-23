@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-04-23
+
+### Added — 6 New Secret Manager Providers
+
+Total secret manager integrations expanded from 7 to **13 providers**.
+
+#### Bitwarden Secrets Manager (`bitwarden`)
+- CLI binary: `bws` (Bitwarden Secrets Manager CLI)
+- Auth: Machine account access token (`BWS_ACCESS_TOKEN`)
+- Features: Pull, push (create/update by key), list. Project-based organization.
+- Install: `cargo install bws` or GitHub releases
+
+#### Akeyless Vault (`akeyless`)
+- CLI binary: `akeyless`
+- Auth: Access ID + Access Key (profile or per-command)
+- Features: Pull, push (create/update), get, list. Path-based hierarchy.
+- Filters to STATIC_SECRET type only (ignores dynamic/rotated secrets)
+- Install: Homebrew tap or binary download
+
+#### CyberArk Conjur (`conjur`)
+- CLI binary: `conjur` (Go-based CLI v8+)
+- Auth: Account + URL + Login + API key (init + login flow)
+- Features: Pull, push, get, list. Policy-based variable organization.
+- Parses resource IDs (`account:variable:path/name`) automatically
+- Install: `brew install cyberark/tools/conjur-cli`
+
+#### Mozilla SOPS (`sops`)
+- CLI binary: `sops`
+- Auth: age key file (`SOPS_AGE_KEY_FILE`)
+- Features: Pull (decrypt), push (decrypt-merge-encrypt cycle), get (extract), list
+- **File-based paradigm**: `path` = encrypted file on disk, not remote URL
+- Supports age, PGP, AWS KMS, GCP KMS, Azure KV encryption backends
+- Install: `brew install sops`
+
+#### pass/gopass (`pass`)
+- CLI binary: `pass` or `gopass` (auto-detected, gopass preferred)
+- Auth: GPG keyring (no explicit credentials needed)
+- Features: Pull, push, get, list. Directory-based organization.
+- Scans `~/.password-store/**/*.gpg` for secret enumeration
+- Custom store path via `PASSWORD_STORE_DIR`
+- Install: `brew install pass` / `brew install gopass`
+
+#### Keeper Secrets Manager (`keeper`)
+- CLI binary: `ksm`
+- Auth: Device config (one-time token initialization via `ksm profile init`)
+- Features: Pull, get, list. Push = update only (create not supported).
+- Parses complex nested record JSON with typed field arrays
+- Install: `pip3 install keeper-secrets-manager-cli`
+
+### Changed
+
+#### Test Suite Expansion
+- 1191 total tests (up from 697 in v0.5.6)
+  - 494 new tests including 110+ provider-specific tests for 6 new providers
+  - Filesystem scanning tests for pass/gopass provider
+  - Complex JSON parsing tests for Keeper nested records
+  - Edge case coverage: missing fields, malformed entries, type fallback chains
+- All tests passing: 100% (0 failures)
+
+#### Provider Registry
+- `create_default_registry()` now registers 13 providers
+- Registry tests updated to verify all 13 providers
+
+### Quality Assurance
+
+- **Zero breaking changes** — 100% backward compatible
+- **No API changes** — All existing 7 providers unchanged
+- **No new dependencies** — All providers use existing CLI-wrapper pattern
+- **cargo clippy** — 0 new warnings
+- **cargo fmt** — Clean
+
 ## [0.5.6] - 2026-04-22
 
 ### Fixed — Critical Bug Fixes & Stability

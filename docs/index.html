@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="envforge-icon.svg">
   <title>EnvForge - AI-Safe Environment Variable Manager | Protect Secrets from AI Agents</title>
-  <meta name="description" content="The first env management tool built to protect secrets FROM AI coding agents. 22 AI safety tools, encrypted sync, 7 secret providers, TUI + CLI. Free, open source, written in Rust.">
+  <meta name="description" content="The first env management tool built to protect secrets FROM AI coding agents. 22 AI safety tools, encrypted sync, 13 secret providers, TUI + CLI. Free, open source, written in Rust.">
   <meta name="keywords" content="environment variable manager, env file security, AI agent secrets, secrets management CLI, dotenv alternative, protect secrets from AI, vibe coding security, MCP secrets">
   <meta name="author" content="Emre Erinc">
 
   <!-- Open Graph -->
   <meta property="og:title" content="EnvForge - AI-Safe Environment Variable Manager">
-  <meta property="og:description" content="22 AI safety tools. Encrypted sync. 7 secret providers. CLI + TUI. Protect your secrets from AI coding agents.">
+  <meta property="og:description" content="22 AI safety tools. Encrypted sync. 13 secret providers. CLI + TUI. Protect your secrets from AI coding agents.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://emreerinc.github.io/envforge">
 
@@ -415,7 +415,7 @@
       </div>
       <div class="stat-bar">
         <span><strong>90+</strong> commands</span>
-        <span><strong>7</strong> secret providers</span>
+        <span><strong>13</strong> secret providers</span>
         <span><strong>22</strong> AI safety tools</span>
       </div>
     </section>
@@ -439,6 +439,12 @@
         <span>Infisical</span>
         <span>GCP</span>
         <span>Azure</span>
+        <span>Bitwarden</span>
+        <span>Akeyless</span>
+        <span>CyberArk Conjur</span>
+        <span>SOPS</span>
+        <span>pass/gopass</span>
+        <span>Keeper</span>
       </div>
     </div>
 
@@ -523,8 +529,8 @@
           <p>Git-based cross-machine sync with age encryption. Selective keys, machine overrides, rollback. Offline-first.</p>
         </div>
         <div class="feature-card">
-          <h3><span class="feature-icon">&#128273;</span> 7 Secret Providers</h3>
-          <p>Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure. Pull, push, reference. URI refs: <code>vault://path</code>.</p>
+          <h3><span class="feature-icon">&#128273;</span> 13 Secret Providers</h3>
+          <p>Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure, Bitwarden, Akeyless, Conjur, SOPS, pass/gopass, Keeper. Pull, push, reference.</p>
         </div>
         <div class="feature-card">
           <h3><span class="feature-icon">&#128196;</span> Schema Validation</h3>
@@ -610,9 +616,9 @@
       <div class="feature-grid">
         <div class="feature-card">
           <h3><span class="feature-icon">&#9729;&#65039;</span> Secret Providers</h3>
-          <p>Pull and push secrets from 7 providers. Configure once, use everywhere. URI refs: <code>vault://secret/myapp/DB_URL</code></p>
+          <p>Pull and push secrets from 13 providers. Configure once, use everywhere. URI refs: <code>vault://secret/myapp/DB_URL</code></p>
           <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
-            HashiCorp Vault &middot; AWS SSM &middot; 1Password &middot; Doppler &middot; Infisical &middot; GCP Secret Manager &middot; Azure Key Vault
+            HashiCorp Vault &middot; AWS SSM &middot; 1Password &middot; Doppler &middot; Infisical &middot; GCP Secret Manager &middot; Azure Key Vault &middot; Bitwarden &middot; Akeyless &middot; CyberArk Conjur &middot; Mozilla SOPS &middot; pass/gopass &middot; Keeper
           </p>
         </div>
         <div class="feature-card">
@@ -707,7 +713,7 @@
             <tr><td>Dependency mapping</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
             <tr><td>Full env management</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td></tr>
             <tr><td>TUI interface</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>7+ secret providers</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td></tr>
+            <tr><td>13 secret providers</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td></tr>
             <tr><td>Encrypted sync</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td></tr>
             <tr><td>Free &amp; open source</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">Partial</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td></tr>
             <tr><td>Zero cloud dependency</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td></tr>

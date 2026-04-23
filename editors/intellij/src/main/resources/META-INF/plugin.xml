@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
     <name>EnvForge</name>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
     <description><![CDATA[
@@ -51,6 +51,15 @@
     </extensions>
 
     <actions>
+        <!-- File context menu: appears on right-click in project tree and editor for .env files -->
+        <group id="EnvForge.FileMenu"
+               class="com.envforge.intellij.actions.EnvForgeFileActionGroup"
+               text="EnvForge" popup="true"
+               icon="/icons/envforge.svg">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </group>
+
         <group id="EnvForge.Menu" text="EnvForge" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
 

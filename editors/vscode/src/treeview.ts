@@ -184,7 +184,7 @@ export class ProfileTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
             const item = new vscode.TreeItem(p.name);
             item.description = p.active ? 'active' : p.file;
             item.iconPath = new vscode.ThemeIcon(p.active ? 'check' : 'circle-outline');
-            item.contextValue = p.active ? 'activeProfile' : 'inactiveProfile';
+            item.contextValue = p.active ? 'envProfileActive' : 'envProfile';
 
             if (!p.active) {
                 item.command = {

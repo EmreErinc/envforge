@@ -2,7 +2,7 @@
 
 ## Overview
 
-EnvForge supports 7 secret management providers through an extensible trait-based framework. This guide explains how the provider system works and how to add new providers or modify existing ones.
+EnvForge supports 13 secret management providers through an extensible trait-based framework. This guide explains how the provider system works and how to add new providers or modify existing ones.
 
 **Supported Providers:**
 - HashiCorp Vault
@@ -12,6 +12,12 @@ EnvForge supports 7 secret management providers through an extensible trait-base
 - Doppler
 - Infisical
 - 1Password
+- Bitwarden Secrets Manager
+- Akeyless Vault
+- CyberArk Conjur
+- Mozilla SOPS
+- pass/gopass
+- Keeper Secrets Manager
 
 ## Architecture
 
@@ -170,13 +176,13 @@ fn parse_my_output(output: &str) -> Result<Vec<(String, String)>, SecretsError> 
 
 ## Provider-Specific Variations
 
-### No Environment Variables (Azure, GCP)
+### No Environment Variables (Azure, GCP, Akeyless, Conjur, Keeper)
 
-Some providers use only CLI flags, not environment variables:
+Some providers use only CLI flags or profile-based auth, not environment variables:
 
 ```rust
 fn build_provider_env(&self, _credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
-    Vec::new()  // Azure uses `az`, GCP uses `gcloud` directly
+    Vec::new()  // Azure uses `az`, GCP uses `gcloud`, Akeyless uses profile/flags
 }
 ```
 
@@ -191,6 +197,12 @@ Each provider's JSON response is different:
 | Doppler | `{"KEY": "value"}` at root | Root map |
 | Infisical | `[{"key": "...", "value": "..."}]` | Array iteration |
 | 1Password | `{"fields": [{...}]}` | Array in fields |
+| Bitwarden | `[{"key": "...", "value": "...", "id": "..."}]` | Array iteration |
+| Akeyless | `{"/path": "value"}` (get), `[{"item_name": "..."}]` (list) | Two-step: list + get |
+| Conjur | `["account:variable:path"]` (list), plaintext (get) | JSON list + plaintext get |
+| SOPS | Decrypted flat JSON `{"KEY": "value"}` | Root map (filter `sops` key) |
+| pass/gopass | Plaintext stdout (first line = value) | No JSON parsing |
+| Keeper | `{"fields": [{"type": "password", "value": ["..."]}]}` | Nested typed field arrays |
 
 ### System Keys Filtering
 
@@ -230,7 +242,7 @@ fn parse_doppler_output(output: &str) -> Result<Vec<(String, String)>, SecretsEr
 ## Testing
 
 ### Integration Tests Location
-`tests/secrets_provider_tests.rs` contains integration tests for all 7 providers.
+`tests/secrets_provider_tests.rs` contains integration tests for all 13 providers.
 
 ### Provider Test Pattern
 ```rust
@@ -247,7 +259,7 @@ fn test_vault_build_env() {
 }
 ```
 
-**Current Test Coverage:** 947 tests, 100% passing (includes 82 provider-specific tests)
+**Current Test Coverage:** 1160 tests, 100% passing (includes 150+ provider-specific tests)
 
 ## Adding a New Provider
 

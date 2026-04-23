@@ -1,6 +1,6 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.5.4
+> Generated for EnvForge v0.5.7
 
 ## Global Flags
 
@@ -966,7 +966,7 @@ Usage: envforge secrets pull [OPTIONS] --from <FROM>
 
 | Flag | Description |
 |------|-------------|
-| `--from <FROM>` | Provider name (vault, aws-ssm, 1password, doppler, infisical, gcp, azure) |
+| `--from <FROM>` | Provider name (vault, aws-ssm, 1password, doppler, infisical, gcp, azure, bitwarden, akeyless, conjur, sops, pass, keeper) |
 | `--path <PATH>` | Secret path in the provider [default: ""] |
 | `--filter <FILTER>` | Filter keys by glob pattern |
 

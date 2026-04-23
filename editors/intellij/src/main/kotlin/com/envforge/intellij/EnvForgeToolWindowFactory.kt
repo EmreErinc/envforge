@@ -1,12 +1,15 @@
 package com.envforge.intellij
 
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
+import com.intellij.ui.PopupHandler
 import com.intellij.ui.treeStructure.Tree
 import java.awt.BorderLayout
 import java.awt.datatransfer.StringSelection
@@ -80,8 +83,11 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
             }
         })
 
-        // Context menu for variables
-        varTree.componentPopupMenu = createVarContextMenu()
+        // Context menu for variables (Action-based, replaces JPopupMenu)
+        installVarContextMenu()
+
+        // Context menu for profiles
+        installProfileContextMenu()
 
         // Custom renderer
         varTree.cellRenderer = EnvVarCellRenderer()
@@ -107,30 +113,107 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
         return actionToolbar.component
     }
 
-    private fun createVarContextMenu(): JPopupMenu {
-        return JPopupMenu().apply {
-            add(JMenuItem("Copy Key Name").apply {
-                addActionListener {
-                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return@addActionListener
-                    val data = node.userObject as? VarData ?: return@addActionListener
+    private fun installVarContextMenu() {
+        val group = DefaultActionGroup().apply {
+            add(object : AnAction("Copy Key Name", "Copy variable key to clipboard", com.intellij.icons.AllIcons.Actions.Copy) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val data = node.userObject as? VarData ?: return
                     copyToClipboard(data.key)
                 }
+                override fun update(e: AnActionEvent) {
+                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    e.presentation.isEnabledAndVisible = node?.userObject is VarData
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
             })
-            add(JMenuItem("Copy Value").apply {
-                addActionListener {
-                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return@addActionListener
-                    val data = node.userObject as? VarData ?: return@addActionListener
+            addSeparator()
+            add(object : AnAction("Copy Value", "Copy variable value to clipboard", com.intellij.icons.AllIcons.Actions.EditSource) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val data = node.userObject as? VarData ?: return
                     copyToClipboard(data.value)
                 }
+                override fun update(e: AnActionEvent) {
+                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    e.presentation.isEnabledAndVisible = node?.userObject is VarData
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
             })
-            add(JMenuItem("Copy KEY=VALUE").apply {
-                addActionListener {
-                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return@addActionListener
-                    val data = node.userObject as? VarData ?: return@addActionListener
+            addSeparator()
+            add(object : AnAction("Copy KEY=VALUE", "Copy key=value pair to clipboard", com.intellij.icons.AllIcons.Nodes.Variable) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val data = node.userObject as? VarData ?: return
                     copyToClipboard("${data.key}=${data.value}")
                 }
+                override fun update(e: AnActionEvent) {
+                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    e.presentation.isEnabledAndVisible = node?.userObject is VarData
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
             })
         }
+        PopupHandler.installPopupMenu(varTree, group, "EnvForgeVarPopup")
+    }
+
+    private fun installProfileContextMenu() {
+        val group = DefaultActionGroup().apply {
+            add(object : AnAction("Switch to Profile", "Activate this profile", null) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val info = node.userObject as? ProfileData ?: return
+                    if (!info.active) {
+                        EnvForgeRunner.run(project, listOf("profile", "switch", info.name), "Switch Profile") {
+                            refresh()
+                        }
+                    }
+                }
+                override fun update(e: AnActionEvent) {
+                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    val data = node?.userObject as? ProfileData
+                    e.presentation.isEnabledAndVisible = data != null && !data.active
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            })
+            add(object : AnAction("Diff Against Active", "Compare this profile with the active profile", null) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val info = node.userObject as? ProfileData ?: return
+                    // Find the active profile name
+                    val root = profileModel.root as? DefaultMutableTreeNode ?: return
+                    val activeProfile = (0 until root.childCount)
+                        .mapNotNull { (root.getChildAt(it) as? DefaultMutableTreeNode)?.userObject as? ProfileData }
+                        .firstOrNull { it.active }
+                    if (activeProfile != null && activeProfile.name != info.name) {
+                        EnvForgeRunner.run(project, listOf("profile", "diff", activeProfile.name, info.name), "Profile Diff")
+                    }
+                }
+                override fun update(e: AnActionEvent) {
+                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    val data = node?.userObject as? ProfileData
+                    e.presentation.isEnabledAndVisible = data != null && !data.active
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            })
+            add(object : AnAction("Open Profile File", "Open the profile's .env file in editor", null) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val info = node.userObject as? ProfileData ?: return
+                    val basePath = project.basePath ?: return
+                    val vFile = LocalFileSystem.getInstance().findFileByPath("$basePath/${info.file}")
+                    if (vFile != null) {
+                        FileEditorManager.getInstance(project).openFile(vFile, true)
+                    }
+                }
+                override fun update(e: AnActionEvent) {
+                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    e.presentation.isEnabledAndVisible = node?.userObject is ProfileData
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            })
+        }
+        PopupHandler.installPopupMenu(profileTree, group, "EnvForgeProfilePopup")
     }
 
     fun refresh() {
