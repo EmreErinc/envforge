@@ -1,6 +1,6 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.5.7
+> Generated for EnvForge v0.6.0
 
 ## Global Flags
 
@@ -57,7 +57,6 @@ Usage: envforge get [OPTIONS] <KEY>
 ```bash
 # Get a single variable
 envforge get DATABASE_URL
-
 # Get as JSON
 envforge get API_KEY --json
 ```
@@ -72,8 +71,8 @@ Set a variable (create or update).
 Usage: envforge set [OPTIONS] <ASSIGNMENT>
 ```
 
-| Argument | Description |
-|----------|-------------|
+| Argument       | Description |
+|----------------|-------------|
 | `<ASSIGNMENT>` | KEY=VALUE pair |
 
 **Examples:**
@@ -132,7 +131,6 @@ Usage: envforge copy [OPTIONS] <KEY>
 ```bash
 # Copy value to clipboard
 envforge copy DATABASE_URL
-
 # Copy with JSON output confirmation
 envforge copy API_KEY --json
 ```
@@ -983,6 +981,7 @@ envforge secrets pull --from aws-ssm --path /myapp/ --filter "DB_*"
 envforge secrets pull --from 1password --path "My Vault" --dry-run
 ```
 
+
 ---
 
 ### envforge secrets push
@@ -1013,6 +1012,7 @@ envforge secrets push --to doppler --all
 # Push filtered keys
 envforge secrets push --to aws-ssm --path /prod/ --filter "PROD_*"
 ```
+
 
 ---
 
@@ -1125,6 +1125,7 @@ envforge secrets config vault --show
 # Remove provider credentials
 envforge secrets config doppler --remove
 ```
+
 
 ---
 
@@ -1322,6 +1323,1849 @@ envforge resolve-uri config/secrets.yml --env
 # Write to a file
 envforge resolve-uri config/secrets.yml --output .env.resolved
 ```
+
+---
+
+### Provider Quick Reference
+
+| Provider | Name | Binary | Required Fields | Path Used? |
+|----------|------|--------|-----------------|------------|
+| [HashiCorp Vault](#hashicorp-vault-integration) | `vault` | `vault` | `addr` | Yes — KV mount path |
+| [AWS SSM](#aws-ssm-parameter-store-integration) | `aws-ssm` | `aws` | _(none)_ | Yes — parameter path prefix |
+| [1Password](#1password-integration) | `1password` | `op` | `service_account_token` | Yes — item name or UUID |
+| [Doppler](#doppler-integration) | `doppler` | `doppler` | `token`, `project`, `config` | No — ignored |
+| [Infisical](#infisical-integration) | `infisical` | `infisical` | `token`, `project_id`, `environment` | No — ignored |
+| [GCP Secret Manager](#gcp-secret-manager-integration) | `gcp` | `gcloud` | `project_id` | No — ignored |
+| [Azure Key Vault](#azure-key-vault-integration) | `azure` | `az` | `vault_name` | No — ignored |
+| [Bitwarden](#bitwarden-secrets-manager-integration) | `bitwarden` | `bws` | `access_token` | No — ignored |
+| [Akeyless](#akeyless-vault-integration) | `akeyless` | `akeyless` | `access_id`, `access_key` | Yes — item path prefix |
+| [CyberArk Conjur](#cyberark-conjur-integration) | `conjur` | `conjur` | `url`, `account`, `login`, `api_key` | Yes — variable path prefix |
+| [Mozilla SOPS](#mozilla-sops-integration) | `sops` | `sops` | `key_file` | Yes — encrypted file path |
+| [pass/gopass](#passgopass-integration) | `pass` | `pass`/`gopass` | _(none)_ | Yes — entry prefix filter |
+| [Keeper](#keeper-secrets-manager-integration) | `keeper` | `ksm` | _(none)_ | No — ignored |
+
+---
+
+## Provider Integration Guides
+
+### HashiCorp Vault Integration
+
+> Provider: `vault` | Binary: `vault` | [Official Docs](https://developer.hashicorp.com/vault)
+
+#### Prerequisites
+
+1. Install the Vault CLI:
+   ```bash
+   # macOS
+   brew install hashicorp/tap/vault
+
+   # Linux (Ubuntu/Debian)
+   sudo apt-get install vault
+
+   # Or download from: https://developer.hashicorp.com/vault/install
+   ```
+
+2. Verify installation:
+   ```bash
+   vault --version
+   ```
+
+3. Ensure you have access to a Vault server (self-hosted or HCP Vault).
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `addr` | Vault server URL | `https://vault.example.com:8200` |
+
+**Optional Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `token` | Vault token (for token auth) | `hvs.CAESIJlW...` |
+| `role_id` | AppRole role ID (for AppRole auth) | `db02de05-fa39-...` |
+| `secret_id` | AppRole secret ID (for AppRole auth) | `6a174c20-f6de-...` |
+| `auth_method` | Auth method: `token` (default) or `approle` | `approle` |
+
+**Setup Commands**
+
+**Token authentication (default):**
+```bash
+envforge secrets config vault --set addr=https://vault.example.com:8200
+envforge secrets config vault --set token=hvs.your-token-here --ttl 8h
+```
+
+**AppRole authentication (CI/CD):**
+```bash
+envforge secrets config vault --set addr=https://vault.example.com:8200
+envforge secrets config vault --set auth_method=approle
+envforge secrets config vault --set role_id=db02de05-fa39-...
+envforge secrets config vault --set secret_id=6a174c20-f6de-...
+```
+
+**Verify:**
+```bash
+envforge secrets config vault --show
+```
+
+#### Path Format
+
+The `--path` flag specifies the **KV secret engine mount path and secret name**:
+
+```
+secret/data/myapp        ← KV v2 (default in modern Vault)
+secret/myapp             ← KV v1
+apps/production/api      ← Custom mount paths
+```
+
+EnvForge tries KV v2 path (`data.data`) first, falls back to KV v1 (`data`). You don't need to add `/data/` in the path — EnvForge handles both formats.
+
+**Important**: The path points to a single secret object containing multiple key-value pairs, not to individual keys.
+
+#### End-to-End Workflow
+
+**Pull secrets from Vault**
+```bash
+# Pull all keys from a secret path
+envforge secrets pull --from vault --path secret/myapp
+
+# Pull with filter
+envforge secrets pull --from vault --path secret/myapp --filter "DB_*"
+```
+
+**Push secrets to Vault**
+```bash
+# Push specific keys
+envforge secrets push --to vault --path secret/myapp --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to vault --path secret/myapp --all
+```
+
+**Create references**
+```bash
+# Reference a specific key within a Vault secret
+envforge secrets ref DATABASE_URL --from vault --path secret/myapp/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+# Resolve all secret references and run your app
+envforge run --resolve -- npm start
+
+# Preview what would be injected
+envforge run --resolve --dry-run -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from vault --path secret/myapp
+```
+
+#### Authentication Details
+
+**Token Auth**
+Simplest method. Get a token from your Vault admin or generate one:
+```bash
+vault login -method=userpass username=myuser
+vault token create -ttl=8h
+```
+The token is passed as `VAULT_TOKEN` environment variable to the Vault CLI.
+
+**AppRole Auth (recommended for CI/CD)**
+Non-interactive authentication using role_id + secret_id. EnvForge runs `vault write auth/approle/login` to obtain a session token automatically.
+
+```bash
+# On your Vault server, create an AppRole:
+vault auth enable approle
+vault write auth/approle/role/myapp token_ttl=1h token_max_ttl=4h
+vault read auth/approle/role/myapp/role-id
+vault write -f auth/approle/role/myapp/secret-id
+```
+
+#### Common Pitfalls
+
+1. **KV v1 vs v2 path confusion** — In KV v2, Vault API uses `/secret/data/myapp` internally, but EnvForge handles this automatically. Just use `secret/myapp`.
+
+2. **Token expiry** — Vault tokens have TTLs. Use `--ttl 8h` when configuring to get EnvForge reminders before expiry. Refresh with `envforge secrets config vault --set token=<new-token>`.
+
+3. **Permission denied on list** — The `list` capability is separate from `read` in Vault policies. Ensure your token has both:
+   ```hcl
+   path "secret/data/myapp" {
+     capabilities = ["read", "list"]
+   }
+   ```
+
+4. **Empty path** — Vault requires a path. `envforge secrets pull --from vault` without `--path` will fail.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `connection refused` | Wrong addr or Vault is down | Verify `addr` with `vault status` |
+| `permission denied` | Token lacks required capabilities | Check Vault policy with `vault token lookup` |
+| `no value found at path` | Wrong path or KV version mismatch | Try with/without `data/` in path |
+| `token expired` | TTL exceeded | Re-authenticate: `envforge secrets config vault --set token=<new>` |
+
+---
+
+### AWS SSM Parameter Store Integration
+
+> Provider: `aws-ssm` | Binary: `aws` | [Official Docs](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html)
+
+#### Prerequisites
+
+1. Install the AWS CLI v2:
+   ```bash
+   # macOS
+   brew install awscli
+
+   # Linux
+   curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+   unzip awscliv2.zip && sudo ./aws/install
+
+   # Or: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+   ```
+
+2. Verify installation:
+   ```bash
+   aws --version
+   ```
+
+3. Ensure you have IAM permissions for `ssm:GetParameter`, `ssm:GetParametersByPath`, and `ssm:PutParameter`.
+
+#### Configure EnvForge
+
+**Required Fields**
+
+No strictly required fields — AWS CLI handles authentication via its own chain (env vars, profile, IAM role, SSO).
+
+**Optional Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `access_key` | AWS access key ID | `AKIAIOSFODNN7EXAMPLE` |
+| `secret_key` | AWS secret access key | `wJalrXUtnFEMI/K7MDENG/...` |
+| `region` | AWS region | `us-east-1` |
+| `profile` | Named AWS CLI profile | `production` |
+
+**Setup Commands**
+
+**Explicit credentials:**
+```bash
+envforge secrets config aws-ssm --set access_key=AKIAIOSFODNN7EXAMPLE
+envforge secrets config aws-ssm --set secret_key=wJalrXUtnFEMI/K7MDENG/... --ttl 24h
+envforge secrets config aws-ssm --set region=us-east-1
+```
+
+**Profile-based (recommended):**
+```bash
+envforge secrets config aws-ssm --set profile=production
+envforge secrets config aws-ssm --set region=eu-west-1
+```
+
+**IAM role (EC2/ECS/Lambda):**
+No EnvForge config needed — the AWS SDK auto-detects instance credentials. Just set region if not using the default:
+```bash
+envforge secrets config aws-ssm --set region=us-west-2
+```
+
+**Verify:**
+```bash
+envforge secrets config aws-ssm --show
+```
+
+#### Path Format
+
+The `--path` flag specifies a **parameter path prefix**. SSM parameters are organized hierarchically with `/`:
+
+```
+/myapp/              ← All parameters under /myapp/
+/myapp/prod/         ← Production parameters
+/shared/database/    ← Shared database config
+```
+
+EnvForge uses `get-parameters-by-path --recursive` to fetch all parameters under the prefix. Parameter names are **stripped of the prefix** when imported:
+
+```
+SSM: /myapp/prod/DATABASE_URL  →  EnvForge key: DATABASE_URL
+SSM: /myapp/prod/API_KEY       →  EnvForge key: API_KEY
+```
+
+When pushing, keys are appended to the path: `push --to aws-ssm --path /myapp/prod/ --keys DATABASE_URL` creates `/myapp/prod/DATABASE_URL`.
+
+#### End-to-End Workflow
+
+**Pull secrets from SSM**
+```bash
+# Pull all parameters under a path
+envforge secrets pull --from aws-ssm --path /myapp/prod/
+
+# Pull with filter
+envforge secrets pull --from aws-ssm --path /myapp/ --filter "DB_*"
+```
+
+**Push secrets to SSM**
+```bash
+# Push specific keys (stored as SecureString)
+envforge secrets push --to aws-ssm --path /myapp/prod/ --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to aws-ssm --path /myapp/prod/ --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from aws-ssm --path /myapp/prod/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from aws-ssm --path /myapp/prod/
+```
+
+#### Authentication Details
+
+AWS CLI uses a credential resolution chain (in order):
+
+1. **Environment variables**: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (set by EnvForge when `access_key`/`secret_key` are configured)
+2. **Named profile**: `AWS_PROFILE` (set when `profile` is configured)
+3. **Instance metadata**: IAM role attached to EC2/ECS/Lambda
+4. **SSO**: `aws sso login --profile myprofile`
+
+EnvForge maps its credential fields to AWS environment variables:
+- `access_key` → `AWS_ACCESS_KEY_ID`
+- `secret_key` → `AWS_SECRET_ACCESS_KEY`
+- `profile` → `AWS_PROFILE`
+- `region` → `AWS_DEFAULT_REGION`
+
+#### Common Pitfalls
+
+1. **Missing region** — SSM is regional. If you get `Could not connect to the endpoint URL`, set the region:
+   ```bash
+   envforge secrets config aws-ssm --set region=us-east-1
+   ```
+
+2. **Path must end with `/`** — When pulling, the path prefix should end with `/` to avoid matching unrelated parameters (e.g., `/myapp` would also match `/myapp2/...`).
+
+3. **SecureString by default** — All pushed parameters are stored as `SecureString`. Ensure your IAM user/role has `kms:Decrypt` permission.
+
+4. **Pagination** — EnvForge handles SSM pagination automatically. Large parameter sets (100+) work correctly.
+
+5. **Trailing slash in key names** — Push constructs parameter names as `{path}/{key}`. If your path already has a trailing slash, you won't get double slashes — EnvForge trims it.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Could not connect to endpoint` | Wrong or missing region | Set region: `--set region=us-east-1` |
+| `AccessDeniedException` | IAM policy missing SSM permissions | Add `ssm:GetParameter*` and `ssm:PutParameter` |
+| `ParameterNotFound` | Wrong path prefix or parameter doesn't exist | Verify with `aws ssm get-parameters-by-path --path /your/path/` |
+| `KMS access denied` | Missing KMS decrypt permission for SecureString | Add `kms:Decrypt` to IAM policy |
+| Empty pull result | No parameters under given path | Check path exists: `aws ssm describe-parameters` |
+
+---
+
+### 1Password Integration
+
+> Provider: `1password` | Binary: `op` | [Official Docs](https://developer.1password.com/docs/cli/)
+
+#### Prerequisites
+
+1. Install the 1Password CLI:
+   ```bash
+   # macOS
+   brew install --cask 1password-cli
+
+   # Linux
+   # See: https://developer.1password.com/docs/cli/get-started/
+   ```
+
+2. Verify installation:
+   ```bash
+   op --version
+   ```
+
+3. Create a **Service Account** in your 1Password account with access to the desired vault. Service accounts provide non-interactive authentication for automation.
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `service_account_token` | 1Password Service Account token | `ops_eyJzaWduSW5...` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config 1password --set service_account_token=ops_eyJzaWduSW5... --ttl 30d
+```
+
+**Verify:**
+```bash
+envforge secrets config 1password --show
+```
+
+#### Path Format
+
+The `--path` flag specifies either an **item name** or **item UUID**:
+
+```
+"My API Keys"         ← Item name (quote if spaces)
+abcd1234-...          ← Item UUID
+```
+
+For `list` operations, path is used as the **vault name**:
+```bash
+envforge secrets pull --from 1password --path "My API Keys"    # Gets fields from one item
+```
+
+Item fields are returned as key-value pairs where the **label** is the key and **field value** is the value. Empty labels and empty values are filtered out.
+
+#### End-to-End Workflow
+
+**Pull secrets from 1Password**
+```bash
+# Pull all fields from an item
+envforge secrets pull --from 1password --path "Backend Secrets"
+
+# Pull with filter
+envforge secrets pull --from 1password --path "Backend Secrets" --filter "DB_*"
+```
+
+**Push secrets to 1Password**
+```bash
+# Update existing fields in an item
+envforge secrets push --to 1password --path "Backend Secrets" --keys DATABASE_URL,API_KEY
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from 1password --path "Backend Secrets"
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from 1password --path "Backend Secrets"
+```
+
+#### Authentication Details
+
+1Password uses **Service Account tokens** for automation. The token is passed as `OP_SERVICE_ACCOUNT_TOKEN` environment variable.
+
+**Creating a service account:**
+1. Sign in to your 1Password account at https://my.1password.com
+2. Go to **Developer Tools** > **Infrastructure Secrets** > **Service Accounts**
+3. Create a new service account
+4. Grant access to the vaults containing your secrets
+5. Copy the token (starts with `ops_`)
+
+Service account tokens do not expire by default, but you can set a TTL in EnvForge to track rotation schedules.
+
+#### Common Pitfalls
+
+1. **Item name vs vault name** — `pull` uses path as an item name/UUID. `list` uses it as a vault name. This is a 1Password CLI behavior.
+
+2. **Empty field values** — Fields with empty values are automatically filtered from pull results.
+
+3. **Special characters in item names** — Quote item names with spaces: `--path "My Secrets"`.
+
+4. **Service account vault access** — Service accounts only see vaults explicitly granted to them. If pull returns empty, verify vault permissions.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `isn't a vault` | Path used as vault but it's an item name | For pull, use item name; for list, use vault name |
+| `authentication required` | Invalid or expired service account token | Regenerate token in 1Password dashboard |
+| `item not found` | Wrong item name or UUID | Verify with `op item list --vault "VaultName"` |
+| Empty results | Fields have no labels or values | Check item structure in 1Password app |
+
+---
+
+### Doppler Integration
+
+> Provider: `doppler` | Binary: `doppler` | [Official Docs](https://docs.doppler.com)
+
+#### Prerequisites
+
+1. Install the Doppler CLI:
+   ```bash
+   # macOS
+   brew install dopplerhq/cli/doppler
+
+   # Linux
+   curl -Ls https://cli.doppler.com/install.sh | sh
+
+   # Or: https://docs.doppler.com/docs/install-cli
+   ```
+
+2. Verify installation:
+   ```bash
+   doppler --version
+   ```
+
+3. Create a **Service Token** in your Doppler project for the target config (e.g., `dev`, `staging`, `production`).
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `token` | Doppler service token | `dp.st.dev.xxxx...` |
+| `project` | Doppler project name | `backend-api` |
+| `config` | Doppler config name | `production` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config doppler --set token=dp.st.prod.xxxx...
+envforge secrets config doppler --set project=backend-api
+envforge secrets config doppler --set config=production
+```
+
+**Verify:**
+```bash
+envforge secrets config doppler --show
+```
+
+#### Path Format
+
+**The `--path` flag is ignored.** Doppler uses the `project` and `config` from credentials to determine which secrets to access. You can pass any value (or omit it) — it has no effect.
+
+```bash
+# These are equivalent:
+envforge secrets pull --from doppler
+envforge secrets pull --from doppler --path anything
+```
+
+#### End-to-End Workflow
+
+**Pull secrets from Doppler**
+```bash
+# Pull all secrets for configured project/config
+envforge secrets pull --from doppler
+
+# Pull with filter
+envforge secrets pull --from doppler --filter "DB_*"
+```
+
+**Push secrets to Doppler**
+```bash
+# Push specific keys
+envforge secrets push --to doppler --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to doppler --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from doppler --path doppler/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from doppler
+```
+
+#### Authentication Details
+
+Doppler uses **service tokens** scoped to a project + config combination. The token is passed as `DOPPLER_TOKEN` environment variable.
+
+**Creating a service token:**
+1. Go to your project in the Doppler dashboard
+2. Select the config (e.g., `production`)
+3. Navigate to **Access** > **Service Tokens**
+4. Generate a new token
+5. Copy the token (starts with `dp.st.`)
+
+Each token is scoped to exactly one project + config. For multiple environments, create separate tokens and switch with:
+```bash
+envforge secrets config doppler --set config=staging
+envforge secrets config doppler --set token=dp.st.stg.yyyy...
+```
+
+#### Common Pitfalls
+
+1. **System keys filtered** — Doppler injects `DOPPLER_PROJECT`, `DOPPLER_CONFIG`, and `DOPPLER_ENVIRONMENT` into secret downloads. EnvForge automatically filters these out.
+
+2. **Path is ignored** — Don't rely on `--path` for scoping. Switch project/config via `envforge secrets config doppler --set config=<name>`.
+
+3. **Token scope** — A service token can only access the project+config it was created for. You cannot use a `dev` token to read `production` secrets.
+
+4. **Batch push** — Doppler supports setting multiple secrets in a single API call. EnvForge uses `doppler secrets set KEY1=val1 KEY2=val2` for efficient batch pushes.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `401 Unauthorized` | Invalid or expired service token | Regenerate token in Doppler dashboard |
+| `project not found` | Wrong project name in config | Verify with `doppler projects` |
+| `config not found` | Wrong config name | Verify with `doppler configs --project <name>` |
+| System keys in output | Using Doppler CLI directly | EnvForge filters these; this is normal via raw CLI |
+
+---
+
+### Infisical Integration
+
+> Provider: `infisical` | Binary: `infisical` | [Official Docs](https://infisical.com/docs)
+
+#### Prerequisites
+
+1. Install the Infisical CLI:
+   ```bash
+   # macOS
+   brew install infisical/get-cli/infisical
+
+   # Linux
+   curl -1sLf 'https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh' | sudo -E bash
+   sudo apt-get install infisical
+
+   # Or: https://infisical.com/docs/cli/overview
+   ```
+
+2. Verify installation:
+   ```bash
+   infisical --version
+   ```
+
+3. Create a **Service Token** or **Machine Identity** in your Infisical project.
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `token` | Infisical service token | `st.xxxx.yyyy.zzzz` |
+| `project_id` | Infisical project ID | `64a1b2c3d4e5f6...` |
+| `environment` | Environment slug | `production` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config infisical --set token=st.xxxx.yyyy.zzzz
+envforge secrets config infisical --set project_id=64a1b2c3d4e5f6...
+envforge secrets config infisical --set environment=production
+```
+
+**Verify:**
+```bash
+envforge secrets config infisical --show
+```
+
+#### Path Format
+
+**The `--path` flag is ignored.** Infisical uses `project_id` and `environment` from credentials to scope secrets.
+
+```bash
+# These are equivalent:
+envforge secrets pull --from infisical
+envforge secrets pull --from infisical --path anything
+```
+
+To switch environments, update the credential:
+```bash
+envforge secrets config infisical --set environment=staging
+```
+
+#### End-to-End Workflow
+
+**Pull secrets from Infisical**
+```bash
+# Pull all secrets for configured project/environment
+envforge secrets pull --from infisical
+
+# Pull with filter
+envforge secrets pull --from infisical --filter "DB_*"
+```
+
+**Push secrets to Infisical**
+```bash
+# Push specific keys (batch operation)
+envforge secrets push --to infisical --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to infisical --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from infisical --path infisical/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from infisical
+```
+
+#### Authentication Details
+
+Infisical supports two automation auth methods:
+
+1. **Service Tokens** (legacy): Token scoped to project + environment. Passed as `INFISICAL_TOKEN` env var.
+2. **Machine Identities** (recommended): More flexible, supports multiple auth methods (Universal Auth, Kubernetes, AWS, GCP, Azure).
+
+EnvForge uses the service token approach via `INFISICAL_TOKEN`.
+
+**Creating a service token:**
+1. Go to your project in the Infisical dashboard
+2. Navigate to **Project Settings** > **Service Tokens**
+3. Create a token scoped to the target environment
+4. Copy the token (starts with `st.`)
+
+#### Common Pitfalls
+
+1. **Path is ignored** — Infisical uses project_id + environment from credentials. `--path` has no effect.
+
+2. **Batch push** — Infisical supports setting multiple secrets in one `infisical secrets set KEY1=val1 KEY2=val2` call. EnvForge uses this for efficient pushes.
+
+3. **Environment slug** — Use the slug (e.g., `dev`, `staging`, `production`), not the display name.
+
+4. **Token scope** — Service tokens are scoped to a specific environment within a project. For multiple environments, create separate tokens.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `401 Unauthorized` | Invalid or expired token | Regenerate token in Infisical dashboard |
+| `project not found` | Wrong project_id | Copy project ID from project settings page |
+| `environment not found` | Wrong environment slug | Use slug format: `dev`, `staging`, `production` |
+| Empty results | Token not scoped to environment | Verify token permissions in dashboard |
+
+---
+
+### GCP Secret Manager Integration
+
+> Provider: `gcp` | Binary: `gcloud` | [Official Docs](https://cloud.google.com/secret-manager/docs)
+
+#### Prerequisites
+
+1. Install the Google Cloud SDK:
+   ```bash
+   # macOS
+   brew install google-cloud-sdk
+
+   # Linux
+   curl https://sdk.cloud.google.com | bash
+
+   # Or: https://cloud.google.com/sdk/docs/install
+   ```
+
+2. Verify installation:
+   ```bash
+   gcloud --version
+   ```
+
+3. Authenticate and enable the Secret Manager API:
+   ```bash
+   gcloud auth login
+   gcloud services enable secretmanager.googleapis.com --project=my-project
+   ```
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `project_id` | GCP project ID | `my-project-123` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config gcp --set project_id=my-project-123
+```
+
+**Verify:**
+```bash
+envforge secrets config gcp --show
+```
+
+#### Path Format
+
+**The `--path` flag is ignored.** GCP Secret Manager lists all secrets in the project. Secrets are identified by name, not by path hierarchy.
+
+```bash
+# These are equivalent:
+envforge secrets pull --from gcp
+envforge secrets pull --from gcp --path anything
+```
+
+Use `--filter` to narrow results:
+```bash
+envforge secrets pull --from gcp --filter "DB_*"
+```
+
+#### End-to-End Workflow
+
+**Pull secrets from GCP**
+```bash
+# Pull all secrets in project
+envforge secrets pull --from gcp
+
+# Pull with filter
+envforge secrets pull --from gcp --filter "PROD_*"
+```
+
+**Push secrets to GCP**
+```bash
+# Push specific keys (creates secret if not exists, adds new version)
+envforge secrets push --to gcp --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to gcp --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from gcp --path gcp/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from gcp
+```
+
+#### Authentication Details
+
+GCP uses the standard `gcloud` authentication chain:
+
+1. **User credentials**: `gcloud auth login` (interactive, for development)
+2. **Service account**: `gcloud auth activate-service-account --key-file=sa-key.json` (CI/CD)
+3. **Application Default Credentials**: `GOOGLE_APPLICATION_CREDENTIALS` env var pointing to a service account key file
+4. **Metadata server**: Automatic on GCE/GKE/Cloud Run
+
+EnvForge doesn't set any GCP environment variables — it relies on the `gcloud` CLI's built-in authentication.
+
+**Required IAM roles:**
+- `roles/secretmanager.secretAccessor` (for pull/get)
+- `roles/secretmanager.admin` (for push/create)
+
+#### Common Pitfalls
+
+1. **Path ignored** — GCP Secret Manager is flat (not hierarchical). Use `--filter` to scope results by naming convention.
+
+2. **Secret creation on push** — EnvForge automatically creates secrets that don't exist when pushing. It tries `gcloud secrets create` first, then adds a version. Existing secrets just get a new version.
+
+3. **Latest version only** — Pull always fetches the `latest` version of each secret. Historical versions are not accessible through EnvForge.
+
+4. **Secret names from resource paths** — GCP returns full resource paths like `projects/123/secrets/MY_SECRET`. EnvForge extracts just the secret name (`MY_SECRET`).
+
+5. **Replication policy** — New secrets are created with `--replication-policy=automatic`. Change this in GCP Console if you need regional replication.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `PERMISSION_DENIED` | Missing IAM role | Grant `secretmanager.secretAccessor` role |
+| `API not enabled` | Secret Manager API disabled | Run `gcloud services enable secretmanager.googleapis.com` |
+| `project not found` | Wrong project_id | Verify with `gcloud projects list` |
+| Empty results | No secrets in project or wrong project | Check with `gcloud secrets list --project=<id>` |
+| `already exists` on push | Secret exists (normal) | EnvForge handles this — it adds a new version |
+
+---
+
+### Azure Key Vault Integration
+
+> Provider: `azure` | Binary: `az` | [Official Docs](https://learn.microsoft.com/en-us/azure/key-vault/)
+
+#### Prerequisites
+
+1. Install the Azure CLI:
+   ```bash
+   # macOS
+   brew install azure-cli
+
+   # Linux
+   curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+   # Or: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli
+   ```
+
+2. Verify installation:
+   ```bash
+   az --version
+   ```
+
+3. Authenticate:
+   ```bash
+   az login
+   ```
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `vault_name` | Azure Key Vault name | `myapp-secrets` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config azure --set vault_name=myapp-secrets
+```
+
+**Verify:**
+```bash
+envforge secrets config azure --show
+```
+
+#### Path Format
+
+**The `--path` flag is ignored.** Azure Key Vault lists all secrets in the vault. The vault is specified in the `vault_name` credential field.
+
+```bash
+# These are equivalent:
+envforge secrets pull --from azure
+envforge secrets pull --from azure --path anything
+```
+
+#### End-to-End Workflow
+
+**Pull secrets from Azure Key Vault**
+```bash
+# Pull all secrets from vault
+envforge secrets pull --from azure
+
+# Pull with filter
+envforge secrets pull --from azure --filter "DB_*"
+```
+
+**Push secrets to Azure Key Vault**
+```bash
+# Push specific keys
+envforge secrets push --to azure --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to azure --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from azure --path azure/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from azure
+```
+
+#### Authentication Details
+
+Azure CLI uses its own authentication chain:
+
+1. **Interactive login**: `az login` (browser-based)
+2. **Service principal**: `az login --service-principal -u <app-id> -p <secret> --tenant <tenant-id>` (CI/CD)
+3. **Managed identity**: Automatic on Azure VMs, App Service, Functions
+4. **Device code**: `az login --use-device-code` (headless environments)
+
+EnvForge doesn't set any Azure environment variables — it relies on the `az` CLI's authentication state.
+
+**Required role:**
+- `Key Vault Secrets User` (for read/list)
+- `Key Vault Secrets Officer` (for read/list/write)
+
+#### Common Pitfalls
+
+1. **Underscore-to-hyphen conversion** — Azure Key Vault only allows `[a-zA-Z0-9-]` in secret names. EnvForge automatically converts:
+   - **Push**: `DATABASE_URL` → stored as `DATABASE-URL`
+   - **Pull**: `DATABASE-URL` → returned as `DATABASE_URL`
+
+   This is transparent but important to know if you access the same secrets from other tools.
+
+2. **Path is ignored** — All secrets in the vault are accessible. Use `--filter` to narrow results.
+
+3. **Soft-delete** — Azure Key Vault has soft-delete enabled by default. Deleted secrets are retained for the purge protection period.
+
+4. **Secret names are case-insensitive** — `API-KEY` and `api-key` refer to the same secret in Azure.
+
+5. **ID-based listing** — Azure returns secrets as URLs (`https://vault.vault.azure.net/secrets/name`). EnvForge extracts the secret name from the URL path.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `ForbiddenByPolicy` | Missing Key Vault RBAC role | Assign `Key Vault Secrets User` role |
+| `VaultNotFound` | Wrong vault name | Verify with `az keyvault list` |
+| `SecretNotFound` | Secret name doesn't match (hyphen vs underscore) | Check actual name in portal |
+| `Unauthorized` | Azure CLI not logged in | Run `az login` |
+| Keys have hyphens | Normal — Azure converts underscores | EnvForge converts back automatically |
+
+---
+
+### Bitwarden Secrets Manager Integration
+
+> Provider: `bitwarden` | Binary: `bws` | [Official Docs](https://bitwarden.com/help/secrets-manager-overview/)
+
+#### Prerequisites
+
+1. Install the Bitwarden Secrets Manager CLI:
+   ```bash
+   # npm
+   npm install -g @bitwarden/cli
+
+   # Or download from: https://bitwarden.com/help/secrets-manager-cli/
+   ```
+
+2. Verify installation:
+   ```bash
+   bws --version
+   ```
+
+3. Create a **Machine Account** in your Bitwarden organization and generate an access token.
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `access_token` | Machine account access token | `0.xxxxxxxx-xxxx-...` |
+
+**Optional Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `project_id` | Bitwarden project UUID (required for push) | `abcdef12-3456-...` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config bitwarden --set access_token=0.xxxxxxxx-xxxx-...
+envforge secrets config bitwarden --set project_id=abcdef12-3456-...
+```
+
+**Verify:**
+```bash
+envforge secrets config bitwarden --show
+```
+
+#### Path Format
+
+**The `--path` flag is ignored.** Bitwarden Secrets Manager lists secrets by machine account access, optionally filtered by project_id.
+
+```bash
+# These are equivalent:
+envforge secrets pull --from bitwarden
+envforge secrets pull --from bitwarden --path anything
+```
+
+#### End-to-End Workflow
+
+**Pull secrets from Bitwarden**
+```bash
+# Pull all accessible secrets
+envforge secrets pull --from bitwarden
+
+# Pull with filter
+envforge secrets pull --from bitwarden --filter "DB_*"
+```
+
+**Push secrets to Bitwarden**
+```bash
+# Push specific keys (project_id required)
+envforge secrets push --to bitwarden --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to bitwarden --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from bitwarden --path bitwarden/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from bitwarden
+```
+
+#### Authentication Details
+
+Bitwarden uses **machine account access tokens** for automation. The token is passed as `BWS_ACCESS_TOKEN` environment variable.
+
+**Creating a machine account:**
+1. Sign in to your Bitwarden organization
+2. Go to **Secrets Manager** > **Machine Accounts**
+3. Create a new machine account
+4. Grant access to the desired projects
+5. Generate an access token
+
+#### Common Pitfalls
+
+1. **project_id required for push** — Pull works without project_id (lists all accessible secrets), but push requires it to know where to create new secrets.
+
+2. **Update vs create** — EnvForge checks existing secrets by key name. Existing secrets are updated via `bws secret edit`, new ones are created via `bws secret create`.
+
+3. **Secret key field** — Bitwarden secrets have a `key` (name) and `value`. EnvForge maps these directly.
+
+4. **Access scope** — Machine accounts only see projects explicitly granted to them.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `unauthorized` | Invalid access token | Regenerate token in Bitwarden |
+| `project_id required` on push | Missing project_id credential | `--set project_id=<uuid>` |
+| Empty results | Machine account has no project access | Grant project access in dashboard |
+| `not found` on edit | Secret ID changed | EnvForge re-lists before edit; may be a race condition |
+
+---
+
+### Akeyless Vault Integration
+
+> Provider: `akeyless` | Binary: `akeyless` | [Official Docs](https://docs.akeyless.io)
+
+#### Prerequisites
+
+1. Install the Akeyless CLI:
+   ```bash
+   # macOS
+   brew install akeyless
+
+   # Linux
+   curl -o akeyless https://akeyless-cli.s3.us-east-2.amazonaws.com/cli/latest/production/cli-linux-amd64
+   chmod +x akeyless && sudo mv akeyless /usr/local/bin/
+
+   # Or: https://docs.akeyless.io/docs/cli
+   ```
+
+2. Verify installation:
+   ```bash
+   akeyless --version
+   ```
+
+3. Obtain an **Access ID** and **Access Key** from your Akeyless console.
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `access_id` | Akeyless access ID | `p-abcdef123456` |
+| `access_key` | Akeyless access key | `aBcDeFgHiJkLmN...` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config akeyless --set access_id=p-abcdef123456
+envforge secrets config akeyless --set access_key=aBcDeFgHiJkLmN...
+```
+
+**Verify:**
+```bash
+envforge secrets config akeyless --show
+```
+
+#### Path Format
+
+The `--path` flag specifies a **folder path** in Akeyless. Secrets are organized hierarchically:
+
+```
+/                     ← Root (all secrets)
+/myapp/               ← Application secrets
+/myapp/production/    ← Environment-specific
+```
+
+EnvForge uses a **two-step process**: first lists items at the path, then fetches each secret value individually. Only `STATIC_SECRET` type items are returned.
+
+Key names are extracted from the **last segment** of the full path:
+```
+/myapp/production/DATABASE_URL  →  EnvForge key: DATABASE_URL
+```
+
+#### End-to-End Workflow
+
+**Pull secrets from Akeyless**
+```bash
+# Pull all secrets under a path
+envforge secrets pull --from akeyless --path /myapp/production/
+
+# Pull from root
+envforge secrets pull --from akeyless --path /
+
+# Pull with filter
+envforge secrets pull --from akeyless --path /myapp/ --filter "DB_*"
+```
+
+**Push secrets to Akeyless**
+```bash
+# Push specific keys (updates existing, creates if not found)
+envforge secrets push --to akeyless --path /myapp/production/ --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to akeyless --path /myapp/production/ --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from akeyless --path /myapp/production/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from akeyless --path /myapp/production/
+```
+
+#### Authentication Details
+
+Akeyless uses **access key authentication** passed as CLI flags (`--access-id` and `--access-key`). EnvForge doesn't set environment variables — credentials are passed directly to each CLI call.
+
+Other Akeyless auth methods (SAML, OIDC, AWS IAM) are not directly supported through EnvForge's credential config but can work if you authenticate separately with `akeyless auth`.
+
+#### Common Pitfalls
+
+1. **Two-step pull** — Pull requires list + get for each item. This is slower than single-call providers but handles Akeyless's architecture correctly.
+
+2. **STATIC_SECRET only** — EnvForge only returns items of type `STATIC_SECRET`. Dynamic secrets, rotated secrets, and SSH certificates are filtered out.
+
+3. **Push creates or updates** — EnvForge tries `update-secret-val` first. If the secret doesn't exist, it falls back to `create-secret`.
+
+4. **Empty path defaults to `/`** — If you omit `--path`, EnvForge uses `/` (root), which lists all secrets.
+
+5. **Full path for references** — When creating refs, use the full Akeyless path including the key name.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `unauthorized` | Wrong access_id or access_key | Verify credentials in Akeyless console |
+| Empty results | No STATIC_SECRET items at path | Check with `akeyless list-items --path /your/path/` |
+| Slow pull | Many items (each requires individual GET) | Use `--filter` to narrow scope |
+| `item not found` on push | Path doesn't exist for update | Normal — EnvForge will create it |
+
+---
+
+### CyberArk Conjur Integration
+
+> Provider: `conjur` | Binary: `conjur` | [Official Docs](https://docs.conjur.org)
+
+#### Prerequisites
+
+1. Install the Conjur CLI (Go version):
+   ```bash
+   # Download from GitHub releases
+   # https://github.com/cyberark/conjur-cli-go/releases
+
+   # macOS (example)
+   curl -L -o conjur https://github.com/cyberark/conjur-cli-go/releases/latest/download/conjur-darwin-amd64
+   chmod +x conjur && sudo mv conjur /usr/local/bin/
+   ```
+
+2. Verify installation:
+   ```bash
+   conjur --version
+   ```
+
+3. Obtain your Conjur **account name**, **server URL**, **host login**, and **API key** from your Conjur administrator.
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `url` | Conjur server URL | `https://conjur.example.com` |
+| `account` | Conjur account name | `myorg` |
+| `login` | Host or user login identity | `host/myapp/production` |
+| `api_key` | API key for the login identity | `3xk9d8f...` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config conjur --set url=https://conjur.example.com
+envforge secrets config conjur --set account=myorg
+envforge secrets config conjur --set login=host/myapp/production
+envforge secrets config conjur --set api_key=3xk9d8f... --ttl 30d
+```
+
+**Verify:**
+```bash
+envforge secrets config conjur --show
+```
+
+#### Path Format
+
+The `--path` flag specifies a **variable path prefix** for filtering. Conjur variables are organized hierarchically:
+
+```
+                          ← Empty: all variables
+myapp/                    ← Variables starting with myapp/
+myapp/production/         ← Environment-specific variables
+```
+
+Conjur stores variables as `account:variable:path/to/secret`. EnvForge strips the `account:variable:` prefix and extracts the **last segment** as the key name:
+```
+myorg:variable:myapp/production/DATABASE_URL  →  EnvForge key: DATABASE_URL
+```
+
+#### End-to-End Workflow
+
+**Pull secrets from Conjur**
+```bash
+# Pull all variables
+envforge secrets pull --from conjur
+
+# Pull variables under a path prefix
+envforge secrets pull --from conjur --path myapp/production/
+
+# Pull with filter
+envforge secrets pull --from conjur --path myapp/ --filter "DB_*"
+```
+
+**Push secrets to Conjur**
+```bash
+# Push specific keys (variables must exist in Conjur policy)
+envforge secrets push --to conjur --keys DATABASE_URL,API_KEY
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from conjur --path myapp/production/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from conjur --path myapp/production/
+```
+
+#### Authentication Details
+
+Conjur uses a **two-step authentication** process:
+
+1. **`conjur init`** — Initializes the CLI connection with server URL and account name
+2. **`conjur login`** — Authenticates with the host identity and API key
+
+EnvForge runs both steps automatically before each operation using the configured credentials. No environment variables are set — all credentials are passed as CLI flags.
+
+**Identity types:**
+- `host/myapp/production` — Machine identity (recommended for automation)
+- `admin` — Administrative user (not recommended for production)
+
+**Getting an API key:**
+```bash
+# For a host identity
+conjur host rotate-api-key -i myapp/production
+
+# For a user
+conjur user rotate-api-key -i myuser
+```
+
+#### Common Pitfalls
+
+1. **Variables must exist in policy** — Conjur requires variables to be declared in a policy before values can be set. Push fails if the variable doesn't exist. Create variables via Conjur policy:
+   ```yaml
+   - !variable myapp/production/DATABASE_URL
+   - !variable myapp/production/API_KEY
+   ```
+
+2. **Init + login per operation** — EnvForge runs `conjur init` and `conjur login` before each operation. This ensures fresh authentication but adds latency.
+
+3. **Account prefix stripping** — List returns `account:variable:path`. EnvForge strips the prefix automatically using the configured `account` value.
+
+4. **No environment variables** — Unlike most providers, Conjur doesn't use env vars for auth. All credentials are passed via CLI flags.
+
+5. **Key name = last path segment** — `myapp/db/HOST` becomes key `HOST`. If you have conflicts (e.g., `app1/HOST` and `app2/HOST`), use path prefix filtering.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `unable to init` | Wrong URL or unreachable server | Verify URL with `curl https://conjur.example.com/info` |
+| `401 Unauthorized` | Wrong login or api_key | Verify credentials; rotate API key if needed |
+| `variable not found` | Variable not declared in policy | Add variable to Conjur policy first |
+| Empty list | No variables match path prefix | Check with `conjur list -k variable` directly |
+| `account mismatch` | Account in credential doesn't match server | Verify account name with Conjur admin |
+
+---
+
+### Mozilla SOPS Integration
+
+> Provider: `sops` | Binary: `sops` | [Official Docs](https://github.com/getsops/sops)
+
+#### Prerequisites
+
+1. Install SOPS:
+   ```bash
+   # macOS
+   brew install sops
+
+   # Linux
+   # Download from: https://github.com/getsops/sops/releases
+   ```
+
+2. Verify installation:
+   ```bash
+   sops --version
+   ```
+
+3. Install an encryption backend. SOPS supports age, PGP, AWS KMS, GCP KMS, and Azure Key Vault. For local use, **age** is recommended:
+   ```bash
+   # macOS
+   brew install age
+
+   # Generate a key pair
+   age-keygen -o ~/.config/sops/age/keys.txt
+   ```
+
+#### Configure EnvForge
+
+**Required Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `key_file` | Path to age key file (or age public key for encryption) | `~/.config/sops/age/keys.txt` |
+
+**Optional Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `encryption_type` | Encryption backend: `age` (default) | `age` |
+
+**Setup Commands**
+
+```bash
+envforge secrets config sops --set key_file=~/.config/sops/age/keys.txt
+```
+
+**Verify:**
+```bash
+envforge secrets config sops --show
+```
+
+#### Path Format
+
+**The `--path` flag is required and must point to a SOPS-encrypted file.** Unlike other providers, SOPS operates on encrypted files, not remote APIs.
+
+```bash
+envforge secrets pull --from sops --path secrets.enc.json
+envforge secrets pull --from sops --path config/prod.enc.yaml
+```
+
+Without `--path`, operations fail with: `path must be a SOPS-encrypted file path`.
+
+#### End-to-End Workflow
+
+**Pull (decrypt) secrets from a SOPS file**
+```bash
+# Decrypt and import all keys
+envforge secrets pull --from sops --path secrets.enc.json
+
+# Pull with filter
+envforge secrets pull --from sops --path secrets.enc.json --filter "DB_*"
+```
+
+**Push (encrypt) secrets to a SOPS file**
+```bash
+# Push specific keys (merges with existing file, then re-encrypts)
+envforge secrets push --to sops --path secrets.enc.json --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to sops --path secrets.enc.json --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from sops --path secrets.enc.json
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from sops --path secrets.enc.json
+```
+
+#### Authentication Details
+
+SOPS delegates encryption/decryption to an underlying backend:
+
+- **age**: Uses `SOPS_AGE_KEY_FILE` env var (set by EnvForge from `key_file` credential) for decryption. For encryption, the public key (recipient) is passed via `--age` flag.
+- **PGP**: Uses GPG keyring
+- **AWS KMS**: Uses AWS credentials (see AWS SSM provider for auth methods)
+- **GCP KMS**: Uses `gcloud` auth
+- **Azure Key Vault**: Uses `az` auth
+
+EnvForge currently sets `SOPS_AGE_KEY_FILE` for age-based decryption.
+
+#### Common Pitfalls
+
+1. **File-based, not API-based** — SOPS is fundamentally different from other providers. It encrypts/decrypts files, not remote key-value stores. The file must exist locally.
+
+2. **Path is required** — Unlike most providers, `--path` is mandatory and must point to an actual file.
+
+3. **`sops` metadata key filtered** — Decrypted SOPS JSON contains a `sops` metadata key. EnvForge filters this out automatically.
+
+4. **Push merges, doesn't replace** — Push decrypts the existing file, merges new key-value pairs, writes to a temp file, encrypts, then copies back to the original path. Existing keys not in the push set are preserved.
+
+5. **Encryption requires recipient** — For push (encryption), the `key_file` credential is used as the `--age` recipient flag. Ensure it contains or points to the public key.
+
+6. **JSON output only** — Pull always uses `--output-type json` for parsing. Source files can be YAML, JSON, or other SOPS-supported formats.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `path must be a SOPS-encrypted file` | Missing `--path` flag | Specify the encrypted file path |
+| `could not decrypt` | Wrong key file or missing private key | Verify `key_file` points to the private key |
+| `sops` key in results | EnvForge filtering failed | Report as bug — should be filtered automatically |
+| `file not found` | Encrypted file doesn't exist at path | Create with `sops encrypt --age <pubkey> input.json > secrets.enc.json` |
+| `no data key found` | File encrypted with different key | Re-encrypt with your key or get the matching private key |
+
+---
+
+### pass/gopass Integration
+
+> Provider: `pass` | Binary: `pass` or `gopass` | [pass](https://www.passwordstore.org/) | [gopass](https://github.com/gopasspw/gopass)
+
+#### Prerequisites
+
+**Option A: pass (standard)**
+```bash
+# macOS
+brew install pass
+
+# Linux (Ubuntu/Debian)
+sudo apt-get install pass
+
+# Initialize with your GPG key
+pass init <GPG_KEY_ID>
+```
+
+**Option B: gopass (recommended)**
+```bash
+# macOS
+brew install gopass
+
+# Linux
+# See: https://github.com/gopasspw/gopass#installation
+
+# Initialize
+gopass init
+```
+
+Verify installation:
+```bash
+pass --version   # or
+gopass --version
+```
+
+#### Configure EnvForge
+
+**Required Fields**
+
+No required fields — pass/gopass uses the default password store (`~/.password-store`) and auto-detects the binary.
+
+**Optional Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `store_path` | Custom password store directory | `/home/user/.team-store` |
+| `binary` | Force binary: `pass` or `gopass` | `gopass` |
+
+**Setup Commands**
+
+```bash
+# Only needed for non-default configuration
+envforge secrets config pass --set store_path=/path/to/store
+envforge secrets config pass --set binary=gopass
+```
+
+**Verify:**
+```bash
+envforge secrets config pass --show
+```
+
+#### Path Format
+
+The `--path` flag specifies an **entry prefix filter**. Entries are organized as files in the password store:
+
+```
+                          ← Empty: all entries
+myapp/                    ← Entries starting with myapp/
+myapp/production/         ← Production entries
+```
+
+Password store structure maps to file paths:
+```
+~/.password-store/
+  myapp/
+    production/
+      DATABASE_URL.gpg    ← Entry: myapp/production/DATABASE_URL
+      API_KEY.gpg          ← Entry: myapp/production/API_KEY
+    staging/
+      DATABASE_URL.gpg    ← Entry: myapp/staging/DATABASE_URL
+```
+
+EnvForge scans for `.gpg` files, strips the extension, and uses the relative path as the key name.
+
+#### End-to-End Workflow
+
+**Pull secrets from password store**
+```bash
+# Pull all entries
+envforge secrets pull --from pass
+
+# Pull entries under a prefix
+envforge secrets pull --from pass --path myapp/production/
+
+# Pull with filter
+envforge secrets pull --from pass --path myapp/ --filter "*DATABASE*"
+```
+
+**Push secrets to password store**
+```bash
+# Push specific keys
+envforge secrets push --to pass --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge secrets push --to pass --all
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from pass --path myapp/production/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from pass --path myapp/production/
+```
+
+#### Authentication Details
+
+pass/gopass uses **GPG encryption**. No tokens or API keys needed — your GPG private key is the authentication.
+
+- **Decryption (pull)**: Requires the GPG private key in your keyring
+- **Encryption (push)**: Requires the GPG public key(s) configured in the store
+
+EnvForge sets `PASSWORD_STORE_DIR` if `store_path` is configured.
+
+**Binary auto-detection:**
+1. If `binary` is set in credentials → use that
+2. If `gopass` is found on PATH → use gopass
+3. Otherwise → use pass
+
+**gopass vs pass differences:**
+- gopass uses `-o` flag for `show` (output only, no clipboard)
+- gopass uses `-f` for `insert` (force, no confirmation)
+- pass uses `-e` for `insert` (echo mode)
+- EnvForge handles these differences transparently
+
+#### Common Pitfalls
+
+1. **First line is the value** — Both pass and gopass store multiline entries. EnvForge only reads the **first line** as the secret value. Additional lines (metadata, URLs) are ignored.
+
+2. **Key name = relative path** — Entry `myapp/production/DATABASE_URL` has key name `myapp/production/DATABASE_URL`, not just `DATABASE_URL`. Use path prefix filtering to scope.
+
+3. **GPG agent required** — If your GPG key has a passphrase, `gpg-agent` must be running and unlocked. In CI/CD, use a passphrase-less key or configure `gpg-preset-passphrase`.
+
+4. **Hidden files/dirs skipped** — Entries starting with `.` are filtered out (e.g., `.git`, `.gpg-id`).
+
+5. **Push writes via stdin** — EnvForge pipes the value to `pass insert -e` or `gopass insert -f` via stdin. This avoids interactive prompts.
+
+6. **Store must be initialized** — `pass init` or `gopass init` must be run before EnvForge can access the store.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `command not found` | pass/gopass not installed | Install via package manager |
+| `gpg: decryption failed` | GPG key not available or locked | Check `gpg --list-secret-keys`; unlock agent |
+| Empty results | Wrong store path or empty store | Verify `PASSWORD_STORE_DIR` or `--set store_path` |
+| `Error: password store is empty` | Store not initialized | Run `pass init <GPG_KEY_ID>` |
+| Key names include full path | Normal behavior | Use `--path` prefix to scope, or rename entries |
+
+---
+
+### Keeper Secrets Manager Integration
+
+> Provider: `keeper` | Binary: `ksm` | [Official Docs](https://docs.keeper.io/en/keeperpam/secrets-manager/)
+
+#### Prerequisites
+
+1. Install the Keeper Secrets Manager CLI:
+   ```bash
+   pip3 install keeper-secrets-manager-cli
+   ```
+
+2. Verify installation:
+   ```bash
+   ksm --version
+   ```
+
+3. Initialize with a **one-time access token** from Keeper:
+   ```bash
+   ksm profile init --token <ONE_TIME_TOKEN>
+   ```
+   This creates a device configuration stored in the OS keyring.
+
+#### Configure EnvForge
+
+**Required Fields**
+
+No required fields — Keeper uses its device configuration created during `ksm profile init`.
+
+**Optional Fields**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `profile` | KSM profile name (if using multiple) | `production` |
+
+**Setup Commands**
+
+```bash
+# Only needed if using non-default profile
+envforge secrets config keeper --set profile=production
+```
+
+**Verify:**
+```bash
+envforge secrets config keeper --show
+```
+
+#### Path Format
+
+**The `--path` flag is ignored.** Keeper lists all secrets accessible to the device configuration.
+
+```bash
+# These are equivalent:
+envforge secrets pull --from keeper
+envforge secrets pull --from keeper --path anything
+```
+
+#### End-to-End Workflow
+
+**Pull secrets from Keeper**
+```bash
+# Pull all accessible secrets
+envforge secrets pull --from keeper
+
+# Pull with filter
+envforge secrets pull --from keeper --filter "DB_*"
+```
+
+**Push (update) secrets in Keeper**
+```bash
+# Update existing secrets only — cannot create new records
+envforge secrets push --to keeper --keys DATABASE_URL,API_KEY
+```
+
+**Create references**
+```bash
+envforge secrets ref DATABASE_URL --from keeper --path keeper/DATABASE_URL
+```
+
+**Resolve and run**
+```bash
+envforge run --resolve -- npm start
+```
+
+**Compare local vs remote**
+```bash
+envforge secrets diff --from keeper
+```
+
+#### Authentication Details
+
+Keeper uses a **device-based authentication** model:
+
+1. An admin generates a one-time access token in the Keeper Secrets Manager dashboard
+2. `ksm profile init --token <TOKEN>` registers the device and stores credentials in the OS keyring
+3. Subsequent operations use the stored device configuration automatically
+
+**Multiple profiles:**
+```bash
+ksm profile init --profile production --token <TOKEN_1>
+ksm profile init --profile staging --token <TOKEN_2>
+envforge secrets config keeper --set profile=production
+```
+
+#### Common Pitfalls
+
+1. **Push = update only** — Keeper push can only **update existing records**. It cannot create new secrets. If a key doesn't exist as a Keeper record title, push fails with an error.
+
+2. **Record title = key name** — EnvForge uses the Keeper record **title** as the secret key name. Ensure your record titles match your ENV variable names.
+
+3. **Password field extraction** — Pull extracts values from record fields in priority order: `password` > `login` > `secret` > `text`. Only the first non-empty field value is used.
+
+4. **One-time token** — The initialization token can only be used once. If you need to re-initialize, generate a new token.
+
+5. **Python 3.10+ required** — The KSM CLI requires Python 3.10 or later.
+
+6. **List then get** — Pull first lists all records (getting UIDs and titles), then fetches each record individually. This is slower for large vaults.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `not initialized` | Device not registered | Run `ksm profile init --token <TOKEN>` |
+| `cannot create new secret` on push | Keeper push only updates | Create records in Keeper UI/app first |
+| `no extractable value` | Record has no password/login/secret field | Add a password field to the Keeper record |
+| `token already used` | One-time token consumed | Generate a new token in Keeper dashboard |
+| `ModuleNotFoundError` | Python dependency missing | `pip3 install keeper-secrets-manager-cli` |
+
 
 ---
 

@@ -84,7 +84,7 @@ run_cli("vault", &args, &env_refs, "vault")?;
 #### 2. `sort_secret_pairs()`
 Sorts a mutable slice of (String, String) tuples by key for deterministic output.
 
-**Pattern:** All 7 providers use identical sorting logic:
+**Pattern:** All 13 providers use identical sorting logic:
 ```rust
 let mut secrets: Vec<(String, String)> = /* ... */;
 sort_secret_pairs(&mut secrets);  // In-place sort by key
@@ -226,7 +226,7 @@ fn parse_doppler_output(output: &str) -> Result<Vec<(String, String)>, SecretsEr
 ## Code Reuse Metrics
 
 ### Before Refactoring
-- **~200 LOC** duplicated across 7 providers (env var building)
+- **~200 LOC** duplicated across 13 providers (env var building)
 - **~7 instances** of identical sorting logic
 - **~40 LOC** per provider for JSON parsing + filtering
 - **16+ instances** of `.map(|(k, v)| (*k, v.as_str())).collect()` pattern
@@ -259,7 +259,7 @@ fn test_vault_build_env() {
 }
 ```
 
-**Current Test Coverage:** 1160 tests, 100% passing (includes 150+ provider-specific tests)
+**Current Test Coverage:** 1325 tests, 100% passing (includes 150+ provider-specific tests)
 
 ## Adding a New Provider
 
@@ -303,7 +303,7 @@ Update provider list in README and FEATURES.md.
 The `SecretProvider` trait uses dynamic dispatch (trait objects), appropriate for:
 - Runtime provider selection (user chooses provider at runtime)
 - Heterogeneous collections (HashMaps of providers)
-- Small number of providers (7 total)
+- Moderate number of providers (13 total)
 
 ### Lifetime Patterns
 `env_refs_from_env()` uses lifetime tying to avoid unnecessary clones:

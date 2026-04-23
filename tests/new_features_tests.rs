@@ -637,6 +637,7 @@ fn test_run_collect_env_includes_shell_vars() {
         env_files: vec![],
         overrides: vec![],
         redact: false,
+        no_project: false,
     };
 
     let env = collect_env(&config).unwrap();
@@ -661,6 +662,7 @@ fn test_run_overrides_take_priority() {
         env_files: vec![],
         overrides: vec![("ENVFORGE_OVERRIDE_TEST".into(), "overridden".into())],
         redact: false,
+        no_project: false,
     };
 
     let env = collect_env(&config).unwrap();
@@ -683,6 +685,7 @@ fn test_run_invalid_profile_error() {
         env_files: vec![],
         overrides: vec![],
         redact: false,
+        no_project: false,
     };
 
     let result = collect_env(&config);
@@ -702,6 +705,7 @@ fn test_run_missing_env_file_error() {
         env_files: vec![std::path::PathBuf::from("/tmp/nonexistent_file_xyz.env")],
         overrides: vec![],
         redact: false,
+        no_project: false,
     };
 
     let result = collect_env(&config);
@@ -799,4 +803,264 @@ fn test_redact_secrets_no_match() {
     let text = "No secrets here at all";
     let result = redact_secrets(text, &secrets);
     assert_eq!(result, "No secrets here at all");
+}
+
+#[test]
+fn test_redact_secrets_empty_text() {
+    use envforge::ops::run::redact_secrets;
+
+    let secrets = vec![("API_KEY".to_string(), "sk-abc123".to_string())];
+    let result = redact_secrets("", &secrets);
+    assert_eq!(result, "");
+}
+
+#[test]
+fn test_redact_secrets_empty_secrets_list() {
+    use envforge::ops::run::redact_secrets;
+
+    let result = redact_secrets("some text with secrets", &[]);
+    assert_eq!(result, "some text with secrets");
+}
+
+#[test]
+fn test_redact_secrets_value_appears_twice() {
+    use envforge::ops::run::redact_secrets;
+
+    let secrets = vec![("API_KEY".to_string(), "sk-abc123".to_string())];
+    let text = "first sk-abc123 then sk-abc123 again";
+    let result = redact_secrets(text, &secrets);
+    assert!(!result.contains("sk-abc123"));
+    assert_eq!(result.matches("[REDACTED:API_KEY]").count(), 2);
+}
+
+#[test]
+fn test_run_config_no_project_flag() {
+    use envforge::ops::run::{collect_env, RunConfig};
+
+    let config = RunConfig {
+        profile: None,
+        profiles: vec![],
+        resolve: false,
+        env_files: vec![],
+        overrides: vec![],
+        redact: false,
+        no_project: true,
+    };
+
+    // Should succeed even if project config exists somewhere
+    let env = collect_env(&config).unwrap();
+    assert!(!env.is_empty()); // At least has PATH etc.
+}
+
+#[test]
+fn test_run_multiple_overrides_last_wins() {
+    use envforge::ops::run::{collect_env, RunConfig};
+
+    let config = RunConfig {
+        profile: None,
+        profiles: vec![],
+        resolve: false,
+        env_files: vec![],
+        overrides: vec![
+            ("ENVFORGE_MULTI_TEST".into(), "first".into()),
+            ("ENVFORGE_MULTI_TEST".into(), "second".into()),
+        ],
+        redact: false,
+        no_project: true,
+    };
+
+    let env = collect_env(&config).unwrap();
+    assert_eq!(
+        env.get("ENVFORGE_MULTI_TEST").map(|s| s.as_str()),
+        Some("second")
+    );
+}
+
+#[test]
+fn test_run_env_file_loading() {
+    use envforge::ops::run::{collect_env, RunConfig};
+
+    let temp = std::env::temp_dir().join("envforge-test-run-envfile");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let env_file = temp.join(".env.test");
+    std::fs::write(&env_file, "ENVFORGE_RUN_FILE_TEST=loaded\n").unwrap();
+
+    let config = RunConfig {
+        profile: None,
+        profiles: vec![],
+        resolve: false,
+        env_files: vec![env_file],
+        overrides: vec![],
+        redact: false,
+        no_project: true,
+    };
+
+    let env = collect_env(&config).unwrap();
+    assert_eq!(
+        env.get("ENVFORGE_RUN_FILE_TEST").map(|s| s.as_str()),
+        Some("loaded")
+    );
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_spawn_process_echo() {
+    use envforge::ops::run::spawn_process;
+
+    let mut env = HashMap::new();
+    env.insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
+
+    let result = spawn_process("echo", &["hello".into()], &env).unwrap();
+    assert_eq!(result.exit_code, 0);
+}
+
+#[test]
+fn test_run_error_display_variants() {
+    use envforge::ops::run::RunError;
+
+    let err = RunError::Config("bad config".into());
+    assert!(err.to_string().contains("bad config"));
+
+    let err = RunError::ProfileNotFound("staging".into(), "dev, prod".into());
+    let msg = err.to_string();
+    assert!(msg.contains("staging"));
+    assert!(msg.contains("dev, prod"));
+
+    let err = RunError::EnvFileNotFound("/tmp/missing.env".into());
+    assert!(err.to_string().contains("missing.env"));
+
+    let err = RunError::DecryptFailed {
+        key: "SECRET".into(),
+        message: "bad key".into(),
+    };
+    assert!(err.to_string().contains("SECRET"));
+
+    let err = RunError::ResolveFailed {
+        key: "REF_KEY".into(),
+        message: "provider down".into(),
+    };
+    assert!(err.to_string().contains("REF_KEY"));
+
+    let err = RunError::CommandNotFound("nonexistent".into());
+    assert!(err.to_string().contains("nonexistent"));
+
+    let err = RunError::SpawnFailed("permission denied".into());
+    assert!(err.to_string().contains("permission denied"));
+}
+
+// ─── OpError Tests ─────────────────────────────────────────
+
+#[test]
+fn test_op_error_from_string() {
+    use envforge::ops::OpError;
+
+    let err: OpError = "something went wrong".to_string().into();
+    assert!(err.to_string().contains("something went wrong"));
+}
+
+#[test]
+fn test_op_error_from_str() {
+    use envforge::ops::OpError;
+
+    let err: OpError = "static error".into();
+    assert!(err.to_string().contains("static error"));
+}
+
+#[test]
+fn test_op_error_from_io_error() {
+    use envforge::ops::OpError;
+
+    let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+    let err: OpError = io_err.into();
+    assert!(err.to_string().contains("file missing"));
+}
+
+#[test]
+fn test_op_error_from_json_error() {
+    use envforge::ops::OpError;
+
+    let json_err = serde_json::from_str::<serde_json::Value>("{bad").unwrap_err();
+    let err: OpError = json_err.into();
+    assert!(!err.to_string().is_empty());
+}
+
+#[test]
+fn test_op_error_debug_format() {
+    use envforge::ops::OpError;
+
+    let err = OpError::Other("debug test".into());
+    let debug = format!("{:?}", err);
+    assert!(debug.contains("debug test"));
+}
+
+// ─── ProjectError Tests ────────────────────────────────────
+
+#[test]
+fn test_project_error_io_error() {
+    use envforge::ops::project::ProjectError;
+
+    let err = ProjectError::IoError {
+        path: "/test/path".into(),
+        source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("/test/path"));
+}
+
+#[test]
+fn test_project_error_config_not_found() {
+    use envforge::ops::project::ProjectError;
+
+    let err = ProjectError::ConfigNotFound;
+    let msg = err.to_string();
+    assert!(msg.contains("project init"));
+}
+
+#[test]
+fn test_project_error_already_initialized() {
+    use envforge::ops::project::ProjectError;
+
+    let err = ProjectError::AlreadyInitialized {
+        path: "/project/.envforge.project.toml".into(),
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("already initialized"));
+    assert!(msg.contains("--force"));
+}
+
+#[test]
+fn test_project_error_invalid_env_name() {
+    use envforge::ops::project::ProjectError;
+
+    let err = ProjectError::InvalidEnvironmentName {
+        name: "BAD_NAME".into(),
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("BAD_NAME"));
+    assert!(msg.contains("lowercase"));
+}
+
+#[test]
+fn test_project_error_env_not_found_lists_available() {
+    use envforge::ops::project::ProjectError;
+
+    let err = ProjectError::EnvironmentNotFound {
+        name: "staging".into(),
+        available: "dev, prod".into(),
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("staging"));
+    assert!(msg.contains("dev, prod"));
+}
+
+#[test]
+fn test_project_error_env_exists() {
+    use envforge::ops::project::ProjectError;
+
+    let err = ProjectError::EnvironmentExists { name: "dev".into() };
+    assert!(err.to_string().contains("dev"));
+    assert!(err.to_string().contains("already exists"));
 }

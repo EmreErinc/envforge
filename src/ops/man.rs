@@ -447,4 +447,95 @@ mod tests {
             "Should have at least one form of 'list'"
         );
     }
+
+    #[test]
+    fn test_format_man_page_empty_fields() {
+        let page = ManPage {
+            command: "envforge test".to_string(),
+            category: "Test".to_string(),
+            description: "A test command".to_string(),
+            usage: String::new(),
+            flags: vec![],
+            examples: vec![],
+        };
+        let output = format_man_page(&page);
+        assert!(output.contains("NAME"));
+        assert!(output.contains("DESCRIPTION"));
+        // No SYNOPSIS section when usage is empty
+        assert!(!output.contains("SYNOPSIS"));
+        // No OPTIONS section when flags is empty
+        assert!(!output.contains("OPTIONS"));
+        // No EXAMPLES section when examples is empty
+        assert!(!output.contains("EXAMPLES"));
+        assert!(output.contains("CATEGORY"));
+    }
+
+    #[test]
+    fn test_suggest_similar_no_match() {
+        let pages = load_man_pages();
+        let suggestions = suggest_similar("zzzzzzzzz", &pages);
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_suggest_similar_partial() {
+        let pages = load_man_pages();
+        let suggestions = suggest_similar("syn", &pages);
+        assert!(
+            suggestions.iter().any(|s| s.contains("sync")),
+            "Should suggest sync-related commands for 'syn'"
+        );
+    }
+
+    #[test]
+    fn test_man_page_fields() {
+        let page = ManPage {
+            command: "envforge test".to_string(),
+            category: "Test".to_string(),
+            description: "Desc".to_string(),
+            usage: "Usage: test".to_string(),
+            flags: vec![("--flag".to_string(), "A flag".to_string())],
+            examples: vec!["example".to_string()],
+        };
+        assert_eq!(page.command, "envforge test");
+        assert_eq!(page.category, "Test");
+        assert_eq!(page.flags.len(), 1);
+        assert_eq!(page.flags[0].0, "--flag");
+        assert_eq!(page.examples.len(), 1);
+    }
+
+    #[test]
+    fn test_format_man_page_with_comment_example() {
+        let page = ManPage {
+            command: "envforge test".to_string(),
+            category: "Test".to_string(),
+            description: "Test".to_string(),
+            usage: String::new(),
+            flags: vec![],
+            examples: vec!["# This is a comment\nenvforge test".to_string()],
+        };
+        let output = format_man_page(&page);
+        assert!(output.contains("EXAMPLES"));
+        // Comment lines get special formatting
+        assert!(output.contains("# This is a comment"));
+    }
+
+    #[test]
+    fn test_format_man_index_has_version() {
+        let pages = load_man_pages();
+        let index = format_man_index(&pages);
+        assert!(index.contains("VERSION"));
+        assert!(index.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn test_load_man_pages_has_subcommands() {
+        let pages = load_man_pages();
+        // Should have some subcommand pages like "sync push" or "secrets pull"
+        let has_multi_word = pages.keys().any(|k| {
+            let short = k.strip_prefix("envforge ").unwrap_or(k);
+            short.contains(' ')
+        });
+        assert!(has_multi_word, "Should have multi-word command pages");
+    }
 }

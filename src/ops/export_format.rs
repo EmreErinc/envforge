@@ -530,5 +530,245 @@ mod tests {
         assert_eq!(ExportFormat::Json.extension(), ".json");
         assert_eq!(ExportFormat::Yaml.extension(), ".yaml");
         assert_eq!(ExportFormat::Toml.extension(), ".toml");
+        assert_eq!(ExportFormat::Docker.extension(), ".env");
+        assert_eq!(ExportFormat::K8s.extension(), ".yaml");
+        assert_eq!(ExportFormat::Tfvars.extension(), ".tfvars");
+        assert_eq!(ExportFormat::DockerSecrets.extension(), "");
+    }
+
+    #[test]
+    fn test_export_empty_entries() {
+        let entries: Vec<EnvEntry> = vec![];
+        assert_eq!(export_dotenv(&entries), "");
+        assert_eq!(export_docker(&entries), "");
+        assert_eq!(export_yaml(&entries), "");
+        assert_eq!(export_toml(&entries), "");
+        assert_eq!(export_tfvars(&entries), "");
+    }
+
+    #[test]
+    fn test_export_json_empty() {
+        let entries: Vec<EnvEntry> = vec![];
+        let output = export_json(&entries);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert!(parsed.as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_export_dotenv_newline_in_value() {
+        let entries = vec![EnvEntry {
+            key: "MULTI".to_string(),
+            value: "line1\nline2".to_string(),
+            source_file: PathBuf::from("/test"),
+            line_number: 1,
+            location: EntryLocation::InFile,
+            export_style: ExportStyle::Bare,
+            quote_style: QuoteStyle::None,
+            is_dirty: false,
+        }];
+        let output = export_dotenv(&entries);
+        // Newline in value should be quoted
+        assert!(output.contains("MULTI=\"line1\nline2\""));
+    }
+
+    #[test]
+    fn test_export_yaml_special_values() {
+        // Test that YAML special values (null, ~, on, off) are quoted
+        let make_entry = |key: &str, value: &str| EnvEntry {
+            key: key.to_string(),
+            value: value.to_string(),
+            source_file: PathBuf::from("/test"),
+            line_number: 1,
+            location: EntryLocation::InFile,
+            export_style: ExportStyle::Bare,
+            quote_style: QuoteStyle::None,
+            is_dirty: false,
+        };
+
+        let entries = vec![
+            make_entry("A", "null"),
+            make_entry("B", "~"),
+            make_entry("C", "on"),
+            make_entry("D", "off"),
+            make_entry("E", "yes"),
+            make_entry("F", "no"),
+        ];
+        let output = export_yaml(&entries);
+        assert!(output.contains("A: \"null\""));
+        assert!(output.contains("B: \"~\""));
+        assert!(output.contains("C: \"on\""));
+        assert!(output.contains("D: \"off\""));
+        assert!(output.contains("E: \"yes\""));
+        assert!(output.contains("F: \"no\""));
+    }
+
+    #[test]
+    fn test_export_toml_backslash() {
+        let entries = vec![EnvEntry {
+            key: "PATH".to_string(),
+            value: "C:\\Users\\test".to_string(),
+            source_file: PathBuf::from("/test"),
+            line_number: 1,
+            location: EntryLocation::InFile,
+            export_style: ExportStyle::Bare,
+            quote_style: QuoteStyle::None,
+            is_dirty: false,
+        }];
+        let output = export_toml(&entries);
+        assert!(output.contains("PATH = \"C:\\\\Users\\\\test\""));
+    }
+
+    #[test]
+    fn test_export_as_dispatches_correctly() {
+        let entries = make_entries();
+        // Verify export_as routes to correct formatter
+        let json = export_as(&entries, &ExportFormat::Json, None, None);
+        assert!(json.contains("DB_HOST"));
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed.is_object());
+
+        let yaml = export_as(&entries, &ExportFormat::Yaml, None, None);
+        assert!(yaml.contains("DB_HOST: localhost"));
+
+        let docker = export_as(&entries, &ExportFormat::Docker, None, None);
+        assert!(docker.contains("DB_HOST=localhost"));
+
+        let k8s = export_as(&entries, &ExportFormat::K8s, Some("my-s"), Some("ns"));
+        assert!(k8s.contains("name: my-s"));
+        assert!(k8s.contains("namespace: ns"));
+    }
+
+    #[test]
+    fn test_needs_yaml_quoting() {
+        // Empty string
+        assert!(needs_yaml_quoting(""));
+        // Booleans and special
+        assert!(needs_yaml_quoting("true"));
+        assert!(needs_yaml_quoting("false"));
+        assert!(needs_yaml_quoting("null"));
+        // Numeric
+        assert!(needs_yaml_quoting("42"));
+        assert!(needs_yaml_quoting("3.14"));
+        // Special chars
+        assert!(needs_yaml_quoting("a:b"));
+        assert!(needs_yaml_quoting("{json}"));
+        assert!(needs_yaml_quoting("[array]"));
+        // Leading/trailing space
+        assert!(needs_yaml_quoting(" leading"));
+        assert!(needs_yaml_quoting("trailing "));
+        // Normal strings don't need quoting
+        assert!(!needs_yaml_quoting("localhost"));
+        assert!(!needs_yaml_quoting("my-value"));
+    }
+
+    #[test]
+    fn test_export_k8s_base64_values() {
+        use base64::Engine;
+        let entries = vec![EnvEntry {
+            key: "SECRET".to_string(),
+            value: "hello world".to_string(),
+            source_file: PathBuf::from("/test"),
+            line_number: 1,
+            location: EntryLocation::InFile,
+            export_style: ExportStyle::Bare,
+            quote_style: QuoteStyle::None,
+            is_dirty: false,
+        }];
+        let output = export_k8s(&entries, None, None);
+        let expected = base64::engine::general_purpose::STANDARD.encode(b"hello world");
+        assert!(output.contains(&format!("SECRET: {}", expected)));
+    }
+
+    #[test]
+    fn test_export_tfvars_lowercase_keys() {
+        let entries = vec![EnvEntry {
+            key: "MY_VAR".to_string(),
+            value: "value".to_string(),
+            source_file: PathBuf::from("/test"),
+            line_number: 1,
+            location: EntryLocation::InFile,
+            export_style: ExportStyle::Bare,
+            quote_style: QuoteStyle::None,
+            is_dirty: false,
+        }];
+        let output = export_tfvars(&entries);
+        assert!(output.contains("my_var = \"value\""));
+        assert!(!output.contains("MY_VAR"));
+    }
+
+    #[test]
+    fn test_entries_to_map_skips_commented() {
+        let entries = vec![
+            EnvEntry {
+                key: "ACTIVE".to_string(),
+                value: "yes".to_string(),
+                source_file: PathBuf::from("/test"),
+                line_number: 1,
+                location: EntryLocation::InFile,
+                export_style: ExportStyle::Bare,
+                quote_style: QuoteStyle::None,
+                is_dirty: false,
+            },
+            EnvEntry {
+                key: "DELETED".to_string(),
+                value: "no".to_string(),
+                source_file: PathBuf::from("/test"),
+                line_number: 2,
+                location: EntryLocation::Commented,
+                export_style: ExportStyle::Bare,
+                quote_style: QuoteStyle::None,
+                is_dirty: false,
+            },
+        ];
+        let map = entries_to_map(&entries);
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key("ACTIVE"));
+        assert!(!map.contains_key("DELETED"));
+    }
+
+    #[test]
+    fn test_export_dotenv_hash_in_value() {
+        let entries = vec![EnvEntry {
+            key: "COLOR".to_string(),
+            value: "#FF0000".to_string(),
+            source_file: PathBuf::from("/test"),
+            line_number: 1,
+            location: EntryLocation::InFile,
+            export_style: ExportStyle::Bare,
+            quote_style: QuoteStyle::None,
+            is_dirty: false,
+        }];
+        let output = export_dotenv(&entries);
+        // Hash in value should be quoted to avoid comment interpretation
+        assert!(output.contains("COLOR=\"#FF0000\""));
+    }
+
+    #[test]
+    fn test_export_format_parse_dotenv_aliases() {
+        assert_eq!(ExportFormat::parse("dotenv").unwrap(), ExportFormat::Dotenv);
+        assert_eq!(ExportFormat::parse("env").unwrap(), ExportFormat::Dotenv);
+        assert_eq!(ExportFormat::parse(".env").unwrap(), ExportFormat::Dotenv);
+    }
+
+    #[test]
+    fn test_export_format_parse_k8s_aliases() {
+        assert_eq!(ExportFormat::parse("k8s").unwrap(), ExportFormat::K8s);
+        assert_eq!(
+            ExportFormat::parse("kubernetes").unwrap(),
+            ExportFormat::K8s
+        );
+        assert_eq!(
+            ExportFormat::parse("k8s-secret").unwrap(),
+            ExportFormat::K8s
+        );
+    }
+
+    #[test]
+    fn test_export_format_parse_docker_aliases() {
+        assert_eq!(ExportFormat::parse("docker").unwrap(), ExportFormat::Docker);
+        assert_eq!(
+            ExportFormat::parse("docker-env").unwrap(),
+            ExportFormat::Docker
+        );
     }
 }

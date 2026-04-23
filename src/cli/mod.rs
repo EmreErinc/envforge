@@ -1,5 +1,6 @@
 mod commands;
 mod error;
+mod project_cmd;
 mod secrets_cmd;
 mod sync_cmd;
 mod wizard;
@@ -8,6 +9,7 @@ use clap::{Parser, Subcommand};
 
 pub use commands::*;
 pub use error::{CliError, CliResult};
+pub use project_cmd::*;
 pub use secrets_cmd::*;
 pub use sync_cmd::*;
 pub use wizard::*;
@@ -250,6 +252,10 @@ pub enum Commands {
         #[arg(long)]
         redact: bool,
 
+        /// Skip project config auto-detection
+        #[arg(long)]
+        no_project: bool,
+
         /// Command and arguments to run (after --)
         #[arg(last = true, required = true)]
         command: Vec<String>,
@@ -490,6 +496,12 @@ pub enum Commands {
 
     /// Start Language Server Protocol server (for IDE extensions)
     Lsp,
+
+    /// Project-scoped environment management
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
 }
 
 #[derive(Subcommand)]

@@ -727,4 +727,112 @@ mod tests {
         assert_eq!(json["summary"]["ok"], 1);
         assert_eq!(json["categories_skipped"][0]["category"], "drift");
     }
+
+    #[test]
+    fn test_category_name() {
+        assert_eq!(CheckCategory::Doctor.name(), "doctor");
+        assert_eq!(CheckCategory::Validate.name(), "validate");
+        assert_eq!(CheckCategory::Scan.name(), "scan");
+        assert_eq!(CheckCategory::Age.name(), "age");
+        assert_eq!(CheckCategory::Drift.name(), "drift");
+    }
+
+    #[test]
+    fn test_category_display_name() {
+        assert_eq!(CheckCategory::Doctor.display_name(), "Doctor");
+        assert_eq!(CheckCategory::Validate.display_name(), "Validate");
+        assert_eq!(CheckCategory::Scan.display_name(), "Scan");
+        assert_eq!(CheckCategory::Age.display_name(), "Age");
+        assert_eq!(CheckCategory::Drift.display_name(), "Drift");
+    }
+
+    #[test]
+    fn test_report_has_errors_false() {
+        let report = CheckReport {
+            results: vec![
+                CheckResult {
+                    category: CheckCategory::Doctor,
+                    status: CheckStatus::Ok,
+                    message: "good".into(),
+                    hint: None,
+                },
+                CheckResult {
+                    category: CheckCategory::Scan,
+                    status: CheckStatus::Warning,
+                    message: "meh".into(),
+                    hint: None,
+                },
+            ],
+            skipped: vec![],
+        };
+        assert!(!report.has_errors());
+        assert_eq!(report.ok_count(), 1);
+        assert_eq!(report.warning_count(), 1);
+        assert_eq!(report.error_count(), 0);
+    }
+
+    #[test]
+    fn test_parse_category_filter_single() {
+        let cats = parse_category_filter("doctor").unwrap();
+        assert_eq!(cats.len(), 1);
+        assert_eq!(cats[0], CheckCategory::Doctor);
+    }
+
+    #[test]
+    fn test_report_to_json_mixed() {
+        let report = CheckReport {
+            results: vec![
+                CheckResult {
+                    category: CheckCategory::Doctor,
+                    status: CheckStatus::Ok,
+                    message: "ok".into(),
+                    hint: None,
+                },
+                CheckResult {
+                    category: CheckCategory::Doctor,
+                    status: CheckStatus::Error,
+                    message: "bad".into(),
+                    hint: Some("fix it".into()),
+                },
+                CheckResult {
+                    category: CheckCategory::Scan,
+                    status: CheckStatus::Warning,
+                    message: "warn".into(),
+                    hint: None,
+                },
+            ],
+            skipped: vec![],
+        };
+        let json = report_to_json(&report);
+        assert_eq!(json["summary"]["total"], 3);
+        assert_eq!(json["summary"]["ok"], 1);
+        assert_eq!(json["summary"]["warnings"], 1);
+        assert_eq!(json["summary"]["errors"], 1);
+        assert!(json["results"].as_array().unwrap().len() == 3);
+    }
+
+    #[test]
+    fn test_run_checks_doctor_only() {
+        let report = run_checks(Some(&[CheckCategory::Doctor]));
+        // Doctor always runs (no prerequisites)
+        assert!(!report.results.is_empty());
+        assert!(report
+            .results
+            .iter()
+            .all(|r| r.category == CheckCategory::Doctor));
+    }
+
+    #[test]
+    fn test_check_result_fields() {
+        let result = CheckResult {
+            category: CheckCategory::Scan,
+            status: CheckStatus::Warning,
+            message: "test".into(),
+            hint: Some("hint".into()),
+        };
+        assert_eq!(result.message, "test");
+        assert_eq!(result.hint.as_deref(), Some("hint"));
+        assert_eq!(result.category, CheckCategory::Scan);
+        assert_eq!(result.status, CheckStatus::Warning);
+    }
 }

@@ -19,6 +19,7 @@ pub struct RunConfig {
     pub env_files: Vec<PathBuf>,
     pub overrides: Vec<(String, String)>,
     pub redact: bool,
+    pub no_project: bool,
 }
 
 #[derive(Debug)]
@@ -97,6 +98,32 @@ pub fn collect_env(run_config: &RunConfig) -> Result<HashMap<String, String>, Ru
             let profile_path = shellexpand(&profile.file);
             if profile_path.exists() {
                 merge_shell_file(&mut env, &profile_path);
+            }
+        }
+    }
+
+    // Layer 3.5: Project config auto-detection
+    if !run_config.no_project {
+        if let Some(detected) =
+            crate::ops::project::detect_project_config(&std::env::current_dir().unwrap_or_default())
+        {
+            if let Ok(proj_config) = crate::ops::project::load_project_config(&detected) {
+                if let Ok(proj_env_path) =
+                    crate::ops::project::active_env_path(&proj_config, &detected.project_root)
+                {
+                    if proj_env_path.exists() {
+                        if let Ok(entries) = parse_dotenv(&proj_env_path) {
+                            for entry in entries {
+                                env.insert(entry.key, entry.value);
+                            }
+                        }
+                        eprintln!(
+                            "Using project env: {} ({})",
+                            proj_config.project.active_environment,
+                            proj_env_path.display()
+                        );
+                    }
+                }
             }
         }
     }

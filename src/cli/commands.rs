@@ -7,7 +7,8 @@ use crate::ops::*;
 use crate::parser::*;
 
 use super::{
-    AiHookAction, BackupAction, Commands, LeaseAction, McpAction, ShareAction, SnapshotAction,
+    AiHookAction, BackupAction, Commands, LeaseAction, McpAction, ProjectAction, ProjectEnvAction,
+    ShareAction, SnapshotAction,
 };
 
 /// Execute a CLI subcommand.
@@ -92,6 +93,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             command,
             volatile,
             redact,
+            no_project,
         } => {
             if profile.is_some() && profiles.is_some() {
                 eprintln!("Error: Use --profile OR --profiles, not both");
@@ -112,6 +114,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
                 *volatile,
                 &profile_list,
                 *redact,
+                *no_project,
             )
         }
         Commands::Sync { action } => super::sync_cmd::execute_sync(action, json, dry_run),
@@ -189,6 +192,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             crate::lsp::run_lsp();
             return;
         }
+        Commands::Project { action } => cmd_project(action, json, dry_run),
     };
 
     if let Err(e) = result {
@@ -1965,6 +1969,7 @@ fn cmd_run(
     volatile: bool,
     profiles: &[String],
     redact: bool,
+    no_project: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::dotenv::is_sensitive_key;
     use crate::ops::run::{collect_env, spawn_process, spawn_process_with_redaction, RunConfig};
@@ -2008,6 +2013,7 @@ fn cmd_run(
         },
         overrides: override_pairs,
         redact,
+        no_project,
     };
 
     let env = collect_env(&run_config)?;
@@ -3268,6 +3274,7 @@ fn cmd_proxy(
         env_files: Vec::new(),
         overrides: Vec::new(),
         redact: false,
+        no_project: false,
     };
 
     let env = collect_env(&run_config)
@@ -3661,4 +3668,848 @@ fn truncate_context(s: &str, max: usize) -> String {
     } else {
         format!("{}...", &s[..max])
     }
+}
+
+// ─── Project Commands ──────────────────────────────────────
+
+fn cmd_project(
+    action: &ProjectAction,
+    json: bool,
+    dry_run: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::project;
+
+    let cwd = std::env::current_dir()?;
+
+    match action {
+        ProjectAction::Init { format, force } => {
+            let format = project::ConfigFormat::parse(format)?;
+            let project_name = project::derive_project_name(&cwd);
+
+            if dry_run {
+                let filename = format.default_filename();
+                println!("Would create: {}/{}", cwd.display(), filename);
+                println!("Would create: {}/.env.development", cwd.display());
+                return Ok(());
+            }
+
+            let opts = project::InitOptions {
+                root: cwd.clone(),
+                format,
+                project_name: project_name.clone(),
+                default_env_name: "development".to_string(),
+                env_file_path: ".env.development".into(),
+                schema_path: ".env.schema".into(),
+                force: *force,
+            };
+
+            let result = project::init_project(&opts)?;
+
+            if json {
+                let out = serde_json::json!({
+                    "config_path": result.config_path.display().to_string(),
+                    "env_file": result.env_file_path.display().to_string(),
+                    "project_name": result.project_name,
+                    "environment": result.environment_name,
+                    "format": format!("{:?}", result.format).to_lowercase(),
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("Project initialized: {}", project_name);
+                println!("  Config: {}", result.config_path.display());
+                println!("  Env:    {}", result.env_file_path.display());
+                println!("  Format: {:?}", result.format);
+                println!();
+
+                // Offer .gitignore
+                match project::add_to_gitignore(&cwd) {
+                    Ok(true) => println!("  Added .env.* patterns to .gitignore"),
+                    Ok(false) => println!("  .gitignore already has .env.* patterns"),
+                    Err(e) => eprintln!("  Warning: could not update .gitignore: {}", e),
+                }
+            }
+            Ok(())
+        }
+
+        ProjectAction::Config { set } => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+            let mut config = project::load_project_config(&detected)?;
+
+            if let Some(kv) = set {
+                if dry_run {
+                    println!("Would set: {}", kv);
+                    return Ok(());
+                }
+                let parts: Vec<&str> = kv.splitn(2, '=').collect();
+                if parts.len() != 2 {
+                    return Err("Expected format: key=value".into());
+                }
+                match parts[0] {
+                    "name" => config.project.name = parts[1].to_string(),
+                    "schema_path" => config.project.schema_path = parts[1].into(),
+                    "active_environment" => {
+                        project::find_environment(&config, parts[1])?;
+                        config.project.active_environment = parts[1].to_string();
+                    }
+                    other => return Err(format!("Unknown config key: {}", other).into()),
+                }
+                project::save_project_config(&config, &detected.config_path, detected.format)?;
+                println!("Updated: {} = {}", parts[0], parts[1]);
+            } else if json {
+                let serialized =
+                    project::serialize_project_config(&config, project::ConfigFormat::Json)?;
+                println!("{}", serialized);
+            } else {
+                println!("Project: {}", config.project.name);
+                println!("Schema:  {}", config.project.schema_path.display());
+                println!("Active:  {}", config.project.active_environment);
+                println!("Format:  {:?}", detected.format);
+                println!("Config:  {}", detected.config_path.display());
+                println!();
+                println!("Environments:");
+                for env in &config.environments {
+                    let marker = if env.name == config.project.active_environment {
+                        " *"
+                    } else {
+                        ""
+                    };
+                    println!("  {} ({}){}", env.name, env.env_file.display(), marker);
+                }
+            }
+            Ok(())
+        }
+
+        ProjectAction::Status => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+            let config = project::load_project_config(&detected)?;
+
+            let env_path = project::active_env_path(&config, &detected.project_root)?;
+            let key_count = if env_path.exists() {
+                std::fs::read_to_string(&env_path)
+                    .unwrap_or_default()
+                    .lines()
+                    .filter(|l| {
+                        let t = l.trim();
+                        !t.is_empty() && !t.starts_with('#')
+                    })
+                    .count()
+            } else {
+                0
+            };
+
+            let schema_exists = detected
+                .project_root
+                .join(&config.project.schema_path)
+                .exists();
+
+            if json {
+                let out = serde_json::json!({
+                    "project_name": config.project.name,
+                    "active_environment": config.project.active_environment,
+                    "environments": config.environments.len(),
+                    "key_count": key_count,
+                    "schema_exists": schema_exists,
+                    "config_path": detected.config_path.display().to_string(),
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("Project: {}", config.project.name);
+                println!(
+                    "Active:  {} ({} keys)",
+                    config.project.active_environment, key_count
+                );
+                println!("Envs:    {}", config.environments.len());
+                println!(
+                    "Schema:  {}",
+                    if schema_exists { "found" } else { "missing" }
+                );
+                println!("Config:  {}", detected.config_path.display());
+            }
+            Ok(())
+        }
+
+        ProjectAction::Wizard { force } => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+
+            let report = project::run_wizard(&cwd, &detected, *force, dry_run)?;
+
+            if json {
+                let out = serde_json::json!({
+                    "steps_run": report.steps_run,
+                    "schema_keys": report.schema_keys,
+                    "values_set": report.values_set,
+                    "values_skipped": report.values_skipped,
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!();
+                println!("Wizard complete:");
+                println!("  Steps run: {}", report.steps_run.join(", "));
+                println!("  Schema keys: {}", report.schema_keys);
+                println!(
+                    "  Values: {} set, {} skipped",
+                    report.values_set, report.values_skipped
+                );
+            }
+            Ok(())
+        }
+        ProjectAction::Env { action } => cmd_project_env(action, json, dry_run),
+        ProjectAction::Validate { environment } => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+            let config = project::load_project_config(&detected)?;
+
+            // Determine which env to validate
+            let env_name = environment
+                .as_deref()
+                .unwrap_or(&config.project.active_environment);
+            let env_entry = project::find_environment(&config, env_name)?;
+            let env_path = detected.project_root.join(&env_entry.env_file);
+            let schema_path = detected.project_root.join(&config.project.schema_path);
+
+            if !schema_path.exists() {
+                return Err(Box::new(project::ProjectError::SchemaNotFound {
+                    path: schema_path,
+                }));
+            }
+
+            // Parse schema
+            let schema = crate::ops::schema::parse_schema(&schema_path)?;
+
+            // Parse env file into HashMap
+            let env_map = project::parse_dotenv_simple(&env_path)?;
+
+            // Validate
+            let errors = crate::ops::schema::validate_against_schema(
+                &env_map,
+                &schema,
+                environment.as_deref(),
+                &std::collections::HashMap::new(),
+            );
+
+            if json {
+                let err_list: Vec<serde_json::Value> = errors
+                    .iter()
+                    .map(|e| serde_json::json!({"key": e.key, "message": e.message}))
+                    .collect();
+                let out = serde_json::json!({
+                    "environment": env_name,
+                    "valid": errors.is_empty(),
+                    "errors": err_list,
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else if errors.is_empty() {
+                println!("Validation passed: {} ({} keys)", env_name, env_map.len());
+            } else {
+                eprintln!(
+                    "Validation failed for '{}': {} error(s)",
+                    env_name,
+                    errors.len()
+                );
+                for err in &errors {
+                    eprintln!("  - {}: {}", err.key, err.message);
+                }
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+
+        ProjectAction::Scan { staged, mcp } => {
+            if *mcp {
+                let findings = crate::ops::mcp_scan::scan_mcp_configs();
+                if json {
+                    let out: Vec<serde_json::Value> = findings
+                        .iter()
+                        .map(|f| serde_json::json!({"file": f.file.display().to_string(), "key": f.key, "pattern": f.pattern}))
+                        .collect();
+                    println!("{}", serde_json::to_string_pretty(&out)?);
+                } else if findings.is_empty() {
+                    println!("No credentials found in MCP configs.");
+                } else {
+                    for f in &findings {
+                        eprintln!("  {} : {} = {}", f.file.display(), f.key, f.value_preview);
+                    }
+                    eprintln!("{} credential(s) found", findings.len());
+                    std::process::exit(1);
+                }
+            } else {
+                // Build EnvEntry list from project env for value-based scanning
+                let detected = project::detect_project_config(&cwd)
+                    .ok_or(project::ProjectError::ConfigNotFound)?;
+                let config = project::load_project_config(&detected)?;
+                let env_path = project::active_env_path(&config, &detected.project_root)?;
+                let env_map = project::parse_dotenv_simple(&env_path)?;
+
+                // Build minimal EnvEntry structs for scanner
+                let entries: Vec<EnvEntry> = env_map
+                    .iter()
+                    .map(|(k, v)| EnvEntry {
+                        key: k.clone(),
+                        value: v.clone(),
+                        source_file: env_path.clone(),
+                        line_number: 0,
+                        location: EntryLocation::InFile,
+                        export_style: ExportStyle::Bare,
+                        quote_style: QuoteStyle::None,
+                        is_dirty: false,
+                    })
+                    .collect();
+
+                if *staged {
+                    let matches = crate::ops::scanner::scan_staged(&entries)?;
+                    if matches.is_empty() {
+                        println!("No secrets found in staged files.");
+                    } else {
+                        for m in &matches {
+                            eprintln!(
+                                "  {}:{}: {}",
+                                m.file.display(),
+                                m.line_number,
+                                m.matched_key
+                            );
+                        }
+                        std::process::exit(1);
+                    }
+                } else {
+                    let matches = crate::ops::scanner::scan_directory(&cwd, &entries)?;
+                    if matches.is_empty() {
+                        println!("No secrets found.");
+                    } else {
+                        for m in &matches {
+                            eprintln!(
+                                "  {}:{}: {}",
+                                m.file.display(),
+                                m.line_number,
+                                m.matched_key
+                            );
+                        }
+                        eprintln!("{} secret(s) found", matches.len());
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        ProjectAction::Schema { action } => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+            let config = project::load_project_config(&detected)?;
+
+            match action {
+                super::ProjectSchemaAction::Generate { output } => {
+                    let env_path = project::active_env_path(&config, &detected.project_root)?;
+                    let env_map = project::parse_dotenv_simple(&env_path)?;
+                    let schema_content = crate::ops::schema::generate_schema(&env_map);
+
+                    let out_path = output
+                        .as_ref()
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|| detected.project_root.join(&config.project.schema_path));
+
+                    if dry_run {
+                        println!("Would write schema to: {}", out_path.display());
+                        print!("{}", schema_content);
+                    } else {
+                        std::fs::write(&out_path, &schema_content)?;
+                        println!(
+                            "Schema generated: {} ({} keys)",
+                            out_path.display(),
+                            env_map.len()
+                        );
+                    }
+                }
+                super::ProjectSchemaAction::EmitAi { output, infer } => {
+                    let schema = if *infer {
+                        None
+                    } else {
+                        let sp = detected.project_root.join(&config.project.schema_path);
+                        if sp.exists() {
+                            Some(crate::ops::schema::parse_schema(&sp)?)
+                        } else {
+                            None
+                        }
+                    };
+
+                    let env_path = project::active_env_path(&config, &detected.project_root)?;
+                    let env_map = project::parse_dotenv_simple(&env_path)?;
+                    let entries: Vec<(String, String)> = env_map.into_iter().collect();
+
+                    let content = crate::ops::schema::emit_ai_context(schema.as_ref(), &entries);
+
+                    if let Some(out) = output {
+                        if dry_run {
+                            println!("Would write AI context to: {}", out);
+                        } else {
+                            std::fs::write(out, &content)?;
+                            println!("AI context written to: {}", out);
+                        }
+                    } else {
+                        print!("{}", content);
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        ProjectAction::Fence => {
+            crate::ops::fence::create_fence(&cwd, dry_run)?;
+            Ok(())
+        }
+
+        ProjectAction::Sanitize { file, output } => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+            let config = project::load_project_config(&detected)?;
+            let env_path = project::active_env_path(&config, &detected.project_root)?;
+            let env_map = project::parse_dotenv_simple(&env_path)?;
+            let secrets: Vec<(String, String)> = env_map.into_iter().collect();
+
+            let content = std::fs::read_to_string(file)?;
+            let (sanitized, count) = crate::ops::sanitize::sanitize_content(&content, &secrets);
+
+            if let Some(out) = output {
+                if dry_run {
+                    println!("Would sanitize {} ({} replacements) → {}", file, count, out);
+                } else {
+                    std::fs::write(out, &sanitized)?;
+                    println!("Sanitized: {} replacements → {}", count, out);
+                }
+            } else {
+                print!("{}", sanitized);
+            }
+            Ok(())
+        }
+
+        ProjectAction::Export {
+            path,
+            safe,
+            format,
+            filter,
+        } => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+            let config = project::load_project_config(&detected)?;
+            let env_path = project::active_env_path(&config, &detected.project_root)?;
+            let env_map = project::parse_dotenv_simple(&env_path)?;
+
+            let mut entries: Vec<(String, String)> = env_map.into_iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+            // Apply filter
+            if let Some(pattern) = filter {
+                let pat = pattern.replace('*', "");
+                entries.retain(|(k, _)| k.contains(&pat));
+            }
+
+            // Redact if --safe
+            if *safe {
+                let sensitive = ["SECRET", "TOKEN", "PASSWORD", "KEY", "CREDENTIAL"];
+                for entry in &mut entries {
+                    if sensitive.iter().any(|s| entry.0.to_uppercase().contains(s)) {
+                        entry.1 = "[REDACTED]".to_string();
+                    }
+                }
+            }
+
+            // Format output
+            let output_str = match format.as_deref() {
+                Some("json") => {
+                    let map: serde_json::Map<String, serde_json::Value> = entries
+                        .iter()
+                        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                        .collect();
+                    serde_json::to_string_pretty(&map)?
+                }
+                Some("yaml" | "yml") => entries
+                    .iter()
+                    .map(|(k, v)| format!("{}: \"{}\"", k, v.replace('"', "\\\"")))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => entries
+                    .iter()
+                    .map(|(k, v)| format!("{}={}", k, v))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            };
+
+            if let Some(p) = path {
+                if dry_run {
+                    println!("Would export to: {}", p);
+                } else {
+                    std::fs::write(p, &output_str)?;
+                    println!("Exported {} keys to {}", entries.len(), p);
+                }
+            } else {
+                println!("{}", output_str);
+            }
+            Ok(())
+        }
+
+        ProjectAction::Pull {
+            from,
+            path,
+            filter,
+            environment,
+        } => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+            let config = project::load_project_config(&detected)?;
+
+            let env_name = environment
+                .as_deref()
+                .unwrap_or(&config.project.active_environment);
+            let env_entry = project::find_environment(&config, env_name)?;
+            let env_path = detected.project_root.join(&env_entry.env_file);
+
+            // Use existing secrets pull logic
+            let registry = crate::ops::secrets::providers::create_default_registry();
+            let provider = registry.get(from)?;
+            let creds = crate::ops::secrets::credentials::read_all_credentials(from)?;
+            let mut secrets = provider.pull(&creds, path)?;
+
+            // Apply filter
+            if let Some(pattern) = filter {
+                let pat = pattern.replace('*', "");
+                secrets.retain(|(k, _)| k.contains(&pat));
+            }
+
+            if dry_run {
+                println!(
+                    "Would pull {} keys into {}",
+                    secrets.len(),
+                    env_path.display()
+                );
+                for (k, _) in &secrets {
+                    println!("  {}", k);
+                }
+                return Ok(());
+            }
+
+            // Write to project .env file
+            let mut content = String::new();
+            content.push_str(&format!("# Pulled from {} at {}\n", from, path));
+            for (k, v) in &secrets {
+                if v.contains(' ') || v.contains('"') {
+                    content.push_str(&format!("{}=\"{}\"\n", k, v.replace('"', "\\\"")));
+                } else {
+                    content.push_str(&format!("{}={}\n", k, v));
+                }
+            }
+            std::fs::write(&env_path, &content)?;
+
+            if json {
+                let out = serde_json::json!({
+                    "provider": from,
+                    "environment": env_name,
+                    "keys": secrets.len(),
+                    "env_file": env_path.display().to_string(),
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!(
+                    "Pulled {} keys from {} into {} ({})",
+                    secrets.len(),
+                    from,
+                    env_name,
+                    env_path.display()
+                );
+            }
+            Ok(())
+        }
+
+        ProjectAction::Push {
+            to,
+            path,
+            keys,
+            all,
+            filter,
+        } => {
+            let detected = project::detect_project_config(&cwd)
+                .ok_or(project::ProjectError::ConfigNotFound)?;
+            let config = project::load_project_config(&detected)?;
+            let env_path = project::active_env_path(&config, &detected.project_root)?;
+            let env_map = project::parse_dotenv_simple(&env_path)?;
+
+            let mut secrets: Vec<(String, String)> = env_map.into_iter().collect();
+            secrets.sort_by(|a, b| a.0.cmp(&b.0));
+
+            // Filter
+            if let Some(key_list) = keys {
+                let wanted: Vec<&str> = key_list.split(',').map(|s| s.trim()).collect();
+                secrets.retain(|(k, _)| wanted.contains(&k.as_str()));
+            } else if let Some(pattern) = filter {
+                let pat = pattern.replace('*', "");
+                secrets.retain(|(k, _)| k.contains(&pat));
+            } else if !all {
+                return Err("Specify --keys, --filter, or --all".into());
+            }
+
+            if dry_run {
+                println!("Would push {} keys to {} ({})", secrets.len(), to, path);
+                for (k, _) in &secrets {
+                    println!("  {}", k);
+                }
+                return Ok(());
+            }
+
+            let registry = crate::ops::secrets::providers::create_default_registry();
+            let provider = registry.get(to)?;
+            let creds = crate::ops::secrets::credentials::read_all_credentials(to)?;
+            let count = provider.push(&creds, path, &secrets)?;
+
+            if json {
+                let out = serde_json::json!({"provider": to, "pushed": count});
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("Pushed {} keys to {} ({})", count, to, path);
+            }
+            Ok(())
+        }
+    }
+}
+
+fn cmd_project_env(
+    action: &ProjectEnvAction,
+    json: bool,
+    _dry_run: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::project;
+
+    let cwd = std::env::current_dir()?;
+    let detected =
+        project::detect_project_config(&cwd).ok_or(project::ProjectError::ConfigNotFound)?;
+    let mut config = project::load_project_config(&detected)?;
+
+    match action {
+        ProjectEnvAction::Create { name, description } => {
+            project::validate_env_name(name)?;
+
+            if config.environments.iter().any(|e| e.name == *name) {
+                return Err(Box::new(project::ProjectError::EnvironmentExists {
+                    name: name.clone(),
+                }));
+            }
+
+            let env_file = format!(".env.{}", name);
+            config.environments.push(project::ProjectEnvironment {
+                name: name.clone(),
+                env_file: env_file.clone().into(),
+                description: description.clone(),
+            });
+
+            project::save_project_config(&config, &detected.config_path, detected.format)?;
+
+            // Create empty .env file
+            let env_path = detected.project_root.join(&env_file);
+            if !env_path.exists() {
+                std::fs::write(
+                    &env_path,
+                    format!("# EnvForge project environment: {}\n", name),
+                )?;
+            }
+
+            if json {
+                let out = serde_json::json!({"created": name, "env_file": env_file});
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("Environment created: {} ({})", name, env_file);
+            }
+        }
+
+        ProjectEnvAction::List => {
+            if json {
+                let envs: Vec<serde_json::Value> = config
+                    .environments
+                    .iter()
+                    .map(|e| {
+                        serde_json::json!({
+                            "name": e.name,
+                            "env_file": e.env_file.display().to_string(),
+                            "active": e.name == config.project.active_environment,
+                            "description": e.description,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&envs)?);
+            } else {
+                for env in &config.environments {
+                    let marker = if env.name == config.project.active_environment {
+                        " *"
+                    } else {
+                        ""
+                    };
+                    let desc = env
+                        .description
+                        .as_deref()
+                        .map(|d| format!(" — {}", d))
+                        .unwrap_or_default();
+                    println!(
+                        "  {} ({}){}{}",
+                        env.name,
+                        env.env_file.display(),
+                        marker,
+                        desc
+                    );
+                }
+            }
+        }
+
+        ProjectEnvAction::Switch { name } => {
+            project::find_environment(&config, name)?;
+            config.project.active_environment = name.clone();
+            project::save_project_config(&config, &detected.config_path, detected.format)?;
+
+            let env_file = config
+                .environments
+                .iter()
+                .find(|e| e.name == *name)
+                .map(|e| e.env_file.display().to_string())
+                .unwrap_or_default();
+
+            if json {
+                let out = serde_json::json!({"active": name, "env_file": env_file});
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("Switched to '{}' ({})", name, env_file);
+            }
+        }
+
+        ProjectEnvAction::Delete { name } => {
+            if *name == config.project.active_environment {
+                return Err("Cannot delete the active environment. Switch first.".into());
+            }
+            project::find_environment(&config, name)?;
+            config.environments.retain(|e| e.name != *name);
+            project::save_project_config(&config, &detected.config_path, detected.format)?;
+
+            if json {
+                let out = serde_json::json!({"deleted": name});
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!("Environment deleted: {}", name);
+            }
+        }
+
+        ProjectEnvAction::Diff { a, b } => {
+            let env_a = project::find_environment(&config, a)?;
+            let env_b = project::find_environment(&config, b)?;
+
+            let path_a = detected.project_root.join(&env_a.env_file);
+            let path_b = detected.project_root.join(&env_b.env_file);
+
+            // Reuse existing dotenv parsing
+            let parse_env = |p: &std::path::Path| -> Vec<(String, String)> {
+                std::fs::read_to_string(p)
+                    .unwrap_or_default()
+                    .lines()
+                    .filter_map(|l| {
+                        let t = l.trim();
+                        if t.is_empty() || t.starts_with('#') {
+                            return None;
+                        }
+                        let stripped = t.strip_prefix("export ").unwrap_or(t);
+                        let mut parts = stripped.splitn(2, '=');
+                        let key = parts.next()?.trim().to_string();
+                        let val = parts
+                            .next()
+                            .unwrap_or("")
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .to_string();
+                        Some((key, val))
+                    })
+                    .collect()
+            };
+
+            let vars_a: std::collections::HashMap<String, String> =
+                parse_env(&path_a).into_iter().collect();
+            let vars_b: std::collections::HashMap<String, String> =
+                parse_env(&path_b).into_iter().collect();
+
+            let mut all_keys: Vec<&String> = vars_a.keys().chain(vars_b.keys()).collect();
+            all_keys.sort();
+            all_keys.dedup();
+
+            let mut same = 0;
+            let mut changed = 0;
+            let mut only_a = 0;
+            let mut only_b = 0;
+
+            if !json {
+                println!("{:<30} {:<20} {:<20}", "KEY", a, b);
+                println!("{}", "-".repeat(70));
+            }
+
+            let mut rows = Vec::new();
+            for key in &all_keys {
+                match (vars_a.get(*key), vars_b.get(*key)) {
+                    (Some(va), Some(vb)) if va == vb => {
+                        same += 1;
+                    }
+                    (Some(va), Some(vb)) => {
+                        changed += 1;
+                        if !json {
+                            println!(
+                                "~ {:<28} {:<20} {:<20}",
+                                key,
+                                truncate_context(va, 18),
+                                truncate_context(vb, 18)
+                            );
+                        }
+                        rows.push(
+                            serde_json::json!({"key": key, "status": "changed", "a": va, "b": vb}),
+                        );
+                    }
+                    (Some(va), None) => {
+                        only_a += 1;
+                        if !json {
+                            println!(
+                                "- {:<28} {:<20} {:<20}",
+                                key,
+                                truncate_context(va, 18),
+                                "(missing)"
+                            );
+                        }
+                        rows.push(serde_json::json!({"key": key, "status": "only_a", "a": va}));
+                    }
+                    (None, Some(vb)) => {
+                        only_b += 1;
+                        if !json {
+                            println!(
+                                "+ {:<28} {:<20} {:<20}",
+                                key,
+                                "(missing)",
+                                truncate_context(vb, 18)
+                            );
+                        }
+                        rows.push(serde_json::json!({"key": key, "status": "only_b", "b": vb}));
+                    }
+                    (None, None) => {}
+                }
+            }
+
+            if json {
+                let out = serde_json::json!({
+                    "a": a, "b": b,
+                    "same": same, "changed": changed,
+                    "only_a": only_a, "only_b": only_b,
+                    "differences": rows,
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                println!();
+                println!(
+                    "{} same, {} changed, {} only in {}, {} only in {}",
+                    same, changed, only_a, a, only_b, b
+                );
+            }
+        }
+    }
+
+    Ok(())
 }

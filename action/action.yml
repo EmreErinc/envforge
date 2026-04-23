@@ -11,7 +11,7 @@ inputs:
     description: 'Operation mode: validate, secrets-pull, export, run, drift'
     required: true
   version:
-    description: 'EnvForge version to install (e.g. 0.4.0). Defaults to latest.'
+    description: 'EnvForge version to install (e.g. 0.6.0). Defaults to latest.'
     required: false
     default: 'latest'
   profile:

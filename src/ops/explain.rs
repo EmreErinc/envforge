@@ -766,4 +766,178 @@ mod tests {
         assert!(output.contains(".zshrc:10"));
         assert!(output.contains("plaintext"));
     }
+
+    #[test]
+    fn test_mask_value_empty() {
+        assert_eq!(mask_value(""), "");
+    }
+
+    #[test]
+    fn test_mask_value_single_char() {
+        assert_eq!(mask_value("x"), "*");
+    }
+
+    #[test]
+    fn test_mask_value_exactly_four() {
+        assert_eq!(mask_value("abcd"), "****");
+    }
+
+    #[test]
+    fn test_mask_value_five_chars() {
+        let masked = mask_value("abcde");
+        assert!(masked.starts_with("ab"));
+        assert!(masked.ends_with("de"));
+        assert!(masked.contains("****"));
+    }
+
+    #[test]
+    fn test_levenshtein_distance_empty_strings() {
+        assert_eq!(levenshtein_distance("", ""), 0);
+        assert_eq!(levenshtein_distance("abc", ""), 3);
+        assert_eq!(levenshtein_distance("", "xyz"), 3);
+    }
+
+    #[test]
+    fn test_levenshtein_distance_identical() {
+        assert_eq!(levenshtein_distance("hello", "hello"), 0);
+    }
+
+    #[test]
+    fn test_levenshtein_distance_single_edit() {
+        assert_eq!(levenshtein_distance("cat", "car"), 1);
+        assert_eq!(levenshtein_distance("cat", "cats"), 1);
+        assert_eq!(levenshtein_distance("cats", "cat"), 1);
+    }
+
+    #[test]
+    fn test_levenshtein_close_long_strings_skipped() {
+        // Strings > 20 chars always return false
+        let long_a = "a".repeat(25);
+        let long_b = "a".repeat(25);
+        assert!(!levenshtein_close(&long_a, &long_b));
+    }
+
+    #[test]
+    fn test_levenshtein_close_big_length_diff() {
+        assert!(!levenshtein_close("ab", "abcdef"));
+    }
+
+    #[test]
+    fn test_format_explanation_encrypted() {
+        let exp = KeyExplanation {
+            key: "SECRET".to_string(),
+            found: true,
+            sources: vec![SourceInfo {
+                file: PathBuf::from("/test"),
+                line_number: 1,
+                export_style: "export".to_string(),
+                quote_style: "double-quoted".to_string(),
+                status: "active".to_string(),
+                value: "ENC[age:...]".to_string(),
+            }],
+            profile: None,
+            schema: Some(SchemaInfo {
+                var_type: "string".to_string(),
+                required: true,
+                description: Some("A secret key".to_string()),
+                sensitive: true,
+                default: Some("none".to_string()),
+                example: Some("sk-xxx".to_string()),
+                pattern: Some("^sk-".to_string()),
+                values: Some(vec!["a".to_string(), "b".to_string()]),
+            }),
+            encrypted: true,
+            reference: Some(ReferenceInfo {
+                provider: "vault".to_string(),
+                path: "secret/data/mykey".to_string(),
+            }),
+            sync_status: Some("synced".to_string()),
+            age: Some(AgeInfo {
+                provider: "vault".to_string(),
+                days: 100,
+                stale: true,
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+            }),
+            value_preview: "ENC[age:...]".to_string(),
+            similar_keys: Vec::new(),
+        };
+        let output = format_explanation(&exp);
+        assert!(output.contains("encrypted"));
+        assert!(output.contains("vault"));
+        assert!(output.contains("synced"));
+        assert!(output.contains("stale"));
+        assert!(output.contains("100 days"));
+        assert!(output.contains("Schema"));
+        assert!(output.contains("Sensitive"));
+        assert!(output.contains("Pattern"));
+        assert!(output.contains("Values"));
+        assert!(output.contains("Default"));
+        assert!(output.contains("Example"));
+    }
+
+    #[test]
+    fn test_explanation_to_json_with_reference() {
+        let exp = KeyExplanation {
+            key: "REF_KEY".to_string(),
+            found: true,
+            sources: vec![],
+            profile: None,
+            schema: None,
+            encrypted: false,
+            reference: Some(ReferenceInfo {
+                provider: "aws-ssm".to_string(),
+                path: "/prod/api-key".to_string(),
+            }),
+            sync_status: None,
+            age: None,
+            value_preview: "ref:aws-ssm:/prod/api-key".to_string(),
+            similar_keys: Vec::new(),
+        };
+        let json = explanation_to_json(&exp);
+        assert_eq!(json["reference"]["provider"], "aws-ssm");
+        assert_eq!(json["reference"]["path"], "/prod/api-key");
+    }
+
+    #[test]
+    fn test_format_explanation_multiple_sources() {
+        let exp = KeyExplanation {
+            key: "MULTI".to_string(),
+            found: true,
+            sources: vec![
+                SourceInfo {
+                    file: PathBuf::from("/a"),
+                    line_number: 1,
+                    export_style: "export".to_string(),
+                    quote_style: "double-quoted".to_string(),
+                    status: "active".to_string(),
+                    value: "val1".to_string(),
+                },
+                SourceInfo {
+                    file: PathBuf::from("/b"),
+                    line_number: 5,
+                    export_style: "bare".to_string(),
+                    quote_style: "unquoted".to_string(),
+                    status: "active".to_string(),
+                    value: "val2".to_string(),
+                },
+            ],
+            profile: Some(ProfileInfo {
+                profile_name: "dev".to_string(),
+                scope: "shared".to_string(),
+            }),
+            schema: None,
+            encrypted: false,
+            reference: None,
+            sync_status: None,
+            age: None,
+            value_preview: "val1".to_string(),
+            similar_keys: Vec::new(),
+        };
+        let output = format_explanation(&exp);
+        // Multiple sources should show numbered entries
+        assert!(output.contains("[1]"));
+        assert!(output.contains("[2]"));
+        assert!(output.contains("Profile"));
+        assert!(output.contains("shared"));
+    }
 }

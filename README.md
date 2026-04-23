@@ -99,7 +99,7 @@ envforge revoke --all
 | **Profiles** | Dev/staging/prod, shared files, profile diff, `--profiles` multi-merge |
 | **Encryption** | Age (X25519) encryption at rest, encrypted sync, per-value encrypt/decrypt |
 | **Remote Sync** | Git-based cross-machine sync, age-encrypted, selective keys, rollback |
-| **Secret Managers** | 13 providers, URI refs (`vault://`), TTL, offline fallback, cache |
+| **Secret Managers** | 13 providers, URI refs (`vault://`), TTL, offline fallback, cache — [Provider Guides](docs/cli-reference.md#provider-integration-guides) |
 | **IDE Extensions** | VS Code + IntelliJ — LSP diagnostics, hover, completions, go-to-definition |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
 | **Health Check** | `envforge doctor` + `envforge check` — 15+ checks with fix suggestions |

@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-23
+
+### Added — Project-Scoped Configuration
+
+#### Project Init & Wizard
+- `envforge project init` — Create project config file (TOML/YAML/JSON format, user choice)
+- `envforge project wizard` — 3-step guided setup: init → schema → key-value entry (resumable)
+- Detects existing `.env` and `.env.schema` — prompts import or override
+- Auto-adds `.env.*` patterns to `.gitignore`
+- Config file: `.envforge.project.{toml,yaml,json}` (distinct from `.envforge.toml` shell hook)
+
+#### Multi-Environment Support
+- `envforge project env create <name>` — Create dev/staging/prod environments
+- `envforge project env list` — List environments with active indicator
+- `envforge project env switch <name>` — Switch active environment
+- `envforge project env delete <name>` — Remove environment
+- `envforge project env diff <a> <b>` — Compare two environments side-by-side
+- Each environment maps to a separate `.env.<name>` file
+
+#### Project Tools
+- `envforge project validate` — Validate against project schema
+- `envforge project scan` — Scan project for leaked secrets (`--staged`, `--mcp`)
+- `envforge project schema generate` — Generate `.env.schema` from project `.env`
+- `envforge project schema emit-ai` — AI-safe context (no values)
+- `envforge project fence` — Create AI ignore rules for project
+- `envforge project sanitize <file>` — Strip secrets using project env values
+- `envforge project export` — Export project env (`--safe`, `--format json/yaml`)
+
+#### Project Provider Integration
+- `envforge project pull --from <provider>` — Pull secrets into project `.env`
+- `envforge project push --to <provider>` — Push project `.env` to provider
+- All 13 providers supported
+- `envforge project status` — Project health overview
+- `envforge project config` — View/edit project settings
+
+#### Auto-Detection in `envforge run`
+- `envforge run` auto-detects project config in cwd/parents
+- Loads active environment's `.env` into env merge chain (after shell config, before `--env-file`)
+- `--no-project` flag disables auto-detection
+- Zero breaking changes to existing `envforge run` behavior
+
+### Changed
+
+#### Test Suite
+- 1325 total tests (up from 1191 in v0.5.7)
+  - 59 new project-specific tests (46 core + 13 wizard)
+  - 75 additional edge-case and coverage tests across modules
+- All tests passing: 100% (0 failures)
+
+#### Dependencies
+- Added `serde_yaml = "0.9"` for YAML project config support
+
+### Quality Assurance
+
+- **Zero breaking changes** — 100% backward compatible
+- **cargo clippy** — 0 warnings
+- **cargo fmt** — Clean
+- New dependency: `serde_yaml` only
+
 ## [0.5.7] - 2026-04-23
 
 ### Added — 6 New Secret Manager Providers

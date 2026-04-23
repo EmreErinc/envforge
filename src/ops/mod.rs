@@ -25,6 +25,7 @@ pub mod mcp_scan;
 mod offset;
 pub mod profile;
 pub mod profile_diff;
+pub mod project;
 pub mod proxy;
 mod reference;
 pub mod rotate;

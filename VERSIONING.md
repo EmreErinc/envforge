@@ -51,6 +51,8 @@ Each release includes:
 | Linux | aarch64 | `envforge-aarch64-unknown-linux-gnu.tar.gz` |
 | macOS | x86_64 | `envforge-x86_64-apple-darwin.tar.gz` |
 | macOS | aarch64 (Apple Silicon) | `envforge-aarch64-apple-darwin.tar.gz` |
+| VSCode | All | `envforge-env-manager-{version}.vsix` |
+| IntelliJ | All | `envforge-intellij-{version}.zip` |
 
 ### Distribution Channels
 
