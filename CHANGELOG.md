@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — Project-Scoped Configuration
 
+18 new `envforge project` subcommands for managing project-level environment variables with multi-environment support.
+
 #### Project Init & Wizard
 - `envforge project init` — Create project config file (TOML/YAML/JSON format, user choice)
 - `envforge project wizard` — 3-step guided setup: init → schema → key-value entry (resumable)
@@ -46,6 +48,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--no-project` flag disables auto-detection
 - Zero breaking changes to existing `envforge run` behavior
 
+### Added — Provider Integration Documentation
+
+Per-provider setup guides for all 13 secret manager providers, inline in CLI reference.
+
+#### Provider Guides (in `docs/cli-reference.md`)
+- Each provider: prerequisites, credential fields, path format, end-to-end workflow, auth details, troubleshooting
+- Quick reference table with required fields and path behavior
+- Providers: HashiCorp Vault, AWS SSM, 1Password, Doppler, Infisical, GCP Secret Manager, Azure Key Vault, Bitwarden, Akeyless, CyberArk Conjur, Mozilla SOPS, pass/gopass, Keeper
+
+#### Documentation Site (`docs/docs.html`)
+- Dynamic sidebar auto-generated from markdown headings (H2 sections, H3 sub-items)
+- Collapsible sections with scroll-tracking active highlight
+- H4 heading support for provider subsections
+- Code block rendering fix (no more extra spacing from paragraph wrapping)
+- Markdown link rendering (external links open in new tab)
+
 ### Changed
 
 #### Test Suite
@@ -57,12 +75,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Dependencies
 - Added `serde_yaml = "0.9"` for YAML project config support
 
+#### Documentation Updates
+- `docs/cli-reference.md` — 4621 lines (up from ~2340), includes 18 project commands + 13 provider guides
+- `README.md` — Added Projects to features table and Quick Start
+- `PROVIDER_FRAMEWORK_GUIDE.md` — Updated test count (1325) and provider count (13)
+- `action/action.yml` — Updated example version to 0.6.0
+- Version bumped across all docs (v0.5.7 → v0.6.0)
+
+#### Release Pipeline
+- Multi-platform binary builds (x86_64 + aarch64, Linux + macOS)
+- VSCode extension bundled with release
+- IntelliJ plugin bundled with release
+- Auto-extracted release notes from CHANGELOG
+
 ### Quality Assurance
 
 - **Zero breaking changes** — 100% backward compatible
 - **cargo clippy** — 0 warnings
 - **cargo fmt** — Clean
 - New dependency: `serde_yaml` only
+- 26 files changed, +6800 lines across project, docs, and tests
 
 ## [0.5.7] - 2026-04-23
 
