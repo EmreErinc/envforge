@@ -96,6 +96,7 @@ envforge revoke --all
 | **CLI** | 80+ subcommands, `--json` output, `--dry-run` preview, shell completions |
 | **Run** | Subprocess injection with volatile, redact, multi-profile, resolve |
 | **Schema** | `.env.schema` — type validation, JSON Schema, onboarding wizard, drift detection |
+| **Projects** | Multi-env project config, wizard setup, `envforge project env diff`, provider pull/push per env |
 | **Profiles** | Dev/staging/prod, shared files, profile diff, `--profiles` multi-merge |
 | **Encryption** | Age (X25519) encryption at rest, encrypted sync, per-value encrypt/decrypt |
 | **Remote Sync** | Git-based cross-machine sync, age-encrypted, selective keys, rollback |
@@ -136,6 +137,11 @@ envforge run -- npm start
 
 # Run with a specific profile
 envforge run --profile prod -- docker compose up
+
+# Project-scoped setup (multi-env)
+envforge project init
+envforge project env create production
+envforge project env switch production
 
 # Check system health
 envforge doctor

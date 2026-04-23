@@ -57,6 +57,7 @@ Usage: envforge get [OPTIONS] <KEY>
 ```bash
 # Get a single variable
 envforge get DATABASE_URL
+
 # Get as JSON
 envforge get API_KEY --json
 ```
@@ -131,6 +132,7 @@ Usage: envforge copy [OPTIONS] <KEY>
 ```bash
 # Copy value to clipboard
 envforge copy DATABASE_URL
+
 # Copy with JSON output confirmation
 envforge copy API_KEY --json
 ```
@@ -629,6 +631,447 @@ Usage: envforge profile diff [OPTIONS] <A> <B>
 ```bash
 envforge profile diff development production
 envforge profile diff staging prod --json
+```
+
+---
+
+## Project Management
+
+Project-scoped env management with multi-environment support, guided setup, and provider integration. Config file: `.envforge.project.{toml,yaml,json}`.
+
+### envforge project init
+
+Initialize project-scoped env management.
+
+```
+Usage: envforge project init [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--format <FORMAT>` | Config format: `toml`, `yaml`, `json` [default: toml] |
+| `--force` | Force reinitialize (overwrite existing config) |
+
+**Examples:**
+
+```bash
+# Initialize with default TOML format
+envforge project init
+
+# Initialize with YAML
+envforge project init --format yaml
+
+# Reinitialize (overwrite existing)
+envforge project init --force
+```
+
+Creates `.envforge.project.toml` (or `.yaml`/`.json`), a default `.env.development` file, and adds `.env.*` patterns to `.gitignore`.
+
+---
+
+### envforge project wizard
+
+Interactive 3-step guided setup: init → schema → key-value entry. Resumable — skips already completed steps.
+
+```
+Usage: envforge project wizard [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Force re-run all steps |
+
+**Examples:**
+
+```bash
+# Run interactive wizard
+envforge project wizard
+
+# Re-run all steps
+envforge project wizard --force
+```
+
+**Steps:**
+1. **Init** — Creates project config (detects existing `.env` and `.env.schema`)
+2. **Schema** — Generates `.env.schema` from current `.env` file
+3. **Values** — Interactive prompts for each schema key
+
+---
+
+### envforge project env create
+
+Create a new environment.
+
+```
+Usage: envforge project env create [OPTIONS] <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Environment name (lowercase alphanumeric + hyphens) |
+
+| Flag | Description |
+|------|-------------|
+| `--description <DESC>` | Optional description |
+
+**Examples:**
+
+```bash
+envforge project env create staging
+envforge project env create production --description "Live production environment"
+```
+
+---
+
+### envforge project env list
+
+List all environments with active indicator.
+
+```
+Usage: envforge project env list
+```
+
+**Examples:**
+
+```bash
+envforge project env list
+```
+
+---
+
+### envforge project env switch
+
+Switch active environment.
+
+```
+Usage: envforge project env switch <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Environment name to activate |
+
+**Examples:**
+
+```bash
+envforge project env switch production
+envforge project env switch staging
+```
+
+---
+
+### envforge project env delete
+
+Delete an environment.
+
+```
+Usage: envforge project env delete <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Environment name to delete |
+
+**Examples:**
+
+```bash
+envforge project env delete staging
+```
+
+---
+
+### envforge project env diff
+
+Compare two environments side-by-side.
+
+```
+Usage: envforge project env diff <A> <B>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<A>` | First environment name |
+| `<B>` | Second environment name |
+
+**Examples:**
+
+```bash
+envforge project env diff development production
+envforge project env diff staging production
+```
+
+---
+
+### envforge project validate
+
+Validate project env against schema.
+
+```
+Usage: envforge project validate [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--environment <NAME>` | Validate a specific environment (default: active) |
+
+**Examples:**
+
+```bash
+# Validate active environment
+envforge project validate
+
+# Validate specific environment
+envforge project validate --environment production
+```
+
+---
+
+### envforge project scan
+
+Scan project for leaked secrets.
+
+```
+Usage: envforge project scan [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--staged` | Only scan git staged files |
+| `--mcp` | Scan MCP config files |
+
+**Examples:**
+
+```bash
+# Full project scan
+envforge project scan
+
+# Scan only staged files (pre-commit)
+envforge project scan --staged
+
+# Include MCP config files
+envforge project scan --mcp
+```
+
+---
+
+### envforge project schema generate
+
+Generate `.env.schema` from project env.
+
+```
+Usage: envforge project schema generate [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--output <PATH>` | Output file path (default: `.env.schema`) |
+
+**Examples:**
+
+```bash
+envforge project schema generate
+envforge project schema generate --output custom-schema.toml
+```
+
+---
+
+### envforge project schema emit-ai
+
+Generate AI-safe context file (key names and types only, no values).
+
+```
+Usage: envforge project schema emit-ai [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--output <PATH>` | Output file path |
+| `--infer` | Infer types from current env vars |
+
+**Examples:**
+
+```bash
+envforge project schema emit-ai
+envforge project schema emit-ai --infer --output ai-context.md
+```
+
+---
+
+### envforge project config
+
+Show or edit project configuration.
+
+```
+Usage: envforge project config [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--set <KEY=VALUE>` | Set a config value |
+
+**Examples:**
+
+```bash
+# Show current config
+envforge project config
+
+# Edit config
+envforge project config --set name=my-app
+envforge project config --set schema_path=.env.schema
+```
+
+---
+
+### envforge project status
+
+Show project health overview.
+
+```
+Usage: envforge project status
+```
+
+**Examples:**
+
+```bash
+envforge project status
+```
+
+---
+
+### envforge project pull
+
+Pull secrets from provider into project env.
+
+```
+Usage: envforge project pull [OPTIONS] --from <FROM>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--from <FROM>` | Provider name (vault, aws-ssm, doppler, etc.) |
+| `--path <PATH>` | Secret path in the provider [default: ""] |
+| `--filter <FILTER>` | Filter keys by glob pattern |
+| `--environment <NAME>` | Target specific environment (default: active) |
+
+**Examples:**
+
+```bash
+# Pull from Vault into active environment
+envforge project pull --from vault --path secret/myapp
+
+# Pull into specific environment
+envforge project pull --from doppler --environment production
+
+# Pull with filter
+envforge project pull --from aws-ssm --path /myapp/ --filter "DB_*"
+```
+
+---
+
+### envforge project push
+
+Push project env to provider.
+
+```
+Usage: envforge project push [OPTIONS] --to <TO>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--to <TO>` | Provider name |
+| `--path <PATH>` | Secret path in the provider [default: ""] |
+| `--keys <KEYS>` | Specific keys to push (comma-separated) |
+| `--all` | Push all keys |
+| `--filter <FILTER>` | Filter keys by glob pattern |
+
+**Examples:**
+
+```bash
+# Push specific keys
+envforge project push --to vault --path secret/myapp --keys DATABASE_URL,API_KEY
+
+# Push all keys
+envforge project push --to doppler --all
+```
+
+---
+
+### envforge project fence
+
+Create AI ignore rules for project.
+
+```
+Usage: envforge project fence
+```
+
+**Examples:**
+
+```bash
+envforge project fence
+```
+
+---
+
+### envforge project sanitize
+
+Sanitize file by replacing secret values found in project env.
+
+```
+Usage: envforge project sanitize [OPTIONS] <FILE>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<FILE>` | File to sanitize |
+
+| Flag | Description |
+|------|-------------|
+| `--output <PATH>` | Output file (default: stdout) |
+
+**Examples:**
+
+```bash
+# Sanitize to stdout
+envforge project sanitize docker-compose.yml
+
+# Sanitize to file
+envforge project sanitize config.yaml --output config.sanitized.yaml
+```
+
+---
+
+### envforge project export
+
+Export project env.
+
+```
+Usage: envforge project export [OPTIONS] [PATH]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[PATH]` | Output file path (default: stdout) |
+
+| Flag | Description |
+|------|-------------|
+| `--safe` | Redact sensitive values |
+| `--format <FORMAT>` | Output format (dotenv, json, yaml, etc.) |
+| `--filter <FILTER>` | Filter keys by glob pattern |
+
+**Examples:**
+
+```bash
+# Export as dotenv to stdout
+envforge project export
+
+# Export as JSON
+envforge project export --format json
+
+# Export with redacted values
+envforge project export --safe --format yaml
+
+# Export filtered keys to file
+envforge project export .env.export --filter "DB_*"
 ```
 
 ---
@@ -3192,6 +3635,7 @@ Usage: envforge run [OPTIONS] -- <COMMAND>...
 | `--override <OVERRIDES>` | Override a specific variable (KEY=VALUE, can be repeated) |
 | `--volatile` | AI-agent-safe mode: resolve secrets in memory only, skip .env disk files |
 | `--redact` | Redact known secret values in subprocess output |
+| `--no-project` | Skip project config auto-detection |
 
 **Examples:**
 
@@ -3219,6 +3663,9 @@ envforge run --redact -- ./scripts/debug.sh
 
 # Combine env files with overrides
 envforge run --env-file .env.local --override DEBUG=true -- cargo test
+
+# Skip project config auto-detection
+envforge run --no-project -- npm start
 ```
 
 ---
