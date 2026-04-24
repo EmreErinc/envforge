@@ -257,7 +257,7 @@ Total secret manager integrations expanded from 7 to **13 providers**.
   - Status bar with variable count
   - Syntax highlighting for `.env` and `.env.schema` files
   - Search in API documentation (`/` or `Cmd+K`)
-- **IntelliJ IDEA plugin** — [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/com.envforge.ide)
+- **IntelliJ IDEA plugin** — [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/31385-envforge)
   - Same LSP features via LSP4IJ (diagnostics, hover, completions, go-to-definition)
   - Tool window with Variables + Profiles panels
   - Prefix grouping toggle, sensitive value masking
