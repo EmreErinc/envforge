@@ -1,0 +1,448 @@
+{
+  "name": "envforge-env-manager",
+  "displayName": "EnvForge - ENV Manager",
+  "description": "Environment variable management with schema validation, secret scanning, and multi-profile support",
+  "version": "0.1.1",
+  "publisher": "emreerinc",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emreerinc/envforge"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "env",
+    "environment",
+    "dotenv",
+    "secrets",
+    "schema",
+    "validation"
+  ],
+  "icon": "icon.png",
+  "activationEvents": [
+    "workspaceContains:**/.env",
+    "workspaceContains:**/.env.*",
+    "workspaceContains:**/.env.schema",
+    "onLanguage:dotenv",
+    "onLanguage:env-schema",
+    "onView:envforgeVariables",
+    "onCommand:envforge.doctor",
+    "onCommand:envforge.schemaGenerate",
+    "onCommand:envforge.list",
+    "onCommand:envforge.validate",
+    "onCommand:envforge.scan",
+    "onCommand:envforge.check",
+    "onCommand:envforge.export",
+    "onCommand:envforge.refreshTree",
+    "onCommand:envforge.restartLsp"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "dotenv",
+        "aliases": [
+          "DotENV",
+          "Environment Variables"
+        ],
+        "filenames": [
+          ".env"
+        ],
+        "extensions": [
+          ".env"
+        ],
+        "filenamePatterns": [
+          ".env",
+          ".env.*",
+          "*.env",
+          ".env.local",
+          ".env.development",
+          ".env.staging",
+          ".env.production",
+          ".env.test",
+          ".env.example"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "env-schema",
+        "aliases": [
+          "EnvForge Schema"
+        ],
+        "filenames": [
+          ".env.schema"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dotenv",
+        "scopeName": "source.dotenv",
+        "path": "./syntaxes/dotenv.tmLanguage.json"
+      },
+      {
+        "language": "env-schema",
+        "scopeName": "source.toml",
+        "path": "./syntaxes/env-schema.tmLanguage.json"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "envforge",
+          "title": "EnvForge",
+          "icon": "icons/envforge-dark.svg"
+        }
+      ]
+    },
+    "views": {
+      "envforge": [
+        {
+          "id": "envforgeProfiles",
+          "name": "Profiles",
+          "icon": "$(layers)"
+        },
+        {
+          "id": "envforgeVariables",
+          "name": "Variables",
+          "icon": "$(symbol-variable)"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "envforgeVariables",
+        "contents": "No EnvForge configuration found.\n\nTo get started:\n1. Create a `.env` file in your project root\n2. Run the setup wizard:\n\n[Run Setup Wizard](command:envforge.doctor)\n\nOr generate a schema from existing variables:\n\n[Generate Schema](command:envforge.schemaGenerate)\n\n[Learn More](https://github.com/emreerinc/envforge)"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "envforge.gettingStarted",
+        "title": "Get Started with EnvForge",
+        "description": "Set up environment variable management for your project",
+        "steps": [
+          {
+            "id": "envforge.step.install",
+            "title": "Install EnvForge CLI",
+            "description": "Install the CLI tool via cargo:\n\n```bash\ncargo install env-forge-tui\n```\n\nVerify with `envforge --version`",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "envforge.step.env",
+            "title": "Create a .env file",
+            "description": "Create a `.env` file in your project root with your environment variables:\n\n```\nDATABASE_URL=postgres://localhost:5432/mydb\nPORT=3000\nNODE_ENV=development\n```",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "envforge.step.schema",
+            "title": "Generate a schema",
+            "description": "Auto-generate a `.env.schema` from your existing variables for type validation, hover info, and completions.\n\n[Generate Schema](command:envforge.schemaGenerate)",
+            "media": {
+              "markdown": ""
+            }
+          },
+          {
+            "id": "envforge.step.validate",
+            "title": "Validate your environment",
+            "description": "Run validation to check for missing variables, type errors, and secret leaks.\n\n[Run Validation](command:envforge.check)",
+            "media": {
+              "markdown": ""
+            }
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "EnvForge",
+      "properties": {
+        "envforge.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to envforge binary. Leave empty to use system PATH."
+        },
+        "envforge.lsp.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the EnvForge Language Server for diagnostics, hover, and completions."
+        },
+        "envforge.secretScanning.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable secret leak warnings in .env files."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "envforge.list",
+        "title": "EnvForge: List Variables"
+      },
+      {
+        "command": "envforge.validate",
+        "title": "EnvForge: Validate Against Schema"
+      },
+      {
+        "command": "envforge.scan",
+        "title": "EnvForge: Scan for Secret Leaks"
+      },
+      {
+        "command": "envforge.profileSwitch",
+        "title": "EnvForge: Switch Profile"
+      },
+      {
+        "command": "envforge.profileDiff",
+        "title": "EnvForge: Diff Profiles"
+      },
+      {
+        "command": "envforge.schemaGenerate",
+        "title": "EnvForge: Generate Schema from .env"
+      },
+      {
+        "command": "envforge.export",
+        "title": "EnvForge: Export Variables"
+      },
+      {
+        "command": "envforge.syncStatus",
+        "title": "EnvForge: Sync Status"
+      },
+      {
+        "command": "envforge.syncPush",
+        "title": "EnvForge: Sync Push"
+      },
+      {
+        "command": "envforge.syncPull",
+        "title": "EnvForge: Sync Pull"
+      },
+      {
+        "command": "envforge.doctor",
+        "title": "EnvForge: Run Health Check"
+      },
+      {
+        "command": "envforge.check",
+        "title": "EnvForge: Run All Checks"
+      },
+      {
+        "command": "envforge.restartLsp",
+        "title": "EnvForge: Restart Language Server"
+      },
+      {
+        "command": "envforge.refreshTree",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "envforge.copyValue",
+        "title": "Copy Value"
+      },
+      {
+        "command": "envforge.copyKey",
+        "title": "Copy Key Name"
+      },
+      {
+        "command": "envforge.toggleGrouping",
+        "title": "Toggle Grouping",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "envforge.switchToProfile",
+        "title": "Switch Profile"
+      },
+      {
+        "command": "envforge.copyKeyValue",
+        "title": "Copy KEY=VALUE"
+      },
+      {
+        "command": "envforge.profileContextSwitch",
+        "title": "Switch Profile"
+      },
+      {
+        "command": "envforge.profileContextDiff",
+        "title": "Diff with Active"
+      },
+      {
+        "command": "envforge.profileOpenFile",
+        "title": "Open File"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "envforge.contextMenu",
+        "label": "EnvForge"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "envforge.list"
+        },
+        {
+          "command": "envforge.validate"
+        },
+        {
+          "command": "envforge.scan"
+        },
+        {
+          "command": "envforge.profileSwitch"
+        },
+        {
+          "command": "envforge.export"
+        },
+        {
+          "command": "envforge.doctor"
+        },
+        {
+          "command": "envforge.check"
+        },
+        {
+          "command": "envforge.restartLsp"
+        },
+        {
+          "command": "envforge.refreshTree",
+          "when": "false"
+        },
+        {
+          "command": "envforge.copyValue",
+          "when": "false"
+        },
+        {
+          "command": "envforge.copyKey",
+          "when": "false"
+        },
+        {
+          "command": "envforge.toggleGrouping",
+          "when": "false"
+        },
+        {
+          "command": "envforge.switchToProfile",
+          "when": "false"
+        },
+        {
+          "command": "envforge.copyKeyValue",
+          "when": "false"
+        },
+        {
+          "command": "envforge.profileContextSwitch",
+          "when": "false"
+        },
+        {
+          "command": "envforge.profileContextDiff",
+          "when": "false"
+        },
+        {
+          "command": "envforge.profileOpenFile",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "envforge.toggleGrouping",
+          "when": "view == envforgeVariables",
+          "group": "navigation"
+        },
+        {
+          "command": "envforge.refreshTree",
+          "when": "view == envforgeVariables || view == envforgeProfiles",
+          "group": "navigation"
+        }
+      ],
+      "envforge.contextMenu": [
+        {
+          "command": "envforge.validate",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "envforge.scan",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "envforge.export",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "envforge.schemaGenerate",
+          "group": "2_schema@1"
+        },
+        {
+          "command": "envforge.check",
+          "group": "3_check@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "envforge.contextMenu",
+          "when": "resourceFilename =~ /^\\.env/ || resourceFilename =~ /\\.env$/",
+          "group": "envforge@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "envforge.contextMenu",
+          "when": "editorLangId == dotenv || editorLangId == env-schema",
+          "group": "envforge@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "envforge.copyKey",
+          "when": "view == envforgeVariables && viewItem == envVariable",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "envforge.copyValue",
+          "when": "view == envforgeVariables && viewItem == envVariable",
+          "group": "1_copy@2"
+        },
+        {
+          "command": "envforge.copyKeyValue",
+          "when": "view == envforgeVariables && viewItem == envVariable",
+          "group": "1_copy@3"
+        },
+        {
+          "command": "envforge.profileContextSwitch",
+          "when": "view == envforgeProfiles && viewItem == envProfile",
+          "group": "1_profile@1"
+        },
+        {
+          "command": "envforge.profileContextDiff",
+          "when": "view == envforgeProfiles && viewItem =~ /envProfile/",
+          "group": "1_profile@2"
+        },
+        {
+          "command": "envforge.profileOpenFile",
+          "when": "view == envforgeProfiles && viewItem =~ /envProfile/",
+          "group": "2_file@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "compile": "tsc -p ./",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}
