@@ -49,8 +49,17 @@ If you discover a security vulnerability in EnvForge, please report it responsib
 
 ## Dependencies
 
-EnvForge audits dependencies with `cargo audit`. Key security-relevant dependencies:
+EnvForge automatically audits dependencies daily using `cargo audit` and `cargo deny` via GitHub Actions. Key security-relevant dependencies:
 
 - `age` — Encryption (well-audited, widely used)
 - `sha2` — File integrity hashing
 - `tempfile` — Atomic write operations
+
+## Automated Security Scanning
+
+We employ several automated tools to maintain a high security standard:
+
+- **Cargo Audit**: Checks for known vulnerabilities in our dependency tree daily.
+- **Cargo Deny**: Enforces license compliance and bans problematic crates.
+- **Dependabot**: Automatically manages dependency updates to keep us on the latest secure versions.
+- **CodeQL**: Performs static analysis to detect potential security vulnerabilities in the codebase.
