@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-24
+
+### Added — Automated Security Compliance
+- **Security CI Workflows**: New GitHub Actions for automated security auditing and policy enforcement.
+  - `cargo audit` scheduled daily checks for dependency vulnerabilities.
+  - `cargo deny` enforcement of licenses, banned crates, and unmaintained packages.
+  - `CodeQL` static application security testing (SAST) for automated code scanning.
+- **Dependency Automation**: Configured Dependabot for weekly automated updates of Cargo dependencies and GitHub Actions.
+- **Security Documentation**: Expanded `SECURITY.md` with details on automated scanning and security posture.
+
+### Fixed — Dependency Vulnerabilities & Maintenance
+- **Security Patches**:
+  - Upgraded `rand` to `0.9.3` to fix unsoundness/Stacked Borrows violation (RUSTSEC-2026-0097).
+  - Upgraded `age` to `0.11.3` to include the latest security and stability patches.
+- **Maintenance & Soundness**:
+  - Upgraded `ratatui` to `0.30.0`, moving to the latest modular architecture.
+  - Fixed unsoundness in `lru` (RUSTSEC-2026-0002) and removed unmaintained `paste` (RUSTSEC-2024-0436) via the `ratatui` upgrade.
+  - Migrated from deprecated and unsound `serde_yaml`/`serde_yml` to the maintained `serde_norway` fork.
+  - Refreshed 23+ transitive dependencies to their latest compatible versions.
+
 ## [0.6.0] - 2026-04-23
 
 ### Added — Project-Scoped Configuration

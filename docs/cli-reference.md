@@ -1,6 +1,6 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.6.0
+> Generated for EnvForge v0.6.1
 
 ## Global Flags
 
