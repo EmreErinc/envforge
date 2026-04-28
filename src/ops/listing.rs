@@ -70,8 +70,8 @@ pub fn collect_entries(shell_file: &ShellFile) -> Vec<EnvEntry> {
                     source_file: shell_file.path.clone(),
                     line_number: *line_number,
                     location: EntryLocation::InFile,
-                    export_style: export_style.clone(),
-                    quote_style: quote_style.clone(),
+                    export_style: *export_style,
+                    quote_style: *quote_style,
                     is_dirty: false,
                 });
             }

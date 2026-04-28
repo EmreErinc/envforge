@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 /// How an environment variable export is written
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExportStyle {
     /// `export KEY=VALUE`
     Export,
@@ -10,7 +10,7 @@ pub enum ExportStyle {
 }
 
 /// What quote style wraps the value
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum QuoteStyle {
     /// `"value"`
     Double,

@@ -106,7 +106,7 @@ pub fn move_to_reference(
             export_style,
             quote_style,
             ..
-        } => (value.clone(), export_style.clone(), quote_style.clone()),
+        } => (value.clone(), *export_style, *quote_style),
         _ => unreachable!(),
     };
 

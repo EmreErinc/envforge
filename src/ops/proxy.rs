@@ -49,13 +49,23 @@ fn log_audit(entry: &AuditEntry) {
 }
 
 /// Keep only the last AUDIT_MAX_ENTRIES lines in the audit log.
+/// Uses atomic write (tempfile + rename) to ensure log integrity.
 fn rotate_audit_log(path: &std::path::Path) {
     if let Ok(contents) = std::fs::read_to_string(path) {
         let lines: Vec<&str> = contents.lines().collect();
         if lines.len() >= AUDIT_MAX_ENTRIES {
             let keep = &lines[lines.len() - (AUDIT_MAX_ENTRIES - 1)..];
             let new_contents = keep.join("\n") + "\n";
-            let _ = std::fs::write(path, new_contents);
+
+            // Use atomic write pattern: tempfile + rename
+            if let Ok(parent) = path.parent().ok_or(()) {
+                if let Ok(mut tmp) = tempfile::NamedTempFile::new_in(parent) {
+                    if std::io::Write::write_all(&mut tmp, new_contents.as_bytes()).is_ok() {
+                        // Atomically replace the original file
+                        let _ = tmp.persist(path);
+                    }
+                }
+            }
         }
     }
 }
@@ -256,6 +266,13 @@ pub fn route_request(
                     r#"{"error":"missing key name"}"#.to_string(),
                 );
             }
+            // Validate key format: alphanumeric + underscore only (defense-in-depth)
+            if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return (
+                    "400 Bad Request".to_string(),
+                    r#"{"error":"invalid key format"}"#.to_string(),
+                );
+            }
             if let Some(value) = env.get(key) {
                 if allowed_keys.map_or(true, |keys| keys.iter().any(|k| k == key)) {
                     let body = serde_json::json!({"key": key, "value": value}).to_string();
@@ -269,7 +286,7 @@ pub fn route_request(
             } else {
                 (
                     "404 Not Found".to_string(),
-                    format!(r#"{{"error":"key '{}' not found"}}"#, key),
+                    r#"{"error":"not found"}"#.to_string(),
                 )
             }
         }
@@ -437,6 +454,7 @@ pub fn start_proxy(
                 };
                 let request = String::from_utf8_lossy(&buffer[..n]);
                 let (method, path) = parse_request_line(&request);
+                // Redact full request from logs to prevent accidental secret exposure in stderr
                 let user_agent = extract_user_agent(&request);
 
                 // Origin check
