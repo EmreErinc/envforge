@@ -157,11 +157,7 @@ pub trait SecretProvider: Send + Sync {
         }
 
         let version_output = String::from_utf8_lossy(&output.stdout).to_string();
-        let detected = version_output
-            .lines()
-            .next()
-            .unwrap_or("")
-            .to_string();
+        let detected = version_output.lines().next().unwrap_or("").to_string();
 
         if let Some(min) = self.minimum_version() {
             if let Some(detected_ver) = extract_version_number(&detected) {

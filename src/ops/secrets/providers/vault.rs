@@ -95,9 +95,11 @@ impl SecretProvider for VaultProvider {
                 if let Some(mut stdin) = child.stdin.take() {
                     use std::io::Write;
                     let payload = format!("role_id={}\nsecret_id={}\n", role_id, secret_id);
-                    stdin.write_all(payload.as_bytes()).map_err(|e| SecretsError::ProviderError {
-                        provider: "vault".to_string(),
-                        message: format!("failed to write to stdin: {}", e),
+                    stdin.write_all(payload.as_bytes()).map_err(|e| {
+                        SecretsError::ProviderError {
+                            provider: "vault".to_string(),
+                            message: format!("failed to write to stdin: {}", e),
+                        }
                     })?;
                 }
 

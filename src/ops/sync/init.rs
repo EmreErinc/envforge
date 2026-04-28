@@ -99,7 +99,7 @@ fn sanitize_hostname(hostname: &str) -> String {
 
 /// Generate a 4-character hex suffix.
 fn random_hex_suffix() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     let bytes: [u8; 2] = rng.random();
     format!("{:02x}{:02x}", bytes[0], bytes[1])

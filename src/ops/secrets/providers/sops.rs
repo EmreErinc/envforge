@@ -116,10 +116,12 @@ impl SecretProvider for SopsProvider {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            temp.as_file().set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(|e| SecretsError::IoError {
-                path: temp.path().to_path_buf(),
-                source: e,
-            })?;
+            temp.as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| SecretsError::IoError {
+                    path: temp.path().to_path_buf(),
+                    source: e,
+                })?;
         }
 
         let json_content =

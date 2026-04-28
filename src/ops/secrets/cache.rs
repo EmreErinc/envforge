@@ -183,12 +183,16 @@ pub fn write_cache(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let tempfile = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(&path))
-            .map_err(|e| SecretsError::IoError {
-                path: path.clone(),
-                source: e,
+        let tempfile =
+            tempfile::NamedTempFile::new_in(path.parent().unwrap_or(&path)).map_err(|e| {
+                SecretsError::IoError {
+                    path: path.clone(),
+                    source: e,
+                }
             })?;
-        tempfile.as_file().set_permissions(std::fs::Permissions::from_mode(0o600))
+        tempfile
+            .as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
             .map_err(|e| SecretsError::IoError {
                 path: path.clone(),
                 source: e,

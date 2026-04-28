@@ -192,10 +192,12 @@ fn save_store(path: &Path, store: &CredentialStore) -> Result<(), SecretsError> 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let tempfile = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(path))
-            .map_err(|e| SecretsError::IoError {
-                path: path.to_path_buf(),
-                source: e,
+        let tempfile =
+            tempfile::NamedTempFile::new_in(path.parent().unwrap_or(path)).map_err(|e| {
+                SecretsError::IoError {
+                    path: path.to_path_buf(),
+                    source: e,
+                }
             })?;
 
         let file = tempfile.as_file();
@@ -210,12 +212,10 @@ fn save_store(path: &Path, store: &CredentialStore) -> Result<(), SecretsError> 
             source: e,
         })?;
 
-        tempfile
-            .persist(path)
-            .map_err(|e| SecretsError::IoError {
-                path: path.to_path_buf(),
-                source: e.error,
-            })?;
+        tempfile.persist(path).map_err(|e| SecretsError::IoError {
+            path: path.to_path_buf(),
+            source: e.error,
+        })?;
     }
 
     #[cfg(not(unix))]

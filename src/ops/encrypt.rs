@@ -62,12 +62,15 @@ pub fn ensure_age_key() -> Result<String, EncryptError> {
             use std::os::unix::fs::PermissionsExt;
             let tempfile = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(&path))
                 .map_err(|e| EncryptError::KeyError(format!("Cannot create temp file: {}", e)))?;
-            tempfile.as_file().set_permissions(std::fs::Permissions::from_mode(0o600))
+            tempfile
+                .as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o600))
                 .map_err(|e| EncryptError::KeyError(format!("Cannot set permissions: {}", e)))?;
             std::fs::write(tempfile.path(), &content)
                 .map_err(|e| EncryptError::KeyError(format!("Cannot write key: {}", e)))?;
-            tempfile.persist(&path)
-                .map_err(|e| EncryptError::KeyError(format!("Cannot persist key file: {}", e.error)))?;
+            tempfile.persist(&path).map_err(|e| {
+                EncryptError::KeyError(format!("Cannot persist key file: {}", e.error))
+            })?;
         }
 
         #[cfg(not(unix))]

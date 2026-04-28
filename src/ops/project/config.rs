@@ -155,10 +155,12 @@ pub fn parse_project_config(
             path: path.to_path_buf(),
             details: e.to_string(),
         }),
-        ConfigFormat::Yaml => serde_norway::from_str(content).map_err(|e| ProjectError::ParseError {
-            path: path.to_path_buf(),
-            details: e.to_string(),
-        }),
+        ConfigFormat::Yaml => {
+            serde_norway::from_str(content).map_err(|e| ProjectError::ParseError {
+                path: path.to_path_buf(),
+                details: e.to_string(),
+            })
+        }
         ConfigFormat::Json => serde_json::from_str(content).map_err(|e| ProjectError::ParseError {
             path: path.to_path_buf(),
             details: e.to_string(),
@@ -178,10 +180,12 @@ pub fn serialize_project_config(
                 details: e.to_string(),
             })
         }
-        ConfigFormat::Yaml => serde_norway::to_string(config).map_err(|e| ProjectError::ParseError {
-            path: PathBuf::new(),
-            details: e.to_string(),
-        }),
+        ConfigFormat::Yaml => {
+            serde_norway::to_string(config).map_err(|e| ProjectError::ParseError {
+                path: PathBuf::new(),
+                details: e.to_string(),
+            })
+        }
         ConfigFormat::Json => {
             serde_json::to_string_pretty(config).map_err(|e| ProjectError::ParseError {
                 path: PathBuf::new(),
