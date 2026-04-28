@@ -23,6 +23,10 @@ impl SecretProvider for AwsSsmProvider {
         "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("2.13.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         // No strictly required fields — can use profile, IAM role, or explicit keys
         vec![]

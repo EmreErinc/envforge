@@ -111,6 +111,7 @@ pub trait SecretProvider: Send + Sync {
         }
 
         self.check_binary()?;
+        self.verify_version()?;
         Ok(())
     }
 
@@ -132,6 +133,50 @@ pub trait SecretProvider: Send + Sync {
                 install_hint: self.install_hint().to_string(),
             })
         }
+    }
+
+    /// Minimum version required for the CLI binary (returns None if unversioned).
+    fn minimum_version(&self) -> Option<&str> {
+        None
+    }
+
+    /// Verify CLI binary version meets minimum requirements.
+    /// Returns the detected version string, or a warning if below minimum.
+    fn verify_version(&self) -> Result<Option<String>, SecretsError> {
+        let binary = self.binary_name();
+        let output = Command::new(binary)
+            .arg("--version")
+            .output()
+            .map_err(|_| SecretsError::BinaryNotFound {
+                binary: binary.to_string(),
+                install_hint: self.install_hint().to_string(),
+            })?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        let version_output = String::from_utf8_lossy(&output.stdout).to_string();
+        let detected = version_output
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string();
+
+        if let Some(min) = self.minimum_version() {
+            if let Some(detected_ver) = extract_version_number(&detected) {
+                if detected_ver.as_str() < min {
+                    log::warn!(
+                        "{}: version {} is below minimum {} — some features may not work",
+                        binary,
+                        detected_ver,
+                        min
+                    );
+                }
+            }
+        }
+
+        Ok(Some(detected))
     }
 
     /// Pull secrets from the provider at the given path.
@@ -275,6 +320,47 @@ pub struct ProviderStatus {
 
 // ─── Helper: Run CLI Command ─────────────────────────────────
 
+/// Patterns that may contain credentials in CLI error output.
+/// Used by `sanitize_error_output` to redact sensitive values.
+const CREDENTIAL_PATTERNS: &[&str] = &[
+    "token",
+    "api_key",
+    "api-key",
+    "access_key",
+    "access-key",
+    "secret_key",
+    "secret-key",
+    "password",
+    "apikey",
+    "bearer",
+    "authorization",
+];
+
+/// Sanitize CLI error output to prevent credential leakage in logs and UI.
+/// Redacts lines containing credential-related keywords by replacing the value
+/// portion after `=` or `:` with `[REDACTED]`.
+pub fn sanitize_error_output(output: &str) -> String {
+    output
+        .lines()
+        .map(|line| {
+            let lower = line.to_lowercase();
+            if CREDENTIAL_PATTERNS.iter().any(|p| lower.contains(p)) {
+                // Redact the value portion after = or : delimiters
+                if let Some(pos) = line.find('=') {
+                    format!("{}=[REDACTED]", &line[..pos])
+                } else if let Some(pos) = line.find(':') {
+                    format!("{}:[REDACTED]", &line[..pos])
+                } else {
+                    "[REDACTED]".to_string()
+                }
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Run an external CLI command and return stdout.
 pub fn run_cli(
     binary: &str,
@@ -282,6 +368,14 @@ pub fn run_cli(
     env_vars: &[(&str, &str)],
     provider_name: &str,
 ) -> Result<String, SecretsError> {
+    // Validate binary name does not contain path traversal or null bytes
+    if binary.contains('\0') || binary.contains('/') || binary.contains('\\') {
+        return Err(SecretsError::ProviderError {
+            provider: provider_name.to_string(),
+            message: format!("invalid binary name: '{}'", binary),
+        });
+    }
+
     let mut cmd = Command::new(binary);
     cmd.args(args);
     for (k, v) in env_vars {
@@ -305,7 +399,7 @@ pub fn run_cli(
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stderr = sanitize_error_output(&String::from_utf8_lossy(&output.stderr));
         if stderr.contains("permission")
             || stderr.contains("denied")
             || stderr.contains("unauthorized")
@@ -332,6 +426,62 @@ pub fn run_cli(
 /// across all providers.
 pub fn env_refs_from_env<'a>(env: &'a [(&'static str, String)]) -> Vec<(&'static str, &'a str)> {
     env.iter().map(|(k, v)| (*k, v.as_str())).collect()
+}
+
+/// Extract the first semver-like version number from a version string.
+/// E.g., "vault v1.15.4" → Some("1.15.4"), "bws 2024.1.0" → Some("2024.1.0")
+pub fn extract_version_number(output: &str) -> Option<String> {
+    let re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok()?;
+    re.captures(output)
+        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+}
+
+/// Validate that a secret name is safe for use in CLI arguments.
+/// Rejects names containing null bytes, newlines, or other characters that
+/// could cause unexpected behavior when passed to external CLI binaries.
+pub fn validate_secret_name(name: &str) -> Result<(), SecretsError> {
+    if name.is_empty() {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: "secret name cannot be empty".to_string(),
+        });
+    }
+    if name.len() > 512 {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: format!("secret name too long ({} chars, max 512)", name.len()),
+        });
+    }
+    for ch in name.chars() {
+        match ch {
+            '\0' => {
+                return Err(SecretsError::ProviderError {
+                    provider: "input".to_string(),
+                    message: "secret name contains null byte".to_string(),
+                });
+            }
+            '\n' | '\r' => {
+                return Err(SecretsError::ProviderError {
+                    provider: "input".to_string(),
+                    message: "secret name contains newline character".to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Validate that a secret value is safe for use in CLI arguments.
+/// Rejects null bytes which could truncate the value unexpectedly.
+pub fn validate_secret_value(value: &str) -> Result<(), SecretsError> {
+    if value.contains('\0') {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: "secret value contains null byte".to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Sort secrets by key for consistent output across providers.

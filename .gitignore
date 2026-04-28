@@ -18,11 +18,12 @@ Thumbs.db
 .claude/
 memory-bank/
 node_modules/
+plans/
 package.json
 package-lock.json
-# Un-ignore editor plugin package files (needed for CI builds)
-!editors/**/package.json
-!editors/**/package-lock.json
 envforge-*.md
 skills-lock.json
 .agents
+# Un-ignore editor plugin package files (needed for CI builds)
+!editors/**/package.json
+!editors/**/package-lock.json

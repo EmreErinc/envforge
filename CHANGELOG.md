@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-04-27
+
+### Added — Provider Security Hardening
+
+- **Credential Exposure Prevention**: All 13 secret provider integrations now pass credentials via environment variables or stdin pipes instead of CLI flags, preventing credential leakage via `/proc/PID/cmdline` or `ps aux`.
+  - `AkeylessProvider`: Migrated `access_id`/`access_key` from `--access-id`/`--access-key` CLI flags to `AKEYLESS_ACCESS_ID`/`AKEYLESS_ACCESS_KEY` environment variables.
+  - `ConjurProvider`: Migrated `api_key` from `-p` CLI flag to stdin pipe, added `CONJUR_APPLIANCE_URL`, `CONJUR_ACCOUNT`, `CONJUR_AUTHN_LOGIN`, `CONJUR_AUTHN_API_KEY` environment variables.
+  - `VaultProvider` (AppRole auth): Migrated `role_id`/`secret_id` from `vault write` positional args to stdin pipe.
+- **Error Message Sanitization**: New `sanitize_error_output()` function redacts 11 credential patterns (tokens, API keys, passwords, etc.) from CLI error output before logging or display.
+- **Input Validation**: New `validate_secret_name()` and `validate_secret_value()` functions reject null bytes, newlines, and oversized inputs in user-provided secret data.
+- **CLI Version Verification**: New `minimum_version()` and `verify_version()` trait methods on all 13 providers, with minimum versions logged as warnings when CLI binaries are outdated.
+- **CLI Binary Audit Workflow**: New `.github/workflows/cli-audit.yml` for weekly automated version checks of provider CLI binaries.
+
+### Fixed — Encryption & File Permission Hardening
+
+- **Age Plugin Feature Disabled**: `age` crate now compiled with `default-features = false` and only `armor` feature enabled, eliminating the RUSTSEC-2024-0433 arbitrary code execution attack vector.
+- **Credential File Permissions**: `credentials.toml` now written with `0600` permissions using atomic writes (tempfile + rename). Permission check on load auto-fixes and warns if file is group/world-readable.
+- **Age Key File Permissions**: `age.key` now written with `0600` permissions using atomic writes. Permission check on existing files auto-fixes and warns if overly permissive.
+- **Secret Cache Permissions**: Cache files (containing decrypted secrets) now written with `0600` permissions instead of world-readable defaults.
+- **SOPS Temp File**: Temp file for SOPS push operations now uses `NamedTempFile` with `0600` permissions instead of world-readable `/tmp` path.
+
+### Changed — Security Documentation
+
+- **SECURITY.md**: Complete rewrite with minimum CLI version table, credential passing method documentation, updated file permissions table, and CLI binary security model.
+- **Provider Integrations Security Audit**: Comprehensive plan at `plans/provider-integrations-security-audit.md` with all 26 remediation items completed and verified.
+
 ## [0.6.1] - 2026-04-24
 
 ### Added — Automated Security Compliance

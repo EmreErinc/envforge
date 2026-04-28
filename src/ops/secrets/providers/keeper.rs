@@ -23,6 +23,10 @@ impl SecretProvider for KeeperProvider {
         "pip3 install keeper-secrets-manager-cli"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("1.0.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec![]
     }

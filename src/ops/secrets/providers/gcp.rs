@@ -21,6 +21,10 @@ impl SecretProvider for GcpSecretManagerProvider {
         "https://cloud.google.com/sdk/docs/install"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("450.0.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["project_id"]
     }

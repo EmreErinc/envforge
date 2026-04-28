@@ -23,6 +23,10 @@ impl SecretProvider for DopplerProvider {
         "https://docs.doppler.com/docs/install-cli"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("3.50.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["token", "project", "config"]
     }

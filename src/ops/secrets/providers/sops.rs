@@ -23,6 +23,10 @@ impl SecretProvider for SopsProvider {
         "https://github.com/getsops/sops/releases"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("3.8.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["key_file"]
     }
@@ -101,21 +105,36 @@ impl SecretProvider for SopsProvider {
         }
 
         // Step 3: Write merged JSON to temp file and encrypt
-        let temp_dir = std::env::temp_dir();
-        let temp_path = temp_dir.join("envforge-sops-push.json");
+        // Use a secure temp file with restrictive permissions to prevent
+        // other users from reading decrypted secrets via /tmp
+        let temp = tempfile::NamedTempFile::new().map_err(|e| SecretsError::IoError {
+            path: std::path::PathBuf::from("/tmp"),
+            source: e,
+        })?;
+
+        // Set restrictive permissions on the temp file (0600 on Unix)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            temp.as_file().set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(|e| SecretsError::IoError {
+                path: temp.path().to_path_buf(),
+                source: e,
+            })?;
+        }
+
         let json_content =
             serde_json::to_string_pretty(&existing).map_err(|e| SecretsError::ProviderError {
                 provider: "sops".to_string(),
                 message: format!("failed to serialize: {}", e),
             })?;
 
-        std::fs::write(&temp_path, &json_content).map_err(|e| SecretsError::IoError {
-            path: temp_path.clone(),
+        std::fs::write(temp.path(), &json_content).map_err(|e| SecretsError::IoError {
+            path: temp.path().to_path_buf(),
             source: e,
         })?;
 
         // Encrypt the temp file
-        let temp_path_str = temp_path.to_string_lossy().to_string();
+        let temp_path_str = temp.path().to_string_lossy().to_string();
         let mut encrypt_args = vec!["encrypt", "--in-place"];
 
         let encryption_type = credentials
@@ -138,12 +157,13 @@ impl SecretProvider for SopsProvider {
         run_cli("sops", &encrypt_args, &env_refs, "sops")?;
 
         // Copy encrypted file to target path
-        std::fs::copy(&temp_path, path).map_err(|e| SecretsError::IoError {
+        std::fs::copy(temp.path(), path).map_err(|e| SecretsError::IoError {
             path: path.into(),
             source: e,
         })?;
 
-        let _ = std::fs::remove_file(&temp_path);
+        // NamedTempFile auto-deletes on drop, but we clean up explicitly for clarity
+        let _ = std::fs::remove_file(temp.path());
 
         Ok(secrets.len())
     }

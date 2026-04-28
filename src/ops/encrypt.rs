@@ -20,6 +20,24 @@ pub fn ensure_age_key() -> Result<String, EncryptError> {
         age_key_path().map_err(|_| EncryptError::KeyError("Cannot find config dir".into()))?;
 
     if path.exists() {
+        // Verify and fix permissions on existing key file
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = path.metadata() {
+                let mode = metadata.permissions().mode();
+                if mode & 0o077 != 0 {
+                    log::warn!(
+                        "age key file {} has overly permissive permissions ({:o}), fixing to 0600",
+                        path.display(),
+                        mode & 0o777
+                    );
+                    let perms = std::fs::Permissions::from_mode(0o600);
+                    let _ = std::fs::set_permissions(&path, perms);
+                }
+            }
+        }
+
         std::fs::read_to_string(&path)
             .map_err(|e| EncryptError::KeyError(format!("Cannot read key: {}", e)))
     } else {
@@ -38,14 +56,24 @@ pub fn ensure_age_key() -> Result<String, EncryptError> {
                 .map_err(|e| EncryptError::KeyError(format!("Cannot create dir: {}", e)))?;
         }
 
-        std::fs::write(&path, &content)
-            .map_err(|e| EncryptError::KeyError(format!("Cannot write key: {}", e)))?;
-
+        // Write key file with restrictive permissions (0600 on Unix)
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            let _ = std::fs::set_permissions(&path, perms);
+            let tempfile = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(&path))
+                .map_err(|e| EncryptError::KeyError(format!("Cannot create temp file: {}", e)))?;
+            tempfile.as_file().set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| EncryptError::KeyError(format!("Cannot set permissions: {}", e)))?;
+            std::fs::write(tempfile.path(), &content)
+                .map_err(|e| EncryptError::KeyError(format!("Cannot write key: {}", e)))?;
+            tempfile.persist(&path)
+                .map_err(|e| EncryptError::KeyError(format!("Cannot persist key file: {}", e.error)))?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&path, &content)
+                .map_err(|e| EncryptError::KeyError(format!("Cannot write key: {}", e)))?;
         }
 
         Ok(content)

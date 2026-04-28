@@ -23,6 +23,10 @@ impl SecretProvider for BitwardenProvider {
         "https://bitwarden.com/help/secrets-manager-cli/"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("0.10.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["access_token"]
     }

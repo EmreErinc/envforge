@@ -23,6 +23,10 @@ impl SecretProvider for VaultProvider {
         "https://developer.hashicorp.com/vault/install"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("1.15.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["addr"]
     }
@@ -66,24 +70,49 @@ impl SecretProvider for VaultProvider {
                         "AppRole auth requires 'secret_id'. Run: envforge secrets config vault --set secret_id=<value>".into(),
                     )
                 })?;
-                // Login with AppRole to get a token
-                let env_vars = vec![(
+                // Login with AppRole using stdin for credentials
+                // to avoid leaking role_id/secret_id via /proc/PID/cmdline
+                let env_vars = [(
                     "VAULT_ADDR",
                     credentials.get("addr").map(|s| s.as_str()).unwrap_or(""),
                 )];
-                let _output = run_cli(
-                    "vault",
-                    &[
-                        "write",
-                        "-format=json",
-                        "auth/approle/login",
-                        &format!("role_id={}", role_id),
-                        &format!("secret_id={}", secret_id),
-                    ],
-                    &env_vars,
-                    "vault",
-                )?;
-                // If we get here, auth succeeded
+                let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (*k, *v)).collect();
+
+                let mut cmd = std::process::Command::new("vault");
+                cmd.args(["write", "-format=json", "auth/approle/login", "-"]);
+                for (k, v) in &env_refs {
+                    cmd.env(k, v);
+                }
+                cmd.stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
+
+                let mut child = cmd.spawn().map_err(|e| SecretsError::ProviderError {
+                    provider: "vault".to_string(),
+                    message: e.to_string(),
+                })?;
+
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let payload = format!("role_id={}\nsecret_id={}\n", role_id, secret_id);
+                    stdin.write_all(payload.as_bytes()).map_err(|e| SecretsError::ProviderError {
+                        provider: "vault".to_string(),
+                        message: format!("failed to write to stdin: {}", e),
+                    })?;
+                }
+
+                let status = child.wait().map_err(|e| SecretsError::ProviderError {
+                    provider: "vault".to_string(),
+                    message: e.to_string(),
+                })?;
+
+                if !status.success() {
+                    return Err(SecretsError::AuthFailed {
+                        provider: "vault".to_string(),
+                        message: "AppRole login failed".to_string(),
+                    });
+                }
+
                 Ok(())
             }
             _ => {

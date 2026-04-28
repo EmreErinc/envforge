@@ -23,16 +23,32 @@ impl SecretProvider for ConjurProvider {
         "https://github.com/cyberark/conjur-cli-go/releases"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("1.0.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["url", "account", "login", "api_key"]
     }
 
     fn build_provider_env(
         &self,
-        _credentials: &HashMap<String, String>,
+        credentials: &HashMap<String, String>,
     ) -> Vec<(&'static str, String)> {
-        // Conjur uses conjur init + login, not env vars
-        Vec::new()
+        let mut env = Vec::new();
+        if let Some(url) = credentials.get("url") {
+            env.push(("CONJUR_APPLIANCE_URL", url.clone()));
+        }
+        if let Some(account) = credentials.get("account") {
+            env.push(("CONJUR_ACCOUNT", account.clone()));
+        }
+        if let Some(login) = credentials.get("login") {
+            env.push(("CONJUR_AUTHN_LOGIN", login.clone()));
+        }
+        if let Some(api_key) = credentials.get("api_key") {
+            env.push(("CONJUR_AUTHN_API_KEY", api_key.clone()));
+        }
+        env
     }
 
     fn authenticate(&self, credentials: &HashMap<String, String>) -> Result<(), SecretsError> {
@@ -56,19 +72,56 @@ impl SecretProvider for ConjurProvider {
             "conjur",
         )?;
 
-        // Login with API key
+        // Login using env vars — read credentials from CONJUR_AUTHN_LOGIN and CONJUR_AUTHN_API_KEY
+        // instead of passing -p <api_key> as a CLI flag (which leaks via /proc/PID/cmdline)
         let login = credentials.get("login").ok_or_else(|| {
             SecretsError::CredentialError("conjur: missing 'login' credential".to_string())
         })?;
         let api_key = credentials.get("api_key").ok_or_else(|| {
             SecretsError::CredentialError("conjur: missing 'api_key' credential".to_string())
         })?;
-        run_cli(
-            "conjur",
-            &["login", "-i", login, "-p", api_key],
-            &env_refs,
-            "conjur",
-        )?;
+        // Use stdin pipe to pass API key instead of -p flag to avoid /proc leakage
+        let mut cmd = std::process::Command::new("conjur");
+        cmd.args(["login", "-i", login]);
+        for (k, v) in &env_refs {
+            cmd.env(k, v);
+        }
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(|e| SecretsError::ProviderError {
+            provider: "conjur".to_string(),
+            message: e.to_string(),
+        })?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin
+                .write_all(api_key.as_bytes())
+                .map_err(|e| SecretsError::ProviderError {
+                    provider: "conjur".to_string(),
+                    message: format!("failed to write to stdin: {}", e),
+                })?;
+            stdin
+                .write_all(b"\n")
+                .map_err(|e| SecretsError::ProviderError {
+                    provider: "conjur".to_string(),
+                    message: format!("failed to write to stdin: {}", e),
+                })?;
+        }
+
+        let status = child.wait().map_err(|e| SecretsError::ProviderError {
+            provider: "conjur".to_string(),
+            message: e.to_string(),
+        })?;
+
+        if !status.success() {
+            return Err(SecretsError::AuthFailed {
+                provider: "conjur".to_string(),
+                message: "conjur login failed".to_string(),
+            });
+        }
 
         Ok(())
     }

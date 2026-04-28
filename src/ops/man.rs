@@ -310,7 +310,7 @@ pub fn format_man_index(pages: &BTreeMap<String, ManPage>) -> String {
     out.push_str("       envforge - AI-safe environment variable manager\n\n");
     out.push_str("\x1b[1mDESCRIPTION\x1b[0m\n");
     out.push_str("       EnvForge safely manages environment variables with 22 AI safety\n");
-    out.push_str("       tools, 7 secret provider integrations, encrypted sync, and 90+\n");
+    out.push_str("       tools, 13 secret provider integrations, encrypted sync, and 90+\n");
     out.push_str("       CLI commands.\n\n");
     out.push_str("\x1b[1mCOMMANDS\x1b[0m\n\n");
 

@@ -150,6 +150,24 @@ fn load_store(path: &Path) -> Result<CredentialStore, SecretsError> {
         return Ok(CredentialStore::default());
     }
 
+    // Check file permissions — warn and fix if group/world-readable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = path.metadata() {
+            let mode = metadata.permissions().mode();
+            if mode & 0o077 != 0 {
+                log::warn!(
+                    "credentials file {} has overly permissive permissions ({:o}), fixing to 0600",
+                    path.display(),
+                    mode & 0o777
+                );
+                let perms = std::fs::Permissions::from_mode(0o600);
+                let _ = std::fs::set_permissions(path, perms);
+            }
+        }
+    }
+
     let content = std::fs::read_to_string(path).map_err(|e| SecretsError::IoError {
         path: path.to_path_buf(),
         source: e,
@@ -170,10 +188,45 @@ fn save_store(path: &Path, store: &CredentialStore) -> Result<(), SecretsError> 
     let content = toml::to_string_pretty(store)
         .map_err(|e| SecretsError::CredentialError(format!("serialize failed: {}", e)))?;
 
-    std::fs::write(path, content).map_err(|e| SecretsError::IoError {
-        path: path.to_path_buf(),
-        source: e,
-    })
+    // Write credentials file with restrictive permissions (0600 on Unix)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let tempfile = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(path))
+            .map_err(|e| SecretsError::IoError {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
+
+        let file = tempfile.as_file();
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| SecretsError::IoError {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
+
+        std::fs::write(tempfile.path(), &content).map_err(|e| SecretsError::IoError {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+
+        tempfile
+            .persist(path)
+            .map_err(|e| SecretsError::IoError {
+                path: path.to_path_buf(),
+                source: e.error,
+            })?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, content).map_err(|e| SecretsError::IoError {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+    }
+
+    Ok(())
 }
 
 // ─── TTL Support ────────────────────────────────────────────

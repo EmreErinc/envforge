@@ -23,6 +23,10 @@ impl SecretProvider for InfisicalProvider {
         "https://infisical.com/docs/cli/overview"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("0.14.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["token", "project_id", "environment"]
     }

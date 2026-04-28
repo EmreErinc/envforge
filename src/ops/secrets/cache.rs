@@ -178,7 +178,37 @@ pub fn write_cache(
     let content =
         toml::to_string_pretty(&entry).map_err(|e| SecretsError::CacheError(e.to_string()))?;
 
-    std::fs::write(&path, content).map_err(|e| SecretsError::IoError { path, source: e })
+    // Write cache file with restrictive permissions (0600 on Unix)
+    // Cache contains decrypted secret values and must not be world-readable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let tempfile = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(&path))
+            .map_err(|e| SecretsError::IoError {
+                path: path.clone(),
+                source: e,
+            })?;
+        tempfile.as_file().set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| SecretsError::IoError {
+                path: path.clone(),
+                source: e,
+            })?;
+        std::fs::write(tempfile.path(), &content).map_err(|e| SecretsError::IoError {
+            path: path.clone(),
+            source: e,
+        })?;
+        tempfile.persist(&path).map_err(|e| SecretsError::IoError {
+            path: path.clone(),
+            source: e.error,
+        })?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&path, &content).map_err(|e| SecretsError::IoError { path, source: e })?;
+    }
+
+    Ok(())
 }
 
 /// Invalidate (remove) a cached value.

@@ -5,7 +5,7 @@ Manage environment variables and secrets in your CI/CD pipelines with [EnvForge]
 ## Features
 
 - **Validate** `.env` files against `.env.schema` before deploy
-- **Pull secrets** from 7 providers (AWS SSM, Vault, 1Password, Doppler, Infisical, GCP, Azure)
+- **Pull secrets** from 13 providers (Vault, AWS SSM, Azure, GCP, 1Password, Doppler, Infisical, Akeyless, Bitwarden, Conjur, Keeper, SOPS, pass/gopass)
 - **Export** EnvForge-managed variables into your workflow
 - **Run** commands with process-scoped secret injection
 - **Drift detection** across environment files

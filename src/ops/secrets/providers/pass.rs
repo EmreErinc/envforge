@@ -61,6 +61,10 @@ impl SecretProvider for PassProvider {
         "https://www.passwordstore.org/ or https://github.com/gopasspw/gopass"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("1.7.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec![]
     }

@@ -32,6 +32,10 @@ impl SecretProvider for AzureKeyVaultProvider {
         "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("2.50.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["vault_name"]
     }

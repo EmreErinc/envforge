@@ -1,0 +1,95 @@
+name: CLI Binary Audit
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Weekly on Monday at 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cli-version-check:
+    name: CLI Version Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CLI binaries
+        run: |
+          # Install all 13 secret provider CLIs for version checking
+          # HashiCorp Vault
+          curl -fsSL https://releases.hashicorp.com/vault/1.18.2/vault_1.18.2_linux_amd64.zip -o vault.zip
+          unzip vault.zip && sudo mv vault /usr/local/bin/
+          # AWS CLI
+          pip install awscli
+          # Azure CLI
+          pip install azure-cli
+          # Google Cloud SDK
+          echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-main main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
+          curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+          sudo apt-get update && sudo apt-get install -y google-cloud-cli
+          # 1Password CLI
+          curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --output /usr/share/keyrings/1password-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main" | sudo tee /etc/apt/sources.list.d/1password.list
+          sudo apt-get update && sudo apt-get install -y 1password-cli
+          # SOPS
+          curl -fsSL https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64 -o sops
+          chmod +x sops && sudo mv sops /usr/local/bin/
+
+      - name: Check CLI versions
+        run: |
+          echo "## CLI Binary Versions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Binary | Version | Minimum | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|---------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          check_version() {
+            local binary="$1"
+            local min_version="$2"
+            local version_output
+            version_output=$($binary --version 2>&1 || echo "NOT FOUND")
+            local status="OK"
+            if echo "$version_output" | grep -qi "not found\|command not found\|no such"; then
+              status="MISSING"
+              version_output="N/A"
+            fi
+            # Trim version output to first line
+            version_output=$(echo "$version_output" | head -1)
+            echo "| \`$binary\` | $version_output | $min_version | $status |" >> $GITHUB_STEP_SUMMARY
+          }
+
+          check_version "vault" "1.15.0"
+          check_version "aws" "2.13.0"
+          check_version "az" "2.50.0"
+          check_version "gcloud" "450.0.0"
+          check_version "op" "2.25.0"
+          check_version "sops" "3.8.0"
+
+          # These CLIs are not available in CI — document as manual check
+          echo "| \`doppler\` | N/A (manual) | 3.50.0 | MANUAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`infisical\` | N/A (manual) | 0.14.0 | MANUAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`akeyless\` | N/A (manual) | 1.50.0 | MANUAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`bws\` | N/A (manual) | 0.10.0 | MANUAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`conjur\` | N/A (manual) | 1.0.0 | MANUAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`ksm\` | N/A (manual) | 1.0.0 | MANUAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`pass\` | N/A (manual) | 1.7.0 | MANUAL |" >> $GITHUB_STEP_SUMMARY
+
+  advisory-check:
+    name: Known CLI CVEs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for known CLI vulnerabilities
+        run: |
+          echo "## Known CLI Binary CVEs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Checking GitHub Advisory Database for known CVEs in secret provider CLIs..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check HashiCorp Vault security advisories
+          echo "### HashiCorp Vault" >> $GITHUB_STEP_SUMMARY
+          curl -sf "https://api.github.com/repos/hashicorp/vault/advisories" 2>/dev/null | \
+            python3 -c "import sys,json; advs=json.load(sys.stdin); [print(f'- {a[\"summary\"]}') for a in advs[:5]]" 2>/dev/null || \
+            echo "No advisory data available (check https://www.hashicorp.com/security/vulnerabilities)" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Full CVE details: see each vendor's security page listed in SECURITY.md_" >> $GITHUB_STEP_SUMMARY

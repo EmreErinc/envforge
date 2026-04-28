@@ -23,16 +23,26 @@ impl SecretProvider for AkeylessProvider {
         "https://docs.akeyless.io/docs/cli"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("1.50.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["access_id", "access_key"]
     }
 
     fn build_provider_env(
         &self,
-        _credentials: &HashMap<String, String>,
+        credentials: &HashMap<String, String>,
     ) -> Vec<(&'static str, String)> {
-        // Akeyless uses CLI flags or profile, not env vars
-        Vec::new()
+        let mut env = Vec::new();
+        if let Some(id) = credentials.get("access_id") {
+            env.push(("AKEYLESS_ACCESS_ID", id.clone()));
+        }
+        if let Some(key) = credentials.get("access_key") {
+            env.push(("AKEYLESS_ACCESS_KEY", key.clone()));
+        }
+        env
     }
 
     fn pull(
@@ -45,39 +55,13 @@ impl SecretProvider for AkeylessProvider {
 
         let path_str = if path.is_empty() { "/" } else { path };
 
-        // Step 1: List items at path
-        let access_id_str;
-        let access_key_str;
-        let mut list_args = vec!["list-items", "--path", path_str, "--json"];
-
-        if let Some(id) = credentials.get("access_id") {
-            access_id_str = id.clone();
-            list_args.extend_from_slice(&["--access-id", &access_id_str]);
-        }
-        if let Some(key) = credentials.get("access_key") {
-            access_key_str = key.clone();
-            list_args.extend_from_slice(&["--access-key", &access_key_str]);
-        }
-
+        let list_args = vec!["list-items", "--path", path_str, "--json"];
         let list_output = run_cli("akeyless", &list_args, &env_refs, "akeyless")?;
         let items = parse_akeyless_list(&list_output)?;
 
-        // Step 2: Get each secret value
         let mut secrets = Vec::new();
         for item_name in &items {
-            let mut get_args = vec!["get-secret-value", "-n", item_name, "--json"];
-
-            let aid_str;
-            let akey_str;
-            if let Some(id) = credentials.get("access_id") {
-                aid_str = id.clone();
-                get_args.extend_from_slice(&["--access-id", &aid_str]);
-            }
-            if let Some(key) = credentials.get("access_key") {
-                akey_str = key.clone();
-                get_args.extend_from_slice(&["--access-key", &akey_str]);
-            }
-
+            let get_args = vec!["get-secret-value", "-n", item_name, "--json"];
             let value_output = run_cli("akeyless", &get_args, &env_refs, "akeyless")?;
             if let Ok(value) = parse_akeyless_value(&value_output, item_name) {
                 let key_name = extract_key_name(item_name);
@@ -109,34 +93,10 @@ impl SecretProvider for AkeylessProvider {
         for (key, value) in secrets {
             let full_name = format!("{}{}", path_prefix, key);
 
-            let access_id_str;
-            let access_key_str;
-            let mut args = vec!["update-secret-val", "--name", &full_name, "--value", value];
+            let args = vec!["update-secret-val", "--name", &full_name, "--value", value];
 
-            if let Some(id) = credentials.get("access_id") {
-                access_id_str = id.clone();
-                args.extend_from_slice(&["--access-id", &access_id_str]);
-            }
-            if let Some(key) = credentials.get("access_key") {
-                access_key_str = key.clone();
-                args.extend_from_slice(&["--access-key", &access_key_str]);
-            }
-
-            // Try update first, create if it fails
             if run_cli("akeyless", &args, &env_refs, "akeyless").is_err() {
-                let mut create_args = vec!["create-secret", "--name", &full_name, "--value", value];
-
-                let cid_str;
-                let ckey_str;
-                if let Some(id) = credentials.get("access_id") {
-                    cid_str = id.clone();
-                    create_args.extend_from_slice(&["--access-id", &cid_str]);
-                }
-                if let Some(key) = credentials.get("access_key") {
-                    ckey_str = key.clone();
-                    create_args.extend_from_slice(&["--access-key", &ckey_str]);
-                }
-
+                let create_args = vec!["create-secret", "--name", &full_name, "--value", value];
                 run_cli("akeyless", &create_args, &env_refs, "akeyless")?;
             }
             count += 1;
@@ -160,19 +120,7 @@ impl SecretProvider for AkeylessProvider {
             format!("{}/{}", path.trim_end_matches('/'), key)
         };
 
-        let access_id_str;
-        let access_key_str;
-        let mut args = vec!["get-secret-value", "-n", &full_name, "--json"];
-
-        if let Some(id) = credentials.get("access_id") {
-            access_id_str = id.clone();
-            args.extend_from_slice(&["--access-id", &access_id_str]);
-        }
-        if let Some(key) = credentials.get("access_key") {
-            access_key_str = key.clone();
-            args.extend_from_slice(&["--access-key", &access_key_str]);
-        }
-
+        let args = vec!["get-secret-value", "-n", &full_name, "--json"];
         let output = run_cli("akeyless", &args, &env_refs, "akeyless")?;
         parse_akeyless_value(&output, &full_name)
     }
@@ -187,19 +135,7 @@ impl SecretProvider for AkeylessProvider {
 
         let path_str = if path.is_empty() { "/" } else { path };
 
-        let access_id_str;
-        let access_key_str;
-        let mut args = vec!["list-items", "--path", path_str, "--json"];
-
-        if let Some(id) = credentials.get("access_id") {
-            access_id_str = id.clone();
-            args.extend_from_slice(&["--access-id", &access_id_str]);
-        }
-        if let Some(key) = credentials.get("access_key") {
-            access_key_str = key.clone();
-            args.extend_from_slice(&["--access-key", &access_key_str]);
-        }
-
+        let args = vec!["list-items", "--path", path_str, "--json"];
         let output = run_cli("akeyless", &args, &env_refs, "akeyless")?;
         let items = parse_akeyless_list(&output)?;
         let mut keys: Vec<String> = items.iter().map(|name| extract_key_name(name)).collect();

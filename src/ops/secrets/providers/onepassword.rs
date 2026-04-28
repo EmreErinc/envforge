@@ -23,6 +23,10 @@ impl SecretProvider for OnePasswordProvider {
         "https://developer.1password.com/docs/cli/get-started/"
     }
 
+    fn minimum_version(&self) -> Option<&str> {
+        Some("2.25.0")
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec!["service_account_token"]
     }
