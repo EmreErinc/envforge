@@ -30,7 +30,9 @@
   <dependencies>
     <dependency org="bundledPlugin" name="com.intellij.copyright" rev="IC-242.20224.300"/>
     <dependency org="bundledPlugin" name="com.intellij.platform.images" rev="IC-242.20224.300"/>
+    <dependency org="bundledPlugin" name="training" rev="IC-242.20224.300"/>
     <dependency org="bundledModule" name="intellij.performanceTesting.vcs" rev="IC-242.20224.300"/>
     <dependency org="bundledPlugin" name="com.jetbrains.performancePlugin" rev="IC-242.20224.300"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.impl" rev="IC-242.20224.300"/>
   </dependencies>
 </ivy-module>

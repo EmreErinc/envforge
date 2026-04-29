@@ -1,6 +1,6 @@
 plugins {
-    id("org.jetbrains.intellij.platform") version "2.2.1"
-    kotlin("jvm") version "1.9.25"
+    id("org.jetbrains.intellij.platform") version "2.3.0"
+    kotlin("jvm") version "2.2.0"
 }
 
 group = "com.envforge"

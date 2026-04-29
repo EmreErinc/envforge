@@ -11,6 +11,8 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.treeStructure.Tree
+import com.intellij.execution.RunManager
+import com.intellij.notification.NotificationType
 import java.awt.BorderLayout
 import java.awt.datatransfer.StringSelection
 import java.awt.Toolkit
@@ -64,6 +66,7 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
                     if (!info.active) {
                         EnvForgeRunner.run(project, listOf("profile", "switch", info.name), "Switch Profile") {
                             refresh()
+                            loadAndInjectVariables()  // Load env vars into run config
                         }
                     }
                 }
@@ -219,6 +222,7 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
     fun refresh() {
         loadProfiles()
         loadVariables()
+        loadAndInjectVariables()  // Auto-inject env vars into IDE run configurations
     }
 
     private fun loadProfiles() {
@@ -286,6 +290,78 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
                 }
             } catch (_: Exception) {}
         }.start()
+    }
+
+    private fun loadAndInjectVariables() {
+        val binary = EnvForgeLspFactory.findEnvforgeBinary()
+        Thread {
+            try {
+                // Get all environment variables from envforge
+                val process = ProcessBuilder(binary, "list", "--json")
+                    .directory(project.basePath?.let { java.io.File(it) })
+                    .redirectErrorStream(true)
+                    .start()
+                val output = process.inputStream.bufferedReader().readText()
+                process.waitFor()
+
+                val vars = parseVars(output)
+                if (vars.isNotEmpty()) {
+                    // Inject into all run configurations
+                    SwingUtilities.invokeLater {
+                        injectToRunConfigurations(vars)
+                        EnvForgeRunner.notify(
+                            project,
+                            "EnvForge",
+                            "✅ Loaded ${vars.size} environment variables into run configurations",
+                            NotificationType.INFORMATION
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                SwingUtilities.invokeLater {
+                    EnvForgeRunner.notify(
+                        project,
+                        "EnvForge Error",
+                        "Failed to inject environment variables: ${e.message}",
+                        NotificationType.ERROR
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun injectToRunConfigurations(vars: List<VarData>) {
+        try {
+            val runManager = RunManager.getInstance(project)
+            val envMap = mutableMapOf<String, String>()
+
+            // Convert VarData list to environment variable map
+            for (v in vars) {
+                envMap[v.key] = v.value
+            }
+
+            // Inject into all run configurations
+            val allConfigs = runManager.allSettings
+            for (config in allConfigs) {
+                val runConfig = config.configuration
+                val getEnvs = runConfig.javaClass.methods.firstOrNull { it.name == "getEnvs" && it.parameterCount == 0 }
+                    ?: continue
+                val setEnvs = runConfig.javaClass.methods.firstOrNull { it.name == "setEnvs" && it.parameterCount == 1 }
+                    ?: continue
+
+                @Suppress("UNCHECKED_CAST")
+                val currentEnv = ((getEnvs.invoke(runConfig) as? Map<String, String>) ?: emptyMap()).toMutableMap()
+                currentEnv.putAll(envMap)
+                setEnvs.invoke(runConfig, currentEnv)
+
+                val setPassParentEnvs = runConfig.javaClass.methods.firstOrNull {
+                    it.name == "setPassParentEnvs" && it.parameterCount == 1
+                }
+                setPassParentEnvs?.invoke(runConfig, true)
+            }
+        } catch (e: Exception) {
+            // Silently fail - not all run configs support env injection
+        }
     }
 
     private fun parseVars(json: String): List<VarData> {
