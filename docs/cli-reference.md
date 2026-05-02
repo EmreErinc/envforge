@@ -141,15 +141,16 @@ envforge copy API_KEY --json
 
 ### envforge move
 
-Move a variable to the reference file.
+Move a variable to the reference file, or rename in-place.
 
 ```
-Usage: envforge move [OPTIONS] <KEY>
+Usage: envforge move [OPTIONS] <KEY> [NEW_KEY]
 ```
 
 | Argument | Description |
 |----------|-------------|
 | `<KEY>` | Variable name |
+| `[NEW_KEY]` | New key name (renames in-place if provided) |
 
 **Examples:**
 
@@ -157,9 +158,45 @@ Usage: envforge move [OPTIONS] <KEY>
 # Move a variable to the reference file
 envforge move LEGACY_KEY
 
+# Rename a variable in-place
+envforge move OLD_NAME NEW_NAME
+
 # Preview the move
 envforge move OLD_SECRET --dry-run
 ```
+
+---
+
+### envforge search
+
+Search environment variables by fuzzy matching.
+
+```
+Usage: envforge search [OPTIONS] <QUERY>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<QUERY>` | Search term (matches keys and values) |
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output in JSON format |
+
+**Examples:**
+
+```bash
+# Search for database-related variables
+envforge search db
+
+# Search for a specific value
+envforge search "postgres://localhost"
+
+# Output matches as JSON
+envforge search api --json
+```
+
+**Note**: Sensitive values are automatically masked in the output (e.g., `sk-ab***56`).
 
 ---
 
@@ -3674,17 +3711,24 @@ envforge run --no-project -- npm start
 
 ### envforge fence
 
-Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code).
+Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), or check status.
 
 ```
 Usage: envforge fence [OPTIONS]
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--status` | Check if all ignore rules are correctly installed |
 
 **Examples:**
 
 ```bash
 # Create ignore rules for all AI tools
 envforge fence
+
+# Check if rules are active
+envforge fence --status
 
 # Preview what would be created
 envforge fence --dry-run
@@ -3712,9 +3756,6 @@ envforge ai-hook install claude-code
 
 # Install hooks for Cursor
 envforge ai-hook install cursor
-
-# Preview installation
-envforge ai-hook install claude-code --dry-run
 ```
 
 ---
@@ -3736,6 +3777,26 @@ Usage: envforge ai-hook remove [OPTIONS] <TOOL>
 ```bash
 envforge ai-hook remove claude-code
 envforge ai-hook remove cursor
+```
+
+---
+
+### envforge ai-hook status
+
+Check if AI tool hooks are installed.
+
+```
+Usage: envforge ai-hook status [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+# Show installation status for all supported tools
+envforge ai-hook status
+
+# Get status in JSON format
+envforge ai-hook status --json
 ```
 
 ---
@@ -3781,7 +3842,7 @@ Usage: envforge scan [OPTIONS] [PATH]
 | `--staged` | Only scan git staged files |
 | `--install-hook` | Install git pre-commit hook that runs envforge scan --staged |
 | `--remove-hook` | Remove the envforge pre-commit hook |
-| `--mcp` | Scan MCP config files for hardcoded credentials |
+| `--mcp` | Scan MCP config files for hardcoded credentials (alias for envforge mcp status) |
 
 **Examples:**
 
@@ -3800,6 +3861,26 @@ envforge scan --install-hook
 
 # Scan MCP config files for hardcoded credentials
 envforge scan --mcp
+```
+
+---
+
+### envforge mcp status
+
+Check if any MCP config files contain plaintext secrets.
+
+```
+Usage: envforge mcp status [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+# List all hardcoded secrets in MCP configs
+envforge mcp status
+
+# Output findings as JSON
+envforge mcp status --json
 ```
 
 ---

@@ -1076,7 +1076,10 @@ fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     if findings.is_empty() {
         println!("No plaintext secrets found in MCP configs.");
     } else {
-        println!("Found {} potential secret(s) in MCP configs.", findings.len());
+        println!(
+            "Found {} potential secret(s) in MCP configs.",
+            findings.len()
+        );
         println!("Run `envforge mcp harden` to fix them.");
     }
 

@@ -1,6 +1,6 @@
 use clap::Parser;
 use envforge::cli::*;
-use envforge::ops::{collect_entries, fuzzy_search, EntryLocation, EnvEntry};
+use envforge::ops::{collect_entries, fuzzy_search, EnvEntry};
 use envforge::parser::parse_shell_content;
 use std::path::Path;
 

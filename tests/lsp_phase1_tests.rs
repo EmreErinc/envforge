@@ -197,17 +197,17 @@ fn test_folding_ranges_mixed() {
     let entries = parse_entries(content);
     let ranges = folding_range::compute_folding_ranges(&entries);
 
-    let comment_ranges: Vec<_> = ranges
+    let comment_count = ranges
         .iter()
         .filter(|r| r.kind == Some(FoldingRangeKind::Comment))
-        .collect();
-    assert_eq!(comment_ranges.len(), 2);
+        .count();
+    assert_eq!(comment_count, 2);
 
-    let region_ranges: Vec<_> = ranges
+    let region_count = ranges
         .iter()
         .filter(|r| r.kind == Some(FoldingRangeKind::Region))
-        .collect();
-    assert!(region_ranges.len() >= 1);
+        .count();
+    assert!(region_count >= 1);
 }
 
 #[test]
@@ -232,13 +232,13 @@ fn test_folding_ranges_trailing_comments() {
     let entries = parse_entries(content);
     let ranges = folding_range::compute_folding_ranges(&entries);
 
-    let comment_ranges: Vec<_> = ranges
+    let comment_count = ranges
         .iter()
         .filter(|r| r.kind == Some(FoldingRangeKind::Comment))
-        .collect();
-    assert_eq!(comment_ranges.len(), 1);
-    assert_eq!(comment_ranges[0].start_line, 1);
-    assert_eq!(comment_ranges[0].end_line, 2);
+        .count();
+    assert_eq!(comment_count, 1);
+    assert_eq!(ranges[0].start_line, 1);
+    assert_eq!(ranges[0].end_line, 2);
 }
 
 #[test]
@@ -246,12 +246,12 @@ fn test_code_lens_sensitive_key() {
     let entries = parse_entries("DB_PASSWORD=secret\nAPI_KEY=key123\nNORMAL=val\n");
     let lenses = code_lens::code_lenses(&entries, None);
 
-    let sensitive_titles: Vec<_> = lenses
+    let sensitive_count = lenses
         .iter()
-        .filter_map(|l| l.command.as_ref().map(|c| c.title.clone()))
-        .filter(|t| t == "sensitive")
-        .collect();
-    assert_eq!(sensitive_titles.len(), 2);
+        .filter_map(|l| l.command.as_ref().map(|c| c.title.as_str()))
+        .filter(|t| *t == "sensitive")
+        .count();
+    assert_eq!(sensitive_count, 2);
 }
 
 #[test]

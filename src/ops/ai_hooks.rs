@@ -353,17 +353,15 @@ pub fn check_hook_status(project_dir: &Path) -> serde_json::Value {
     let claude_path = claude_settings_path(project_dir);
     let claude_installed = if claude_path.exists() {
         match std::fs::read_to_string(&claude_path) {
-            Ok(content) => {
-                match serde_json::from_str::<serde_json::Value>(&content) {
-                    Ok(settings) => settings
-                        .get("hooks")
-                        .and_then(|h| h.get("PreToolUse"))
-                        .and_then(|p| p.as_array())
-                        .map(|arr| has_envforge_hook(arr))
-                        .unwrap_or(false),
-                    Err(_) => false,
-                }
-            }
+            Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(settings) => settings
+                    .get("hooks")
+                    .and_then(|h| h.get("PreToolUse"))
+                    .and_then(|p| p.as_array())
+                    .map(|arr| has_envforge_hook(arr))
+                    .unwrap_or(false),
+                Err(_) => false,
+            },
             Err(_) => false,
         }
     } else {

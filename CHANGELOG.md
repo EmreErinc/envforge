@@ -5,35 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - 2026-04-30
+## [0.7.0] - 2026-05-02
 
 ### Added — Editor CLI API Gaps (for Plugin Support v0.1.2)
 
 - **New Subcommand: `search`**: Fuzzy search across all environment variables.
   - `envforge search <query>`: Interactive text output with scores.
   - `envforge search <query> --json`: Structured output with matched indices for IDE highlighting.
+  - **Security**: Automatic value masking for sensitive keys (SECRET, TOKEN, PASSWORD, etc.).
 - **Enhanced `move` (Rename)**: Support for in-place renaming of variables.
   - `envforge move OLD_KEY NEW_KEY`: Renames a key while preserving its value and position.
-  - Backward compatible: `envforge move KEY` still moves to the reference file.
 - **Enhanced `fence`**: Added status monitoring.
   - `envforge fence --status`: Check which AI ignore files exist and are correctly configured.
-  - `envforge fence --status --json`: Machine-readable health check of the AI security fence.
-- **Comprehensive JSON Output**: Added `--json` support to 9 existing commands to support stable IDE integrations.
-  - `canary list --json`: List honeypot credentials for security dashboards.
-  - `profile list --json`: Robust profile discovery for IDE status bars.
-  - `snapshot list --json`: Structured access to environment history.
-  - `sync status --json`: Real-time synchronization health monitoring.
-  - `audit --json`: Programmatic access to the change audit trail.
-  - `lease list --json`: Management of time-bounded secret access leases.
-  - `secrets providers --json`: Detailed status of all 13 secret manager integrations.
-  - `drift --json`: Structured detection of configuration drift between environments.
-  - `check --json`: Unified health, safety, and validation results for CI/CD and IDE panels.
+- **New Subcommand: `ai-hook status`**: Programmatic check for active security hooks.
+  - `envforge ai-hook status [--json]`: Reports installation status for Claude Code and Cursor hooks.
+- **New Subcommand: `mcp status`**: Security auditing for MCP configurations.
+  - `envforge mcp status [--json]`: Scans Claude, Cursor, and Copilot configs for hardcoded plaintext secrets.
+- **Comprehensive JSON Output**: Added `--json` support to 11 commands to support stable IDE integrations.
+  - Now includes `ai-hook status`, `mcp status`, `canary list`, `profile list`, `snapshot list`, `sync status`, `audit`, `lease list`, `secrets providers`, `drift`, and `check`.
 - **Standardized API**: All JSON outputs now include a `"version": 1` field for future-proof API stability.
 
 ### Changed
 
+- **CLI Security**: `envforge list` and `envforge search` now automatically mask sensitive variable values (e.g., `ABC***XYZ`) to prevent plain-text exposure in terminal logs.
 - **Internal**: derived `Serialize` on core models to support structured output across the codebase.
-- **Testing**: Added 42 new integration tests covering JSON output schemas and new subcommand edge cases.
+- **Testing**: Added 48 new integration tests covering JSON output schemas and new subcommand edge cases.
 
 ## [0.6.2] - 2026-04-27
 
