@@ -19,7 +19,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Set { assignment } => cmd_set(assignment, dry_run),
         Commands::Delete { key } => cmd_delete(key, dry_run),
         Commands::Copy { key, key_only } => cmd_copy(key, *key_only),
-        Commands::Move { key } => cmd_move(key, dry_run),
+        Commands::Move { key, new_key } => cmd_move(key, new_key.as_deref(), dry_run, json),
         Commands::Import { path, force } => cmd_import(path, *force, dry_run),
         Commands::Export {
             path,
@@ -68,7 +68,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         }
         Commands::Diff => cmd_diff(),
         Commands::Backup { action } => cmd_backup(action),
-        Commands::Profile { action } => cmd_profile(action),
+        Commands::Profile { action } => cmd_profile(action, json),
         Commands::Validate {
             schema,
             env_file,
@@ -138,7 +138,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()).map_err(|e| e.into()),
         Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
         Commands::Check { only } => cmd_check(only.as_deref(), json),
-        Commands::Snapshot { action } => cmd_snapshot(action, dry_run),
+        Commands::Snapshot { action } => cmd_snapshot(action, dry_run, json),
         Commands::Share { action } => cmd_share(action, dry_run),
         Commands::ResolveUri { file, env, output } => {
             cmd_resolve_uri(file, *env, output.as_deref(), json)
@@ -160,7 +160,14 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             *ai_leaks,
             *access,
         ),
-        Commands::Fence => cmd_fence(dry_run),
+        Commands::Search { query } => cmd_search(query, json),
+        Commands::Fence { status } => {
+            if *status {
+                cmd_fence_status(json)
+            } else {
+                cmd_fence(dry_run)
+            }
+        }
         Commands::Sanitize { file, output } => cmd_sanitize(file, output.as_deref()),
         Commands::AiHook { action } => cmd_ai_hook(action),
         Commands::AiGuard {
@@ -183,8 +190,8 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             *require_lease,
             *require_approval,
         ),
-        Commands::Lease { action } => cmd_lease(action),
-        Commands::Canary { action } => cmd_canary(action),
+        Commands::Lease { action } => cmd_lease(action, json),
+        Commands::Canary { action } => cmd_canary(action, json),
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref()),
         Commands::Deps { key, source } => cmd_deps(key, *source),
         Commands::Man { command } => cmd_man(command),
@@ -228,6 +235,88 @@ fn cmd_list(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         print_entries_table(&entries);
     }
     Ok(())
+}
+
+fn cmd_search(query: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if query.is_empty() {
+        return Err("Search query cannot be empty".into());
+    }
+
+    let (_config, shell_files) = load_context()?;
+    let entries = collect_all_entries(&shell_files);
+    let results = fuzzy_search(&entries, query);
+
+    if json {
+        let json_results: Vec<serde_json::Value> = results
+            .iter()
+            .map(|r| {
+                let value = if is_sensitive(&r.entry.key) {
+                    mask_value(&r.entry.value)
+                } else {
+                    r.entry.value.clone()
+                };
+                serde_json::json!({
+                    "version": 1,
+                    "key": r.entry.key,
+                    "value": value,
+                    "source_file": r.entry.source_file.to_string_lossy(),
+                    "line_number": r.entry.line_number,
+                    "score": r.score,
+                    "matched_indices": r.matched_indices,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&json_results)?);
+    } else if results.is_empty() {
+        println!("No results found for '{}'.", query);
+    } else {
+        let max_key = results
+            .iter()
+            .map(|r| r.entry.key.len())
+            .max()
+            .unwrap_or(10)
+            .min(30);
+
+        println!("{:<width$} {:<50} SCORE", "KEY", "VALUE", width = max_key);
+        println!("{}", "-".repeat(max_key + 55 + 8));
+
+        for r in &results {
+            let value = if is_sensitive(&r.entry.key) {
+                mask_value(&r.entry.value)
+            } else if r.entry.value.len() > 50 {
+                format!("{}…", &r.entry.value[..49])
+            } else {
+                r.entry.value.clone()
+            };
+            println!(
+                "{:<width$} {:<50} {}",
+                r.entry.key,
+                value,
+                r.score,
+                width = max_key
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn is_sensitive(key: &str) -> bool {
+    let lower = key.to_lowercase();
+    lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("credential")
+        || (lower.contains("key") && !lower.contains("keyboard"))
+}
+
+fn mask_value(value: &str) -> String {
+    if value.len() < 8 {
+        return "****".to_string();
+    }
+    let first2 = &value[..3];
+    let last2 = &value[value.len() - 3..];
+    format!("{}***{}", first2, last2)
 }
 
 fn cmd_get(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -347,7 +436,16 @@ fn cmd_copy(key: &str, key_only: bool) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn cmd_move(key: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_move(
+    key: &str,
+    new_key: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(new_name) = new_key {
+        return cmd_rename(key, new_name, dry_run, json);
+    }
+
     let (config, mut shell_files) = load_context()?;
 
     if shell_files.is_empty() {
@@ -393,6 +491,48 @@ fn cmd_move(key: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> 
         }
         println!("Moved {} to {}", key, ref_path.display());
     }
+    Ok(())
+}
+
+fn cmd_rename(
+    old_key: &str,
+    new_key: &str,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_config, mut shell_files) = load_context()?;
+
+    if shell_files.is_empty() {
+        return Err("No shell config files found".into());
+    }
+
+    let sf = &mut shell_files[0];
+    rename_entry(sf, old_key, new_key)?;
+
+    if dry_run {
+        let diff = generate_diff_from_strings(
+            &std::fs::read_to_string(&sf.path).unwrap_or_default(),
+            &serialize_shell_file(sf),
+            &sf.path.to_string_lossy(),
+        );
+        print!("{}", diff);
+    } else {
+        let content = serialize_shell_file(sf);
+        safe_write(&sf.path, &content, Some(sf.hash))?;
+    }
+
+    if json {
+        let obj = serde_json::json!({
+            "version": 1,
+            "old_key": old_key,
+            "new_key": new_key,
+            "renamed": true,
+        });
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+    } else {
+        println!("Renamed {} → {}", old_key, new_key);
+    }
+
     Ok(())
 }
 
@@ -901,7 +1041,46 @@ fn cmd_mcp(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         McpAction::Harden => cmd_mcp_harden(dry_run, json),
+        McpAction::Status => cmd_mcp_status(json),
     }
+}
+
+fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::mcp_scan::scan_mcp_configs;
+
+    let findings = scan_mcp_configs();
+
+    if json {
+        let items: Vec<serde_json::Value> = findings
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "file": f.file.to_string_lossy(),
+                    "key": f.key,
+                    "pattern": f.pattern,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "vulnerable_files": items.iter().map(|i| i["file"].as_str().unwrap()).collect::<std::collections::HashSet<_>>().len(),
+                "total_findings": items.len(),
+                "findings": items,
+            }))?
+        );
+        return Ok(());
+    }
+
+    if findings.is_empty() {
+        println!("No plaintext secrets found in MCP configs.");
+    } else {
+        println!("Found {} potential secret(s) in MCP configs.", findings.len());
+        println!("Run `envforge mcp harden` to fix them.");
+    }
+
+    Ok(())
 }
 
 fn cmd_mcp_harden(dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -1040,13 +1219,35 @@ fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn cmd_profile(action: &super::ProfileAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_profile(
+    action: &super::ProfileAction,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = load_or_create_default()?;
 
     match action {
         super::ProfileAction::List => {
             let names = config.profiles.profile_names();
-            if names.is_empty() {
+            if json {
+                let json_profiles: Vec<serde_json::Value> = names
+                    .iter()
+                    .map(|name| {
+                        let file = config
+                            .profiles
+                            .entries
+                            .get(name)
+                            .map(|e| e.file.as_str())
+                            .unwrap_or("?");
+                        serde_json::json!({
+                            "version": 1,
+                            "name": name,
+                            "file": file,
+                            "active": *name == config.profiles.active,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&json_profiles)?);
+            } else if names.is_empty() {
                 println!("No profiles defined.");
             } else {
                 println!("Profiles:\n");
@@ -1062,7 +1263,7 @@ fn cmd_profile(action: &super::ProfileAction) -> Result<(), Box<dyn std::error::
                         .get(name)
                         .map(|e| e.file.as_str())
                         .unwrap_or("?");
-                    println!("  {} ({}){}", name, file, active);
+                    println!(" {} ({}){}", name, file, active);
                 }
                 println!("\nShared: {}", config.profiles.shared_file);
             }
@@ -1558,7 +1759,9 @@ fn print_entries_table(entries: &[EnvEntry]) {
     println!("{}", "-".repeat(max_key + 55 + 15));
 
     for entry in entries {
-        let value = if entry.value.len() > 50 {
+        let value = if is_sensitive(&entry.key) {
+            mask_value(&entry.value)
+        } else if entry.value.len() > 50 {
             format!("{}…", &entry.value[..49])
         } else {
             entry.value.clone()
@@ -1591,9 +1794,14 @@ fn print_entries_json(entries: &[EnvEntry]) -> Result<(), Box<dyn std::error::Er
     let json_entries: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
+            let value = if is_sensitive(&e.key) {
+                mask_value(&e.value)
+            } else {
+                e.value.clone()
+            };
             serde_json::json!({
                 "key": e.key,
-                "value": e.value,
+                "value": value,
                 "source_file": e.source_file.to_string_lossy(),
                 "line_number": e.line_number,
                 "location": match e.location {
@@ -1746,7 +1954,13 @@ fn cmd_drift(
                 })
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&items)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "drift": items,
+            }))?
+        );
         return Ok(());
     }
 
@@ -2512,7 +2726,11 @@ fn propagate_to_sync(key: &str, new_value: &str) -> Result<(), Box<dyn std::erro
     }
 }
 
-fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_snapshot(
+    action: &SnapshotAction,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::snapshot;
 
     match action {
@@ -2554,22 +2772,54 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
             let metas = snapshot::list_snapshots()?;
 
             if metas.is_empty() {
-                println!("No snapshots found.");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "version": 1,
+                            "snapshots": [],
+                        })
+                    );
+                } else {
+                    println!("No snapshots found.");
+                }
                 return Ok(());
             }
 
-            println!(
-                "{:<25} {:<12} {:<15} {:<6}",
-                "NAME", "PROFILE", "MACHINE", "VARS"
-            );
-            println!("{}", "-".repeat(60));
-            for m in &metas {
+            if json {
+                let json_snapshots: Vec<serde_json::Value> = metas
+                    .iter()
+                    .map(|m| {
+                        serde_json::json!({
+                            "name": m.name,
+                            "profile": m.profile,
+                            "machine_id": m.machine_id,
+                            "var_count": m.var_count,
+                            "created_at": m.created_at,
+                        })
+                    })
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "snapshots": json_snapshots,
+                    }))?
+                );
+            } else {
                 println!(
                     "{:<25} {:<12} {:<15} {:<6}",
-                    m.name, m.profile, m.machine_id, m.var_count
+                    "NAME", "PROFILE", "MACHINE", "VARS"
                 );
+                println!("{}", "-".repeat(60));
+                for m in &metas {
+                    println!(
+                        "{:<25} {:<12} {:<15} {:<6}",
+                        m.name, m.profile, m.machine_id, m.var_count
+                    );
+                }
+                println!("\n{} snapshot(s)", metas.len());
             }
-            println!("\n{} snapshot(s)", metas.len());
         }
 
         SnapshotAction::Restore { name, last } => {
@@ -3119,6 +3369,49 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::fence::check_fence_status;
+
+    let project_dir = std::env::current_dir()?;
+    let status = check_fence_status(&project_dir)?;
+
+    if json {
+        let obj = serde_json::json!({
+            "version": 1,
+            "all_fenced": status.all_fenced,
+            "files": status.files,
+        });
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+    } else {
+        println!("AI Secret Fence Status\n");
+        for f in &status.files {
+            let icon = if f.fenced {
+                "\x1b[32m✓\x1b[0m"
+            } else if f.exists {
+                "\x1b[33m⚠\x1b[0m"
+            } else {
+                "\x1b[31m✗\x1b[0m"
+            };
+            let label = if f.fenced {
+                "fenced"
+            } else if f.exists {
+                "exists (not fenced)"
+            } else {
+                "missing"
+            };
+            println!(" {} {} — {}", icon, f.path, label);
+        }
+        println!();
+        if status.all_fenced {
+            println!("\x1b[32mAll fence files configured.\x1b[0m");
+        } else {
+            println!("\x1b[33mSome fence files missing or incomplete. Run `envforge fence` to set up.\x1b[0m");
+        }
+    }
+
+    Ok(())
+}
+
 fn cmd_sanitize(file: &str, output: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::sanitize::sanitize_file;
 
@@ -3179,6 +3472,10 @@ fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> 
             if result.config_path.exists() {
                 println!("  Config: {}", result.config_path.display());
             }
+        }
+        AiHookAction::Status => {
+            let status = crate::ops::ai_hooks::check_hook_status(&cwd);
+            println!("{}", serde_json::to_string_pretty(&status)?);
         }
     }
 
@@ -3301,80 +3598,170 @@ fn cmd_proxy(
 
 // ─── Canary Commands ──────────────────────────────────────────
 
-fn cmd_canary(action: &super::CanaryAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_canary(action: &super::CanaryAction, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::canary;
 
     match action {
         super::CanaryAction::Create { key, pattern } => {
             let canary = canary::create_canary(key, pattern)?;
-            println!("Canary created: {}", canary.key);
-            println!("  Fake value: {}", canary.fake_value);
-            println!("  Pattern: {}", canary.pattern);
-            println!();
-            println!("Add to your .env: {}={}", canary.key, canary.fake_value);
-            println!(
-                "If this value appears in logs, git, or API calls \u{2014} an agent leaked it."
-            );
+            if json {
+                let obj = serde_json::json!({
+                    "version": 1,
+                    "key": canary.key,
+                    "fake_value": canary.fake_value,
+                    "pattern": canary.pattern,
+                    "created_at": canary.created_at,
+                    "triggered": canary.triggered,
+                    "trigger_count": canary.trigger_count,
+                });
+                println!("{}", serde_json::to_string_pretty(&obj)?);
+            } else {
+                println!("Canary created: {}", canary.key);
+                println!(" Fake value: {}", canary.fake_value);
+                println!(" Pattern: {}", canary.pattern);
+                println!();
+                println!("Add to your .env: {}={}", canary.key, canary.fake_value);
+                println!("If this value appears in logs, git, or API calls — an agent leaked it.");
+            }
         }
         super::CanaryAction::List => {
             let canaries = canary::list_canaries()?;
             if canaries.is_empty() {
-                println!("No canary secrets configured.");
-                println!("Create one with: envforge canary create KEY --pattern generic");
+                if json {
+                    println!("[]");
+                } else {
+                    println!("No canary secrets configured.");
+                    println!("Create one with: envforge canary create KEY --pattern generic");
+                }
                 return Ok(());
             }
-            println!(
-                "{:<25} {:<15} {:<10} {:<8}",
-                "KEY", "PATTERN", "TRIGGERED", "COUNT"
-            );
-            println!("{}", "-".repeat(60));
-            for c in &canaries {
+            if json {
+                let json_canaries: Vec<serde_json::Value> = canaries
+                    .iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "version": 1,
+                            "key": c.key,
+                            "pattern": c.pattern,
+                            "fake_value": c.fake_value,
+                            "created_at": c.created_at,
+                            "triggered": c.triggered,
+                            "trigger_count": c.trigger_count,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&json_canaries)?);
+            } else {
                 println!(
                     "{:<25} {:<15} {:<10} {:<8}",
-                    c.key,
-                    c.pattern,
-                    if c.triggered { "YES" } else { "no" },
-                    c.trigger_count,
+                    "KEY", "PATTERN", "TRIGGERED", "COUNT"
                 );
+                println!("{}", "-".repeat(60));
+                for c in &canaries {
+                    println!(
+                        "{:<25} {:<15} {:<10} {:<8}",
+                        c.key,
+                        c.pattern,
+                        if c.triggered { "YES" } else { "no" },
+                        c.trigger_count,
+                    );
+                }
+                println!("\nTotal: {} canary secret(s)", canaries.len());
             }
-            println!("\nTotal: {} canary secret(s)", canaries.len());
         }
         super::CanaryAction::Check => {
             let triggered = canary::check_canaries()?;
             if triggered.is_empty() {
-                println!("No canaries have been triggered. All clear.");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "version": 1,
+                            "triggered": [],
+                            "total": 0,
+                        })
+                    );
+                } else {
+                    println!("No canaries have been triggered. All clear.");
+                }
                 return Ok(());
             }
-            println!(
-                "\u{1f6a8} {} canary secret(s) TRIGGERED:\n",
-                triggered.len()
-            );
-            for c in &triggered {
+            if json {
+                let json_triggered: Vec<serde_json::Value> = triggered
+                    .iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "version": 1,
+                            "key": c.key,
+                            "pattern": c.pattern,
+                            "trigger_count": c.trigger_count,
+                        })
+                    })
+                    .collect();
+                let alerts = canary::read_alerts()?;
+                let json_alerts: Vec<serde_json::Value> = alerts
+                    .iter()
+                    .rev()
+                    .take(10)
+                    .map(|a| {
+                        serde_json::json!({
+                            "timestamp": a.timestamp,
+                            "key": a.key,
+                            "source": a.source,
+                            "details": a.details,
+                        })
+                    })
+                    .collect();
                 println!(
-                    "  {} (pattern: {}, triggered {} time(s))",
-                    c.key, c.pattern, c.trigger_count
+                    "{}",
+                    serde_json::json!({
+                        "version": 1,
+                        "triggered": json_triggered,
+                        "total": triggered.len(),
+                        "recent_alerts": json_alerts,
+                    })
                 );
-            }
-
-            // Show recent alerts
-            let alerts = canary::read_alerts()?;
-            if !alerts.is_empty() {
-                println!("\nRecent alerts:");
-                let start = if alerts.len() > 10 {
-                    alerts.len() - 10
-                } else {
-                    0
-                };
-                for alert in &alerts[start..] {
+            } else {
+                println!(
+                    "\u{1f6a8} {} canary secret(s) TRIGGERED:\n",
+                    triggered.len()
+                );
+                for c in &triggered {
                     println!(
-                        "  [{}] {} via {} - {}",
-                        alert.timestamp, alert.key, alert.source, alert.details
+                        " {} (pattern: {}, triggered {} time(s))",
+                        c.key, c.pattern, c.trigger_count
                     );
+                }
+
+                let alerts = canary::read_alerts()?;
+                if !alerts.is_empty() {
+                    println!("\nRecent alerts:");
+                    let start = if alerts.len() > 10 {
+                        alerts.len() - 10
+                    } else {
+                        0
+                    };
+                    for alert in &alerts[start..] {
+                        println!(
+                            " [{}] {} via {} - {}",
+                            alert.timestamp, alert.key, alert.source, alert.details
+                        );
+                    }
                 }
             }
         }
         super::CanaryAction::Delete { key } => {
-            if canary::delete_canary(key)? {
+            let found = canary::delete_canary(key)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "version": 1,
+                        "key": key,
+                        "deleted": found,
+                    })
+                );
+            } else if found {
                 println!("Canary deleted: {}", key);
             } else {
                 println!("Canary not found: {}", key);
@@ -3391,7 +3778,10 @@ fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
     let entries = read_audit_log()?;
     if entries.is_empty() {
         if json {
-            println!("{}", serde_json::json!({"entries": [], "total": 0}));
+            println!(
+                "{}",
+                serde_json::json!({"version": 1, "entries": [], "total": 0})
+            );
         } else {
             println!("No proxy access audit entries found.");
             println!("Start the proxy with `envforge proxy` to generate audit logs.");
@@ -3425,6 +3815,7 @@ fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
                 "entries": items,
                 "total": entries.len(),
             }))?
@@ -3456,7 +3847,7 @@ fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-fn cmd_lease(action: &LeaseAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_lease(action: &LeaseAction, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::lease;
 
     match action {
@@ -3487,29 +3878,68 @@ fn cmd_lease(action: &LeaseAction) -> Result<(), Box<dyn std::error::Error>> {
         LeaseAction::List => {
             let statuses = lease::list_leases()?;
             if statuses.is_empty() {
-                eprintln!("No leases found.");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "version": 1,
+                            "leases": [],
+                        })
+                    );
+                } else {
+                    eprintln!("No leases found.");
+                }
                 return Ok(());
             }
-            println!("{:<25} {:<12} {:<12} KEYS", "NAME", "STATUS", "REMAINING");
-            println!("{}", "-".repeat(65));
-            for s in &statuses {
-                let status = if s.revoked {
-                    "REVOKED"
-                } else if s.expired {
-                    "EXPIRED"
-                } else {
-                    "ACTIVE"
-                };
-                let remaining = if s.expired || s.revoked {
-                    "-".to_string()
-                } else {
-                    format_duration_short(s.remaining_seconds)
-                };
-                let keys = match s.key_count {
-                    Some(n) => format!("{} key(s)", n),
-                    None => "ALL".to_string(),
-                };
-                println!("{:<25} {:<12} {:<12} {}", s.name, status, remaining, keys);
+
+            if json {
+                let items: Vec<serde_json::Value> = statuses
+                .iter()
+                .map(|s| {
+                    let status_str = if s.revoked {
+                        "revoked"
+                    } else if s.expired {
+                        "expired"
+                    } else {
+                        "active"
+                    };
+                    serde_json::json!({
+                        "name": s.name,
+                        "status": status_str,
+                        "remaining_seconds": if s.expired || s.revoked { None } else { Some(s.remaining_seconds) },
+                        "key_count": s.key_count,
+                    })
+                })
+                .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "leases": items,
+                    }))?
+                );
+            } else {
+                println!("{:<25} {:<12} {:<12} KEYS", "NAME", "STATUS", "REMAINING");
+                println!("{}", "-".repeat(65));
+                for s in &statuses {
+                    let status = if s.revoked {
+                        "REVOKED"
+                    } else if s.expired {
+                        "EXPIRED"
+                    } else {
+                        "ACTIVE"
+                    };
+                    let remaining = if s.expired || s.revoked {
+                        "-".to_string()
+                    } else {
+                        format_duration_short(s.remaining_seconds)
+                    };
+                    let keys = match s.key_count {
+                        Some(n) => format!("{} key(s)", n),
+                        None => "ALL".to_string(),
+                    };
+                    println!("{:<25} {:<12} {:<12} {}", s.name, status, remaining, keys);
+                }
             }
         }
         LeaseAction::Cleanup => {

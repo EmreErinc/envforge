@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.schema
+!.env.example
+credentials.toml
+*.key
+*.pem
+secret-sources.toml

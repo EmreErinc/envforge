@@ -224,6 +224,48 @@ pub fn add_entry(
     Ok(())
 }
 
+/// Rename an ENV entry's key in the ShellFile.
+///
+/// Finds the EnvExport node by old_key and updates the key field.
+/// Regenerates `original_text` to reflect the new key name.
+/// Does not write to disk — caller is responsible for that.
+pub fn rename_entry(
+    shell_file: &mut ShellFile,
+    old_key: &str,
+    new_key: &str,
+) -> Result<(), OpsError> {
+    let idx = find_unique_export(shell_file, old_key)?;
+
+    if let LineNode::EnvExport {
+        key,
+        value,
+        original_text,
+        export_style,
+        quote_style,
+        inline_comment,
+        ..
+    } = &mut shell_file.lines[idx]
+    {
+        let prefix = match export_style {
+            ExportStyle::Export => "export ",
+            ExportStyle::Bare => "",
+        };
+        let quoted = match quote_style {
+            QuoteStyle::Double => format!("\"{}\"", value),
+            QuoteStyle::Single => format!("'{}'", value),
+            QuoteStyle::None => value.clone(),
+        };
+        let comment_suffix = match inline_comment {
+            Some(c) => c.clone(),
+            None => String::new(),
+        };
+        *original_text = format!("{}{}={}{}", prefix, new_key, quoted, comment_suffix);
+        *key = new_key.to_string();
+    }
+
+    Ok(())
+}
+
 /// Find the unique index of an EnvExport node by key.
 fn find_unique_export(shell_file: &ShellFile, key: &str) -> Result<usize, OpsError> {
     let matches: Vec<usize> = shell_file

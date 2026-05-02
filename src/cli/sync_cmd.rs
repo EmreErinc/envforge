@@ -205,7 +205,10 @@ fn cmd_sync_init(
     if is_initialized(&sync_path) && force {
         let backup = backup_existing(&sync_path)?;
         if json {
-            println!("{}", json!({"backup": backup.to_string_lossy()}));
+            println!(
+                "{}",
+                json!({"version": 1, "backup": backup.to_string_lossy()})
+            );
         } else {
             println!("Backed up existing sync to: {}", backup.display());
         }
@@ -217,7 +220,7 @@ fn cmd_sync_init(
             if json {
                 println!(
                     "{}",
-                    json!({"initialized": true, "remote": url, "machine_id": machine_id, "existing_snapshot": has_snapshot})
+                    json!({"version": 1, "initialized": true, "remote": url, "machine_id": machine_id, "existing_snapshot": has_snapshot})
                 );
             } else {
                 println!("Sync initialized from remote: {}", url);
@@ -230,7 +233,10 @@ fn cmd_sync_init(
         None => {
             init_fresh(&sync_path, &machine_id)?;
             if json {
-                println!("{}", json!({"initialized": true, "machine_id": machine_id}));
+                println!(
+                    "{}",
+                    json!({"version": 1, "initialized": true, "machine_id": machine_id})
+                );
             } else {
                 println!("Sync initialized at: {}", sync_path.display());
                 println!("Machine ID: {}", machine_id);
@@ -257,6 +263,7 @@ fn cmd_sync_push(
         println!(
             "{}",
             json!({
+                "version": 1,
                 "keys_pushed": summary.keys_pushed,
                 "commit_hash": summary.commit_hash,
                 "push_result": format!("{:?}", summary.push_result),
@@ -290,6 +297,7 @@ fn cmd_sync_pull(dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::Er
         println!(
             "{}",
             json!({
+                "version": 1,
                 "keys_added": summary.keys_added,
                 "keys_modified": summary.keys_modified,
                 "keys_removed": summary.keys_removed,
@@ -342,6 +350,7 @@ fn cmd_sync_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "{}",
             json!({
+                "version": 1,
                 "status": format!("{:?}", status),
                 "added": diff_result.added.len(),
                 "modified": diff_result.modified.len(),
@@ -404,7 +413,7 @@ fn cmd_sync_mark(
     if json {
         println!(
             "{}",
-            json!({"marked": result.marked_keys, "warnings": result.warnings})
+            json!({"version": 1, "marked": result.marked_keys, "warnings": result.warnings})
         );
     } else {
         if !result.marked_keys.is_empty() {
@@ -434,7 +443,7 @@ fn cmd_sync_list_keys(json: bool) -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .map(|(k, s)| json!({"key": k, "status": format!("{:?}", s)}))
             .collect();
-        println!("{}", json!(entries));
+        println!("{}", json!({"version": 1, "keys": entries}));
     } else {
         for (key, status) in &status_list {
             let icon = match status {
@@ -492,7 +501,7 @@ fn cmd_sync_override(
     if remove {
         let removed = machine::remove_override(&sync_path, machine_id, key)?;
         if json {
-            println!("{}", json!({"removed": removed, "key": key}));
+            println!("{}", json!({"version": 1, "removed": removed, "key": key}));
         } else if removed {
             println!("Removed override for '{}'", key);
         } else {
@@ -506,7 +515,7 @@ fn cmd_sync_override(
         if json {
             println!(
                 "{}",
-                json!({"set": true, "key": key, "value": val, "warnings": warnings})
+                json!({"version": 1, "set": true, "key": key, "value": val, "warnings": warnings})
             );
         } else {
             println!("Override set: {} = {}", key, val);
@@ -537,7 +546,7 @@ fn cmd_sync_history(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
                 })
             })
             .collect();
-        println!("{}", json!(entries));
+        println!("{}", json!({"version": 1, "entries": entries}));
     } else if commits.is_empty() {
         println!("No sync history yet");
     } else {
@@ -567,7 +576,7 @@ fn cmd_sync_rollback(
     if json {
         println!(
             "{}",
-            json!({"rollback": true, "backup": backup.to_string_lossy()})
+            json!({"version": 1, "rollback": true, "backup": backup.to_string_lossy()})
         );
     } else {
         println!("Rolled back successfully");
@@ -592,7 +601,7 @@ fn cmd_sync_log(n: usize, json: bool) -> Result<(), Box<dyn std::error::Error>> 
                 })
             })
             .collect();
-        println!("{}", json!(items));
+        println!("{}", json!({"version": 1, "entries": items}));
     } else if entries.is_empty() {
         println!("No sync operations logged yet");
     } else {
@@ -612,6 +621,7 @@ fn cmd_sync_machine(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "{}",
             json!({
+                "version": 1,
                 "machine_id": info.machine_id,
                 "override_count": info.override_count,
             })

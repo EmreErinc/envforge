@@ -363,7 +363,7 @@ fn test_move_command_parsing() {
     let cli = Cli::try_parse_from(["envforge", "move", "KEY_TO_MOVE"]);
     assert!(cli.is_ok());
     match cli.unwrap().command {
-        Some(Commands::Move { key }) => assert_eq!(key, "KEY_TO_MOVE"),
+        Some(Commands::Move { key, .. }) => assert_eq!(key, "KEY_TO_MOVE"),
         _ => panic!("Expected Move"),
     }
 }

@@ -5,140 +5,248 @@ import { StatusBar } from './statusbar';
 import { EnvTreeProvider, ProfileTreeProvider } from './treeview';
 
 export function registerCommands(
-    context: vscode.ExtensionContext,
-    statusBar: StatusBar,
-    treeProvider: EnvTreeProvider,
-    profileProvider: ProfileTreeProvider,
+  context: vscode.ExtensionContext,
+  statusBar: StatusBar,
+  treeProvider: EnvTreeProvider,
+  profileProvider: ProfileTreeProvider,
 ) {
-    // Commands that accept an optional URI argument (from explorer/editor context menus)
-    const fileAwareCommands: [string, (uri?: vscode.Uri) => Promise<void>][] = [
-        ['envforge.validate', cmdValidate],
-        ['envforge.scan', cmdScan],
-        ['envforge.schemaGenerate', cmdSchemaGenerate],
-        ['envforge.export', cmdExport],
-        ['envforge.check', cmdCheck],
-    ];
+  const fileAwareCommands: [string, (uri?: vscode.Uri) => Promise<void>][] = [
+    ['envforge.validate', cmdValidate],
+    ['envforge.scan', cmdScan],
+    ['envforge.schemaGenerate', cmdSchemaGenerate],
+    ['envforge.export', cmdExport],
+    ['envforge.check', cmdCheck],
+  ];
 
-    for (const [id, handler] of fileAwareCommands) {
-        context.subscriptions.push(
-            vscode.commands.registerCommand(id, handler)
-        );
-    }
-
-    // Commands that do not need a URI argument
-    const commands: [string, () => Promise<void>][] = [
-        ['envforge.list', cmdList],
-        ['envforge.profileSwitch', cmdProfileSwitch],
-        ['envforge.profileDiff', cmdProfileDiff],
-        ['envforge.syncStatus', cmdSyncStatus],
-        ['envforge.syncPush', cmdSyncPush],
-        ['envforge.syncPull', cmdSyncPull],
-        ['envforge.doctor', cmdDoctor],
-        ['envforge.restartLsp', cmdRestartLsp],
-    ];
-
-    for (const [id, handler] of commands) {
-        context.subscriptions.push(
-            vscode.commands.registerCommand(id, handler)
-        );
-    }
-
-    // Tree view commands
+  for (const [id, handler] of fileAwareCommands) {
     context.subscriptions.push(
-        vscode.commands.registerCommand('envforge.refreshTree', () => {
-            treeProvider.refresh();
-            profileProvider.refresh();
-        }),
-        vscode.commands.registerCommand('envforge.copyValue', (arg: any) => {
-            // Context menu passes VarNode, click passes string
-            const value = arg?.envVar?.value ?? arg;
-            if (typeof value === 'string') {
-                vscode.env.clipboard.writeText(value);
-                vscode.window.showInformationMessage('Value copied to clipboard');
-            }
-        }),
-        vscode.commands.registerCommand('envforge.copyKey', (arg: any) => {
-            const key = arg?.envVar?.key ?? arg;
-            if (typeof key === 'string') {
-                vscode.env.clipboard.writeText(key);
-                vscode.window.showInformationMessage(`Key copied: ${key}`);
-            }
-        }),
-        vscode.commands.registerCommand('envforge.copyKeyValue', (arg: any) => {
-            const key = arg?.envVar?.key;
-            const value = arg?.envVar?.value;
-            if (typeof key === 'string' && typeof value === 'string') {
-                vscode.env.clipboard.writeText(`${key}=${value}`);
-                vscode.window.showInformationMessage(`Copied: ${key}=...`);
-            }
-        }),
-        vscode.commands.registerCommand('envforge.profileContextSwitch', async (item: vscode.TreeItem) => {
-            const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
-            if (!name) return;
-            try {
-                await run(['profile', 'switch', name]);
-                vscode.window.showInformationMessage(`Switched to profile: ${name}`);
-                profileProvider.refresh();
-                treeProvider.refresh();
-                statusBar.update();
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
-            }
-        }),
-        vscode.commands.registerCommand('envforge.profileContextDiff', async (item: vscode.TreeItem) => {
-            const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
-            if (!name) return;
-            try {
-                // Find the active profile to diff against
-                const { stdout } = await run(['profile', 'list', '--json']);
-                const profiles: string[] = JSON.parse(stdout);
-                // If this is the active profile, let user pick another
-                if (item.contextValue === 'envProfileActive') {
-                    const other = await vscode.window.showQuickPick(
-                        profiles.filter(p => p !== name),
-                        { placeHolder: 'Diff with profile' }
-                    );
-                    if (!other) return;
-                    await runAndShow('Profile Diff', ['profile', 'diff', name, other]);
-                } else {
-                    // Diff inactive profile against the active one
-                    // Find active profile name from tree description
-                    await runAndShow('Profile Diff', ['profile', 'diff', name]);
-                }
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
-            }
-        }),
-        vscode.commands.registerCommand('envforge.profileOpenFile', async (item: vscode.TreeItem) => {
-            // description holds the file name for inactive profiles, 'active' for active
-            const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
-            if (!name) return;
-            const wsFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!wsFolder) return;
-            // Profile file is typically .env.<name>
-            const fileUri = vscode.Uri.joinPath(wsFolder.uri, `.env.${name}`);
-            try {
-                const doc = await vscode.workspace.openTextDocument(fileUri);
-                await vscode.window.showTextDocument(doc);
-            } catch {
-                vscode.window.showErrorMessage(`Could not open file for profile: ${name}`);
-            }
-        }),
-        vscode.commands.registerCommand('envforge.toggleGrouping', () => {
-            treeProvider.toggleGrouping();
-        }),
-        vscode.commands.registerCommand('envforge.switchToProfile', async (name: string) => {
-            try {
-                await run(['profile', 'switch', name]);
-                vscode.window.showInformationMessage(`Switched to profile: ${name}`);
-                profileProvider.refresh();
-                treeProvider.refresh();
-                statusBar.update();
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
-            }
-        }),
+      vscode.commands.registerCommand(id, handler)
     );
+  }
+
+  const commands: [string, () => Promise<void>][] = [
+    ['envforge.list', cmdList],
+    ['envforge.profileSwitch', cmdProfileSwitch],
+    ['envforge.profileDiff', cmdProfileDiff],
+    ['envforge.syncStatus', cmdSyncStatus],
+    ['envforge.syncPush', cmdSyncPush],
+    ['envforge.syncPull', cmdSyncPull],
+    ['envforge.doctor', cmdDoctor],
+    ['envforge.restartLsp', cmdRestartLsp],
+  ];
+
+  for (const [id, handler] of commands) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(id, handler)
+    );
+  }
+
+  // Tree view commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand('envforge.refreshTree', () => {
+      treeProvider.refresh();
+      profileProvider.refresh();
+    }),
+    vscode.commands.registerCommand('envforge.copyValue', (arg: any) => {
+      const value = arg?.envVar?.value ?? arg;
+      if (typeof value === 'string') {
+        vscode.env.clipboard.writeText(value);
+        vscode.window.showInformationMessage('Value copied to clipboard');
+      }
+    }),
+    vscode.commands.registerCommand('envforge.copyKey', (arg: any) => {
+      const key = arg?.envVar?.key ?? arg;
+      if (typeof key === 'string') {
+        vscode.env.clipboard.writeText(key);
+        vscode.window.showInformationMessage(`Key copied: ${key}`);
+      }
+    }),
+    vscode.commands.registerCommand('envforge.copyKeyValue', (arg: any) => {
+      const key = arg?.envVar?.key;
+      const value = arg?.envVar?.value;
+      if (typeof key === 'string' && typeof value === 'string') {
+        vscode.env.clipboard.writeText(`${key}=${value}`);
+        vscode.window.showInformationMessage(`Copied: ${key}=...`);
+      }
+    }),
+    vscode.commands.registerCommand('envforge.clearSearch', () => {
+      treeProvider.clearFilter();
+    }),
+    vscode.commands.registerCommand('envforge.profileContextSwitch', async (item: vscode.TreeItem) => {
+      const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
+      if (!name) return;
+      try {
+        await run(['profile', 'switch', name]);
+        vscode.window.showInformationMessage(`Switched to profile: ${name}`);
+        profileProvider.refresh();
+        treeProvider.refresh();
+        statusBar.update();
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+      }
+    }),
+    vscode.commands.registerCommand('envforge.profileContextDiff', async (item: vscode.TreeItem) => {
+      const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
+      if (!name) return;
+      try {
+        const { stdout } = await run(['profile', 'list', '--json']);
+        const profiles: string[] = JSON.parse(stdout);
+        if (item.contextValue === 'envProfileActive') {
+          const other = await vscode.window.showQuickPick(
+            profiles.filter(p => p !== name),
+            { placeHolder: 'Diff with profile' }
+          );
+          if (!other) return;
+          await runAndShow('Profile Diff', ['profile', 'diff', name, other]);
+        } else {
+          await runAndShow('Profile Diff', ['profile', 'diff', name]);
+        }
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+      }
+    }),
+    vscode.commands.registerCommand('envforge.profileOpenFile', async (item: vscode.TreeItem) => {
+      const name = typeof item?.label === 'string' ? item.label : (item?.label as any)?.label;
+      if (!name) return;
+      const wsFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!wsFolder) return;
+      const fileUri = vscode.Uri.joinPath(wsFolder.uri, `.env.${name}`);
+      try {
+        const doc = await vscode.workspace.openTextDocument(fileUri);
+        await vscode.window.showTextDocument(doc);
+      } catch {
+        vscode.window.showErrorMessage(`Could not open file for profile: ${name}`);
+      }
+    }),
+    vscode.commands.registerCommand('envforge.toggleGrouping', () => {
+      treeProvider.toggleGrouping();
+    }),
+    vscode.commands.registerCommand('envforge.switchToProfile', async (name: string) => {
+      try {
+        await run(['profile', 'switch', name]);
+        vscode.window.showInformationMessage(`Switched to profile: ${name}`);
+        profileProvider.refresh();
+        treeProvider.refresh();
+        statusBar.update();
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+      }
+    }),
+    // Search command
+    vscode.commands.registerCommand('envforge.searchVariables', async () => {
+      await vscode.commands.executeCommand('envforgeVariables.focus');
+      const input = vscode.window.createInputBox();
+      input.title = 'Search Environment Variables';
+      input.placeholder = 'Type to search variables...';
+      input.prompt = 'Fuzzy search via envforge search. Press Enter to filter, Escape to clear.';
+      input.show();
+
+      let accepted = false;
+      input.onDidAccept(() => {
+        accepted = true;
+        const query = input.value.trim();
+        input.hide();
+        treeProvider.setFilter(query || undefined);
+      });
+
+      input.onDidHide(() => {
+        if (!accepted) {
+          treeProvider.setFilter(undefined);
+        }
+      });
+    }),
+    // Add variable command
+    vscode.commands.registerCommand('envforge.addVariable', async () => {
+      const key = await vscode.window.showInputBox({
+        prompt: 'Variable key (name)',
+        placeHolder: 'MY_VAR',
+        validateInput: v => v.trim() === '' ? 'Key cannot be empty' : null,
+      });
+      if (!key) return;
+
+      const value = await vscode.window.showInputBox({
+        prompt: `Value for ${key}`,
+        placeHolder: 'my-value',
+      });
+      if (value === undefined) return;
+
+      try {
+        await run(['set', key, value]);
+        vscode.window.showInformationMessage(`Added: ${key}`);
+        treeProvider.refresh();
+        statusBar.update();
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+      }
+    }),
+    // Edit value command
+    vscode.commands.registerCommand('envforge.editValue', async (arg: any) => {
+      const key = arg?.envVar?.key ?? arg?.key;
+      const currentValue = arg?.envVar?.value ?? arg?.value;
+      if (!key) return;
+
+      const isRedacted = typeof currentValue === 'string' && currentValue.includes('***');
+      const placeholder = isRedacted ? '[REDACTED] — enter new value' : currentValue;
+
+      const newValue = await vscode.window.showInputBox({
+        prompt: `Edit value for ${key}`,
+        value: isRedacted ? '' : currentValue,
+        placeHolder: placeholder,
+      });
+      if (newValue === undefined) return;
+
+      try {
+        await run(['set', key, newValue]);
+        vscode.window.showInformationMessage(`Updated: ${key}`);
+        treeProvider.refresh();
+        statusBar.update();
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+      }
+    }),
+    // Delete variable command
+    vscode.commands.registerCommand('envforge.deleteVariable', async (arg: any) => {
+      const key = arg?.envVar?.key ?? arg?.key;
+      if (!key) return;
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Delete variable "${key}"? This modifies your shell configuration file.`,
+        { modal: true },
+        'Delete',
+      );
+      if (confirm !== 'Delete') return;
+
+      try {
+        await run(['delete', key]);
+        vscode.window.showInformationMessage(`Deleted: ${key}`);
+        treeProvider.refresh();
+        statusBar.update();
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+      }
+    }),
+    // Rename variable command
+    vscode.commands.registerCommand('envforge.renameVariable', async (arg: any) => {
+      const oldKey = arg?.envVar?.key ?? arg?.key;
+      if (!oldKey) return;
+
+      const newKey = await vscode.window.showInputBox({
+        prompt: `Rename "${oldKey}" to`,
+        value: oldKey,
+        validateInput: v => v.trim() === '' ? 'Key cannot be empty' : null,
+      });
+      if (!newKey || newKey === oldKey) return;
+
+      try {
+        await run(['move', oldKey, newKey]);
+        vscode.window.showInformationMessage(`Renamed: ${oldKey} → ${newKey}`);
+        treeProvider.refresh();
+        statusBar.update();
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
+      }
+    }),
+  );
 }
 
 // ── Helpers ──────────────────────────────────────────────────

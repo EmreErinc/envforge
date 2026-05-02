@@ -1,20 +1,22 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
     <name>EnvForge</name>
-    <version>0.1.1</version>
+    <version>0.1.2</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
-    <description><![CDATA[
-        <p>Environment variable management with schema validation, secret scanning, and multi-profile support.</p>
-        <ul>
-            <li><b>Diagnostics</b> — Missing required vars, type errors, secret leak warnings</li>
-            <li><b>Hover</b> — Schema info: type, description, default, example</li>
-            <li><b>Completions</b> — Key names from .env.schema</li>
-            <li><b>Go-to-definition</b> — Jump from .env key to .env.schema section</li>
-            <li><b>Commands</b> — Validate, scan, export, sync, profile switch</li>
-        </ul>
-        <p>Requires <code>envforge</code> CLI installed. Get it: <code>cargo install env-forge-tui</code></p>
-    ]]></description>
+  <description><![CDATA[
+<p>Environment variable management with schema validation, secret scanning, and multi-profile support.</p>
+<ul>
+<li><b>Diagnostics</b> — Missing required vars, type errors, secret leak warnings</li>
+<li><b>Hover</b> — Schema info: type, description, default, example</li>
+<li><b>Completions</b> — Key names from .env.schema</li>
+<li><b>Go-to-definition</b> — Jump from .env key to .env.schema section</li>
+<li><b>Commands</b> — Validate, scan, export, sync, profile switch</li>
+<li><b>Security Dashboard</b> — Fence, Guard, MCP Scan, Canary Tokens</li>
+<li><b>AI Safety</b> — Fence blocks AI from reading env vars; Guard detects prompt injection</li>
+</ul>
+<p>Requires <code>envforge</code> CLI installed. Get it: <code>cargo install env-forge-tui</code></p>
+  ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.redhat.devtools.lsp4ij</depends>
@@ -38,17 +40,24 @@
                          fileNamePattern=".env.schema"/>
     </extensions>
 
-    <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="EnvForge"
-                    anchor="right"
-                    icon="/icons/envforge.svg"
-                    factoryClass="com.envforge.intellij.EnvForgeToolWindowFactory"/>
-        <statusBarWidgetFactory id="EnvForgeStatus"
-                                implementation="com.envforge.intellij.EnvForgeStatusBarFactory"
-                                order="after Position"/>
-        <notificationGroup id="EnvForge"
-                           displayType="BALLOON"/>
-    </extensions>
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="EnvForge"
+                anchor="right"
+                icon="/icons/envforge.svg"
+                factoryClass="com.envforge.intellij.EnvForgeToolWindowFactory"/>
+    <statusBarWidgetFactory id="EnvForgeStatus"
+                            implementation="com.envforge.intellij.EnvForgeStatusBarFactory"
+                            order="after Position"/>
+    <notificationGroup id="EnvForge"
+                       displayType="BALLOON"/>
+    <localInspection id="FenceInactive"
+                     language=""
+                     groupName="EnvForge"
+                     displayName="Fence Inactive"
+                     enabledByDefault="true"
+                     level="WARNING"
+                     implementationClass="com.envforge.intellij.FenceInactiveInspection"/>
+  </extensions>
 
     <actions>
         <!-- File context menu: appears on right-click in project tree and editor for .env files -->
@@ -60,65 +69,92 @@
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </group>
 
-        <group id="EnvForge.Menu" text="EnvForge" popup="true">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+  <group id="EnvForge.Menu" text="EnvForge" popup="true">
+        <add-to-group group-id="ToolsMenu" anchor="last"/>
 
-            <action id="EnvForge.List"
-                    class="com.envforge.intellij.actions.ListAction"
-                    text="List Variables"
-                    description="List all environment variables"/>
+        <action id="EnvForge.List"
+                class="com.envforge.intellij.actions.ListAction"
+                text="List Variables"
+                description="List all environment variables"/>
 
-            <action id="EnvForge.ProfileSwitch"
-                    class="com.envforge.intellij.actions.ProfileSwitchAction"
-                    text="Switch Profile..."
-                    description="Switch to a different profile"/>
+        <action id="EnvForge.ProfileSwitch"
+                class="com.envforge.intellij.actions.ProfileSwitchAction"
+                text="Switch Profile..."
+                description="Switch to a different profile"/>
 
-            <action id="EnvForge.ProfileDiff"
-                    class="com.envforge.intellij.actions.ProfileDiffAction"
-                    text="Diff Profiles..."
-                    description="Compare two profiles"/>
+        <action id="EnvForge.ProfileDiff"
+                class="com.envforge.intellij.actions.ProfileDiffAction"
+                text="Diff Profiles..."
+                description="Compare two profiles"/>
 
-            <separator/>
+        <separator/>
 
-            <action id="EnvForge.Validate"
-                    class="com.envforge.intellij.actions.ValidateAction"
-                    text="Validate Against Schema"
-                    description="Run envforge schema validation"/>
+        <action id="EnvForge.ToggleFence"
+                class="com.envforge.intellij.actions.ToggleFenceAction"
+                text="Toggle Fence"
+                description="Toggle EnvForge Fence on/off"/>
 
-            <action id="EnvForge.Scan"
-                    class="com.envforge.intellij.actions.ScanAction"
-                    text="Scan for Secret Leaks"
-                    description="Scan for leaked secrets"/>
+        <action id="EnvForge.ToggleGuard"
+                class="com.envforge.intellij.actions.ToggleGuardAction"
+                text="Toggle Guard"
+                description="Toggle EnvForge AI-guard on/off"/>
 
-            <action id="EnvForge.Doctor"
-                    class="com.envforge.intellij.actions.DoctorAction"
-                    text="Health Check"
-                    description="Run envforge health check"/>
+        <action id="EnvForge.RunMcpScan"
+                class="com.envforge.intellij.actions.RunMcpScanAction"
+                text="Run MCP Scan"
+                description="Scan MCP server configs for security issues"/>
 
-            <action id="EnvForge.Check"
-                    class="com.envforge.intellij.actions.CheckAction"
-                    text="Run All Checks"
-                    description="Run doctor + validate + scan + age + drift"/>
+        <action id="EnvForge.AddCanary"
+                class="com.envforge.intellij.actions.AddCanaryAction"
+                text="Add Canary Token..."
+                description="Add a canary token to detect secret exfiltration"/>
 
-            <action id="EnvForge.Export"
-                    class="com.envforge.intellij.actions.ExportAction"
-                    text="Export Variables..."
-                    description="Export env vars to different formats"/>
+        <action id="EnvForge.RemoveCanary"
+                class="com.envforge.intellij.actions.RemoveCanaryAction"
+                text="Remove Canary Token..."
+                description="Remove a canary token"/>
 
-            <action id="EnvForge.SyncPush"
-                    class="com.envforge.intellij.actions.SyncPushAction"
-                    text="Sync Push"
-                    description="Push env changes to remote"/>
+        <separator/>
 
-            <action id="EnvForge.SyncPull"
-                    class="com.envforge.intellij.actions.SyncPullAction"
-                    text="Sync Pull"
-                    description="Pull env changes from remote"/>
+        <action id="EnvForge.Validate"
+                class="com.envforge.intellij.actions.ValidateAction"
+                text="Validate Against Schema"
+                description="Run envforge schema validation"/>
 
-            <action id="EnvForge.SchemaGenerate"
-                    class="com.envforge.intellij.actions.SchemaGenerateAction"
-                    text="Generate Schema"
-                    description="Generate .env.schema from current variables"/>
-        </group>
+        <action id="EnvForge.Scan"
+                class="com.envforge.intellij.actions.ScanAction"
+                text="Scan for Secret Leaks"
+                description="Scan for leaked secrets"/>
+
+        <action id="EnvForge.Doctor"
+                class="com.envforge.intellij.actions.DoctorAction"
+                text="Health Check"
+                description="Run envforge health check"/>
+
+        <action id="EnvForge.Check"
+                class="com.envforge.intellij.actions.CheckAction"
+                text="Run All Checks"
+                description="Run doctor + validate + scan + age + drift"/>
+
+        <action id="EnvForge.Export"
+                class="com.envforge.intellij.actions.ExportAction"
+                text="Export Variables..."
+                description="Export env vars to different formats"/>
+
+        <action id="EnvForge.SyncPush"
+                class="com.envforge.intellij.actions.SyncPushAction"
+                text="Sync Push"
+                description="Push env changes to remote"/>
+
+        <action id="EnvForge.SyncPull"
+                class="com.envforge.intellij.actions.SyncPullAction"
+                text="Sync Pull"
+                description="Pull env changes from remote"/>
+
+        <action id="EnvForge.SchemaGenerate"
+                class="com.envforge.intellij.actions.SchemaGenerateAction"
+                text="Generate Schema"
+                description="Generate .env.schema from current variables"/>
+      </group>
     </actions>
 </idea-plugin>

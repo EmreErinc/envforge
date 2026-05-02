@@ -8,9 +8,12 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.PopupHandler
+import com.intellij.ui.SearchTextField
 import com.intellij.ui.treeStructure.Tree
+import com.intellij.ui.JBColor
 import java.awt.BorderLayout
 import java.awt.datatransfer.StringSelection
 import java.awt.Toolkit
@@ -19,14 +22,22 @@ import java.awt.event.MouseEvent
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
-import javax.swing.tree.DefaultTreeCellRenderer
 import java.awt.Component
 
 class EnvForgeToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = EnvForgeToolWindowPanel(project)
+        val panel = EnvForgeMainPanel(project)
         val content = ContentFactory.getInstance().createContent(panel, "", false)
         toolWindow.contentManager.addContent(content)
+    }
+}
+
+class EnvForgeMainPanel(private val project: Project) : JPanel(BorderLayout()) {
+    init {
+        val tabbedPane = JBTabbedPane()
+        tabbedPane.addTab("Variables", EnvForgeToolWindowPanel(project))
+        tabbedPane.addTab("Security", SecurityPanel(project))
+        add(tabbedPane, BorderLayout.CENTER)
     }
 }
 
@@ -36,11 +47,15 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
     private val varModel = DefaultTreeModel(DefaultMutableTreeNode("Variables"))
     private val varTree = Tree(varModel)
     private var grouped = true
+    private val searchField = SearchTextField()
 
     init {
-        // Toolbar
+        // Top Panel: Search + Toolbar
+        val topPanel = JPanel(BorderLayout())
+        topPanel.add(searchField, BorderLayout.CENTER)
         val toolbar = createToolbar()
-        add(toolbar, BorderLayout.NORTH)
+        topPanel.add(toolbar, BorderLayout.EAST)
+        add(topPanel, BorderLayout.NORTH)
 
         // Split: profiles on top, variables below
         val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT).apply {
@@ -50,10 +65,24 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
             bottomComponent = JBScrollPane(varTree).apply {
                 border = BorderFactory.createTitledBorder("Variables")
             }
-            dividerLocation = 120
+            dividerLocation = 150
             resizeWeight = 0.2
+            // Use empty border to let the UI delegate handle the divider appearance
+            border = BorderFactory.createEmptyBorder()
         }
         add(splitPane, BorderLayout.CENTER)
+
+        // Search listener
+        searchField.addDocumentListener(object : com.intellij.ui.DocumentAdapter() {
+            override fun textChanged(e: javax.swing.event.DocumentEvent) {
+                val query = searchField.text.trim()
+                if (query.isEmpty()) {
+                    loadVariables()
+                } else {
+                    searchVariables(query)
+                }
+            }
+        })
 
         // Profile click → switch
         profileTree.addMouseListener(object : MouseAdapter() {
@@ -83,13 +112,9 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
             }
         })
 
-        // Context menu for variables (Action-based, replaces JPopupMenu)
         installVarContextMenu()
-
-        // Context menu for profiles
         installProfileContextMenu()
 
-        // Custom renderer
         varTree.cellRenderer = EnvVarCellRenderer()
         profileTree.cellRenderer = ProfileCellRenderer()
 
@@ -104,7 +129,11 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
             add(object : AnAction("Toggle Grouping", "Toggle variable grouping", com.intellij.icons.AllIcons.Actions.GroupBy) {
                 override fun actionPerformed(e: AnActionEvent) {
                     grouped = !grouped
-                    loadVariables()
+                    if (searchField.text.isEmpty()) {
+                        loadVariables()
+                    } else {
+                        searchVariables(searchField.text)
+                    }
                 }
             })
         }
@@ -140,19 +169,6 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
                 }
                 override fun getActionUpdateThread() = ActionUpdateThread.BGT
             })
-            addSeparator()
-            add(object : AnAction("Copy KEY=VALUE", "Copy key=value pair to clipboard", com.intellij.icons.AllIcons.Nodes.Variable) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
-                    val data = node.userObject as? VarData ?: return
-                    copyToClipboard("${data.key}=${data.value}")
-                }
-                override fun update(e: AnActionEvent) {
-                    val node = varTree.lastSelectedPathComponent as? DefaultMutableTreeNode
-                    e.presentation.isEnabledAndVisible = node?.userObject is VarData
-                }
-                override fun getActionUpdateThread() = ActionUpdateThread.BGT
-            })
         }
         PopupHandler.installPopupMenu(varTree, group, "EnvForgeVarPopup")
     }
@@ -176,49 +192,17 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
                 }
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
             })
-            add(object : AnAction("Diff Against Active", "Compare this profile with the active profile", null) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
-                    val info = node.userObject as? ProfileData ?: return
-                    // Find the active profile name
-                    val root = profileModel.root as? DefaultMutableTreeNode ?: return
-                    val activeProfile = (0 until root.childCount)
-                        .mapNotNull { (root.getChildAt(it) as? DefaultMutableTreeNode)?.userObject as? ProfileData }
-                        .firstOrNull { it.active }
-                    if (activeProfile != null && activeProfile.name != info.name) {
-                        EnvForgeRunner.run(project, listOf("profile", "diff", activeProfile.name, info.name), "Profile Diff")
-                    }
-                }
-                override fun update(e: AnActionEvent) {
-                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode
-                    val data = node?.userObject as? ProfileData
-                    e.presentation.isEnabledAndVisible = data != null && !data.active
-                }
-                override fun getActionUpdateThread() = ActionUpdateThread.EDT
-            })
-            add(object : AnAction("Open Profile File", "Open the profile's .env file in editor", null) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
-                    val info = node.userObject as? ProfileData ?: return
-                    val basePath = project.basePath ?: return
-                    val vFile = LocalFileSystem.getInstance().findFileByPath("$basePath/${info.file}")
-                    if (vFile != null) {
-                        FileEditorManager.getInstance(project).openFile(vFile, true)
-                    }
-                }
-                override fun update(e: AnActionEvent) {
-                    val node = profileTree.lastSelectedPathComponent as? DefaultMutableTreeNode
-                    e.presentation.isEnabledAndVisible = node?.userObject is ProfileData
-                }
-                override fun getActionUpdateThread() = ActionUpdateThread.EDT
-            })
         }
         PopupHandler.installPopupMenu(profileTree, group, "EnvForgeProfilePopup")
     }
 
     fun refresh() {
         loadProfiles()
-        loadVariables()
+        if (searchField.text.isEmpty()) {
+            loadVariables()
+        } else {
+            searchVariables(searchField.text)
+        }
     }
 
     private fun loadProfiles() {
@@ -262,30 +246,50 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
                 process.waitFor()
 
                 val vars = parseVars(output)
-                val root = DefaultMutableTreeNode("Variables")
-
-                if (grouped) {
-                    val groups = groupByPrefix(vars)
-                    for ((groupName, groupVars) in groups) {
-                        val groupNode = DefaultMutableTreeNode("$groupName (${groupVars.size})")
-                        for (v in groupVars) {
-                            groupNode.add(DefaultMutableTreeNode(v))
-                        }
-                        root.add(groupNode)
-                    }
-                } else {
-                    for (v in vars) {
-                        root.add(DefaultMutableTreeNode(v))
-                    }
-                }
-
-                SwingUtilities.invokeLater {
-                    varModel.setRoot(root)
-                    varModel.reload()
-                    if (!grouped) expandAll(varTree)
-                }
+                updateVarTree(vars)
             } catch (_: Exception) {}
         }.start()
+    }
+
+    private fun searchVariables(query: String) {
+        val binary = EnvForgeLspFactory.findEnvforgeBinary()
+        Thread {
+            try {
+                val process = ProcessBuilder(binary, "search", query, "--json")
+                    .directory(project.basePath?.let { java.io.File(it) })
+                    .redirectErrorStream(true)
+                    .start()
+                val output = process.inputStream.bufferedReader().readText()
+                process.waitFor()
+
+                val vars = parseVars(output)
+                updateVarTree(vars)
+            } catch (_: Exception) {}
+        }.start()
+    }
+
+    private fun updateVarTree(vars: List<VarData>) {
+        val root = DefaultMutableTreeNode("Variables")
+        if (grouped && searchField.text.isEmpty()) {
+            val groups = groupByPrefix(vars)
+            for ((groupName, groupVars) in groups) {
+                val groupNode = DefaultMutableTreeNode("$groupName (${groupVars.size})")
+                for (v in groupVars) {
+                    groupNode.add(DefaultMutableTreeNode(v))
+                }
+                root.add(groupNode)
+            }
+        } else {
+            for (v in vars) {
+                root.add(DefaultMutableTreeNode(v))
+            }
+        }
+
+        SwingUtilities.invokeLater {
+            varModel.setRoot(root)
+            varModel.reload()
+            if (!grouped || searchField.text.isNotEmpty()) expandAll(varTree)
+        }
     }
 
     private fun parseVars(json: String): List<VarData> {

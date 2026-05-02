@@ -2,7 +2,7 @@
   "name": "envforge-env-manager",
   "displayName": "EnvForge - ENV Manager",
   "description": "Environment variable management with schema validation, secret scanning, and multi-profile support",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "emreerinc",
   "license": "MIT",
   "repository": {
@@ -41,7 +41,10 @@
     "onCommand:envforge.check",
     "onCommand:envforge.export",
     "onCommand:envforge.refreshTree",
-    "onCommand:envforge.restartLsp"
+    "onCommand:envforge.restartLsp",
+    "onCommand:envforge.searchVariables",
+    "onCommand:envforge.addVariable",
+    "onView:envforgeSecurity"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -110,11 +113,16 @@
           "name": "Profiles",
           "icon": "$(layers)"
         },
-        {
-          "id": "envforgeVariables",
-          "name": "Variables",
-          "icon": "$(symbol-variable)"
-        }
+      {
+        "id": "envforgeVariables",
+        "name": "Variables",
+        "icon": "$(symbol-variable)"
+      },
+      {
+        "id": "envforgeSecurity",
+        "name": "Security",
+        "icon": "$(shield)"
+      }
       ]
     },
     "viewsWelcome": [
@@ -274,9 +282,72 @@
       {
         "command": "envforge.profileOpenFile",
         "title": "Open File"
+      },
+      {
+        "command": "envforge.searchVariables",
+        "title": "EnvForge: Search Variables",
+        "icon": "$(search)"
+      },
+      {
+        "command": "envforge.addVariable",
+        "title": "Add Variable",
+        "icon": "$(add)"
+      },
+      {
+        "command": "envforge.editValue",
+        "title": "Edit Value"
+      },
+      {
+        "command": "envforge.deleteVariable",
+        "title": "Delete Variable"
+      },
+      {
+        "command": "envforge.clearSearch",
+        "title": "Clear Search",
+        "icon": "$(close)"
+      },
+      {
+        "command": "envforge.renameVariable",
+        "title": "Rename Variable"
+      },
+      {
+        "command": "envforge.refreshSecurity",
+        "title": "Refresh Security",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "envforge.toggleFence",
+        "title": "Toggle Fence",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "envforge.toggleGuard",
+        "title": "Toggle Guard",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "envforge.runMcpScan",
+        "title": "Run MCP Scan",
+        "icon": "$(search)"
+      },
+      {
+        "command": "envforge.addCanary",
+        "title": "Add Canary Token",
+        "icon": "$(add)"
+      },
+      {
+        "command": "envforge.removeCanary",
+        "title": "Remove Canary Token"
       }
     ],
-    "submenus": [
+    "keybindings": [
+    {
+      "command": "envforge.searchVariables",
+      "key": "ctrl+shift+f",
+      "when": "focusedView == envforgeVariables"
+    }
+  ],
+  "submenus": [
       {
         "id": "envforge.contextMenu",
         "label": "EnvForge"
@@ -343,20 +414,95 @@
         {
           "command": "envforge.profileOpenFile",
           "when": "false"
+        },
+        {
+          "command": "envforge.addVariable",
+          "when": "false"
+        },
+        {
+          "command": "envforge.editValue",
+          "when": "false"
+        },
+        {
+          "command": "envforge.deleteVariable",
+          "when": "false"
+        },
+        {
+          "command": "envforge.renameVariable",
+          "when": "false"
+        },
+        {
+          "command": "envforge.refreshSecurity",
+          "when": "false"
+        },
+        {
+          "command": "envforge.toggleFence",
+          "when": "false"
+        },
+        {
+          "command": "envforge.toggleGuard",
+          "when": "false"
+        },
+        {
+          "command": "envforge.runMcpScan",
+          "when": "false"
+        },
+        {
+          "command": "envforge.addCanary",
+          "when": "false"
+        },
+        {
+          "command": "envforge.removeCanary",
+          "when": "false"
         }
       ],
       "view/title": [
-        {
-          "command": "envforge.toggleGrouping",
-          "when": "view == envforgeVariables",
-          "group": "navigation"
-        },
-        {
-          "command": "envforge.refreshTree",
-          "when": "view == envforgeVariables || view == envforgeProfiles",
-          "group": "navigation"
-        }
-      ],
+      {
+        "command": "envforge.searchVariables",
+        "when": "view == envforgeVariables",
+        "group": "navigation@1"
+      },
+      {
+        "command": "envforge.clearSearch",
+        "when": "view == envforgeVariables",
+        "group": "navigation@2"
+      },
+      {
+        "command": "envforge.addVariable",
+        "when": "view == envforgeVariables",
+        "group": "navigation@3"
+      },
+      {
+        "command": "envforge.toggleGrouping",
+        "when": "view == envforgeVariables",
+        "group": "navigation@4"
+      },
+      {
+        "command": "envforge.refreshSecurity",
+        "when": "view == envforgeSecurity",
+        "group": "navigation"
+      },
+      {
+        "command": "envforge.toggleFence",
+        "when": "view == envforgeSecurity",
+        "group": "navigation"
+      },
+      {
+        "command": "envforge.toggleGuard",
+        "when": "view == envforgeSecurity",
+        "group": "navigation"
+      },
+      {
+        "command": "envforge.runMcpScan",
+        "when": "view == envforgeSecurity",
+        "group": "navigation"
+      },
+      {
+        "command": "envforge.addCanary",
+        "when": "view == envforgeSecurity",
+        "group": "navigation"
+      }
+    ],
       "envforge.contextMenu": [
         {
           "command": "envforge.validate",
@@ -408,6 +554,26 @@
           "command": "envforge.copyKeyValue",
           "when": "view == envforgeVariables && viewItem == envVariable",
           "group": "1_copy@3"
+        },
+        {
+          "command": "envforge.editValue",
+          "when": "view == envforgeVariables && viewItem == envVariable",
+          "group": "2_edit@1"
+        },
+        {
+          "command": "envforge.renameVariable",
+          "when": "view == envforgeVariables && viewItem == envVariable",
+          "group": "2_edit@2"
+        },
+        {
+          "command": "envforge.deleteVariable",
+          "when": "view == envforgeVariables && viewItem == envVariable",
+          "group": "3_delete@1"
+        },
+        {
+          "command": "envforge.removeCanary",
+          "when": "view == envforgeSecurity && viewItem =~ /canary/",
+          "group": "1_canary@1"
         },
         {
           "command": "envforge.profileContextSwitch",

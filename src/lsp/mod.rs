@@ -1,9 +1,14 @@
+pub mod code_action;
+pub mod code_lens;
 mod completion;
 mod definition;
 mod diagnostics;
-mod document;
+pub mod document;
+pub mod document_symbol;
+pub mod folding_range;
 mod hover;
-mod server;
+pub mod server;
+pub mod workspace_symbol;
 
 pub fn run_lsp() {
     let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");

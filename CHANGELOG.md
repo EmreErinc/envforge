@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-04-30
+
+### Added — Editor CLI API Gaps (for Plugin Support v0.1.2)
+
+- **New Subcommand: `search`**: Fuzzy search across all environment variables.
+  - `envforge search <query>`: Interactive text output with scores.
+  - `envforge search <query> --json`: Structured output with matched indices for IDE highlighting.
+- **Enhanced `move` (Rename)**: Support for in-place renaming of variables.
+  - `envforge move OLD_KEY NEW_KEY`: Renames a key while preserving its value and position.
+  - Backward compatible: `envforge move KEY` still moves to the reference file.
+- **Enhanced `fence`**: Added status monitoring.
+  - `envforge fence --status`: Check which AI ignore files exist and are correctly configured.
+  - `envforge fence --status --json`: Machine-readable health check of the AI security fence.
+- **Comprehensive JSON Output**: Added `--json` support to 9 existing commands to support stable IDE integrations.
+  - `canary list --json`: List honeypot credentials for security dashboards.
+  - `profile list --json`: Robust profile discovery for IDE status bars.
+  - `snapshot list --json`: Structured access to environment history.
+  - `sync status --json`: Real-time synchronization health monitoring.
+  - `audit --json`: Programmatic access to the change audit trail.
+  - `lease list --json`: Management of time-bounded secret access leases.
+  - `secrets providers --json`: Detailed status of all 13 secret manager integrations.
+  - `drift --json`: Structured detection of configuration drift between environments.
+  - `check --json`: Unified health, safety, and validation results for CI/CD and IDE panels.
+- **Standardized API**: All JSON outputs now include a `"version": 1` field for future-proof API stability.
+
+### Changed
+
+- **Internal**: derived `Serialize` on core models to support structured output across the codebase.
+- **Testing**: Added 42 new integration tests covering JSON output schemas and new subcommand edge cases.
+
 ## [0.6.2] - 2026-04-27
 
 ### Added — Provider Security Hardening

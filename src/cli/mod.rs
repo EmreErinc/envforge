@@ -65,10 +65,12 @@ pub enum Commands {
         key_only: bool,
     },
 
-    /// Move a variable to the reference file
+    /// Move a variable to the reference file, or rename in-place
     Move {
         /// Variable name
         key: String,
+        /// New key name (renames in-place if provided)
+        new_key: Option<String>,
     },
 
     /// Import variables from a .env file
@@ -407,8 +409,18 @@ pub enum Commands {
         access: bool,
     },
 
+    /// Search environment variables by fuzzy matching
+    Search {
+        /// Search query
+        query: String,
+    },
+
     /// Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code)
-    Fence,
+    Fence {
+        /// Check fence status instead of creating
+        #[arg(long)]
+        status: bool,
+    },
 
     /// Sanitize a file by replacing secret values with ${KEY} placeholders
     Sanitize {
@@ -627,6 +639,8 @@ pub enum ProfileAction {
 pub enum McpAction {
     /// Replace plaintext secrets with ${VAR} env var references (backs up originals)
     Harden,
+    /// Check if any MCP config files contain plaintext secrets
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -636,11 +650,13 @@ pub enum AiHookAction {
         /// Tool name: claude-code, cursor
         tool: String,
     },
-    /// Remove hooks from an AI coding tool
+    /// Remove hooks for an AI coding tool
     Remove {
         /// Tool name: claude-code, cursor
         tool: String,
     },
+    /// Check if hooks are installed
+    Status,
 }
 
 #[derive(Subcommand)]

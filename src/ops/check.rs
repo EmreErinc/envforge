@@ -578,6 +578,7 @@ pub fn report_to_json(report: &CheckReport) -> serde_json::Value {
         .collect();
 
     serde_json::json!({
+        "version": 1,
         "categories_run": results.iter().map(|r| r["category"].as_str().unwrap_or("")).collect::<std::collections::HashSet<_>>().len(),
         "categories_skipped": skipped,
         "results": results,
