@@ -832,8 +832,8 @@ impl App {
                                 &value_str,
                                 ExportStyle::Export,
                                 QuoteStyle::Double,
-                                0, // profile/shared files have no header offset
-                                0, // profile/shared files have no footer offset
+                                0,
+                                0,
                             ) {
                                 Ok(()) => {
                                     self.has_unsaved_changes = true;

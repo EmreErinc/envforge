@@ -1,4 +1,32 @@
-use crate::model::ShellFile;
+use crate::model::{LineNode, ShellFile};
+
+pub const ENVFORGE_START_MARKER: &str = "# >>> envforge >>>";
+pub const ENVFORGE_END_MARKER: &str = "# <<< envforge <<<";
+
+pub struct ManagedZone {
+    pub start_idx: usize,
+    pub end_idx: usize,
+}
+
+pub fn find_managed_zone(shell_file: &ShellFile) -> Option<ManagedZone> {
+    let start_idx = shell_file
+        .lines
+        .iter()
+        .position(|node| matches!(node, LineNode::EnvforgeStart { .. }))?;
+    let end_idx = shell_file
+        .lines
+        .iter()
+        .position(|node| matches!(node, LineNode::EnvforgeEnd { .. }))?;
+    if end_idx > start_idx {
+        Some(ManagedZone { start_idx, end_idx })
+    } else {
+        None
+    }
+}
+
+pub fn has_managed_zone(shell_file: &ShellFile) -> bool {
+    find_managed_zone(shell_file).is_some()
+}
 
 /// A detected protected block in a shell config file.
 #[derive(Debug, Clone)]
@@ -130,11 +158,10 @@ pub fn suggest_offsets(shell_file: &ShellFile) -> (usize, usize) {
     let blocks = detect_protected_blocks(shell_file);
     let total = shell_file.lines.len();
 
-    if blocks.is_empty() {
+    if blocks.is_empty() && find_managed_zone(shell_file).is_none() {
         return (0, 0);
     }
 
-    // Header offset: largest end_line of blocks that start at line 0-2
     let header = blocks
         .iter()
         .filter(|b| b.start_line <= 2)
@@ -142,7 +169,6 @@ pub fn suggest_offsets(shell_file: &ShellFile) -> (usize, usize) {
         .max()
         .unwrap_or(0);
 
-    // Footer offset: for blocks near the end of file
     let footer = blocks
         .iter()
         .filter(|b| b.end_line >= total.saturating_sub(5))

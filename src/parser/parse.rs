@@ -6,6 +6,9 @@ use sha2::{Digest, Sha256};
 
 use crate::model::{ExportStyle, LineNode, ParseError, QuoteStyle, ShellFile};
 
+const ENVFORGE_START_MARKER: &str = "# >>> envforge >>>";
+const ENVFORGE_END_MARKER: &str = "# <<< envforge <<<";
+
 // Lazy-initialized regexes for parsing shell files (compiled once at first use)
 fn envforge_tag_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -119,6 +122,21 @@ fn parse_single_line(
     comment_re: &Regex,
     blank_re: &Regex,
 ) -> LineNode {
+    // Priority 0: EnvForge managed zone markers
+    let trimmed = line.trim();
+    if trimmed == ENVFORGE_START_MARKER {
+        return LineNode::EnvforgeStart {
+            line_number,
+            original_text: line,
+        };
+    }
+    if trimmed == ENVFORGE_END_MARKER {
+        return LineNode::EnvforgeEnd {
+            line_number,
+            original_text: line,
+        };
+    }
+
     // Priority 1: EnvForge managed comments
     if let Some(caps) = envforge_tag_re.captures(&line) {
         let tag = caps[1].to_string();

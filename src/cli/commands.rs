@@ -359,19 +359,25 @@ fn cmd_set(assignment: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Er
 
     let sf = &mut shell_files[0];
 
-    // Try edit first, if not found, add
+    ensure_managed_zone(sf);
+
     match edit_entry(sf, &key, &value) {
         Ok(()) => {}
         Err(OpsError::KeyNotFound { .. }) => {
-            add_entry(
-                sf,
-                &key,
-                &value,
-                ExportStyle::Export,
-                QuoteStyle::Double,
-                config.offsets.header_protected_lines,
-                config.offsets.footer_protected_lines,
-            )?;
+            if find_soft_deleted(sf, &key).is_some() {
+                undo_delete(sf, &key)?;
+                edit_entry(sf, &key, &value)?;
+            } else {
+                add_entry(
+                    sf,
+                    &key,
+                    &value,
+                    ExportStyle::Export,
+                    QuoteStyle::Double,
+                    config.offsets.header_protected_lines,
+                    config.offsets.footer_protected_lines,
+                )?;
+            }
         }
         Err(e) => return Err(e.into()),
     }
@@ -2862,20 +2868,26 @@ fn cmd_snapshot(
             }
 
             let sf = &mut shell_files[0];
+            ensure_managed_zone(sf);
 
             for (key, value) in &snap.entries {
                 match edit_entry(sf, key, value) {
                     Ok(()) => {}
                     Err(OpsError::KeyNotFound { .. }) => {
-                        add_entry(
-                            sf,
-                            key,
-                            value,
-                            ExportStyle::Export,
-                            QuoteStyle::Double,
-                            config.offsets.header_protected_lines,
-                            config.offsets.footer_protected_lines,
-                        )?;
+                        if find_soft_deleted(sf, key).is_some() {
+                            undo_delete(sf, key)?;
+                            edit_entry(sf, key, value)?;
+                        } else {
+                            add_entry(
+                                sf,
+                                key,
+                                value,
+                                ExportStyle::Export,
+                                QuoteStyle::Double,
+                                config.offsets.header_protected_lines,
+                                config.offsets.footer_protected_lines,
+                            )?;
+                        }
                     }
                     Err(e) => return Err(e.into()),
                 }
@@ -3096,24 +3108,31 @@ fn cmd_share(action: &ShareAction, dry_run: bool) -> Result<(), Box<dyn std::err
                 }
 
                 let sf = &mut shell_files[0];
+                ensure_managed_zone(sf);
                 let mut imported = 0;
 
                 for (key, value) in &package.entries {
                     match edit_entry(sf, key, value) {
                         Ok(()) => {
-                            println!("  Updated: {}", key);
+                            println!(" Updated: {}", key);
                         }
                         Err(OpsError::KeyNotFound { .. }) => {
-                            add_entry(
-                                sf,
-                                key,
-                                value,
-                                ExportStyle::Export,
-                                QuoteStyle::Double,
-                                config.offsets.header_protected_lines,
-                                config.offsets.footer_protected_lines,
-                            )?;
-                            println!("  Added:   {}", key);
+                            if find_soft_deleted(sf, key).is_some() {
+                                undo_delete(sf, key)?;
+                                edit_entry(sf, key, value)?;
+                                println!(" Restored: {}", key);
+                            } else {
+                                add_entry(
+                                    sf,
+                                    key,
+                                    value,
+                                    ExportStyle::Export,
+                                    QuoteStyle::Double,
+                                    config.offsets.header_protected_lines,
+                                    config.offsets.footer_protected_lines,
+                                )?;
+                                println!(" Added: {}", key);
+                            }
                         }
                         Err(e) => {
                             eprintln!("  Failed:  {} ({})", key, e);

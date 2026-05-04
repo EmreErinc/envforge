@@ -147,6 +147,20 @@ pub fn run_wizard() -> Result<bool, Box<dyn std::error::Error>> {
     let config_path = config_file_path().map_err(|e| format!("Config path error: {}", e))?;
     save_config(&config, &config_path)?;
 
+    if primary_path.exists() {
+        if let Ok(mut sf) = parse_shell_file(&primary_path) {
+            if !has_managed_zone(&sf) {
+                ensure_managed_zone(&mut sf);
+                let content = serialize_shell_file(&sf);
+                if let Err(e) = crate::config::safe_write(&primary_path, &content, None) {
+                    eprintln!("Warning: could not add managed zone markers: {}", e);
+                } else {
+                    println!("Added managed zone markers to {}", primary_path.display());
+                }
+            }
+        }
+    }
+
     println!("╔══════════════════════════════════════╗");
     println!("║         Setup Complete!              ║");
     println!("╚══════════════════════════════════════╝");

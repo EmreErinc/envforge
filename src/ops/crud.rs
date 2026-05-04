@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::model::{ExportStyle, LineNode, QuoteStyle, ShellFile};
+use crate::ops::offset::{find_managed_zone, ENVFORGE_END_MARKER, ENVFORGE_START_MARKER};
 
 /// Errors that can occur during CRUD operations.
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +31,7 @@ pub enum OpsError {
 /// Edit an existing ENV entry's value in the ShellFile.
 ///
 /// Finds the EnvExport node by key and updates its value.
+/// If the node is outside the managed zone, it is relocated inside.
 /// Does not write to disk — caller is responsible for that.
 pub fn edit_entry(shell_file: &mut ShellFile, key: &str, new_value: &str) -> Result<(), OpsError> {
     let matches: Vec<usize> = shell_file
@@ -60,7 +62,6 @@ pub fn edit_entry(shell_file: &mut ShellFile, key: &str, new_value: &str) -> Res
             } = &mut shell_file.lines[idx]
             {
                 *value = new_value.to_string();
-                // Regenerate original_text to reflect the new value
                 let prefix = match export_style {
                     ExportStyle::Export => "export ",
                     ExportStyle::Bare => "",
@@ -76,6 +77,9 @@ pub fn edit_entry(shell_file: &mut ShellFile, key: &str, new_value: &str) -> Res
                 };
                 *original_text = format!("{}{}={}{}", prefix, k, quoted, comment_suffix);
             }
+
+            relocate_into_zone(shell_file, idx);
+
             Ok(())
         }
         _ => Err(OpsError::AmbiguousKey {
@@ -83,6 +87,30 @@ pub fn edit_entry(shell_file: &mut ShellFile, key: &str, new_value: &str) -> Res
             file: shell_file.path.clone(),
         }),
     }
+}
+
+/// If the EnvExport node at `idx` is outside the managed zone,
+/// remove it from its current position and re-insert it just
+/// before the end marker so it lives inside the zone.
+fn relocate_into_zone(shell_file: &mut ShellFile, idx: usize) {
+    let zone = match find_managed_zone(shell_file) {
+        Some(z) => z,
+        None => return,
+    };
+
+    if idx > zone.start_idx && idx < zone.end_idx {
+        return;
+    }
+
+    let node = shell_file.lines.remove(idx);
+
+    let new_end_idx = if idx < zone.end_idx {
+        zone.end_idx - 1
+    } else {
+        zone.end_idx
+    };
+
+    shell_file.lines.insert(new_end_idx, node);
 }
 
 /// Soft-delete an ENV entry by index, converting it to a ManagedComment.
@@ -204,7 +232,6 @@ pub fn add_entry(
     header_offset: usize,
     footer_offset: usize,
 ) -> Result<(), OpsError> {
-    // Check for duplicate key
     let exists = shell_file.lines.iter().any(|node| match node {
         LineNode::EnvExport { key: k, .. } => k == key,
         _ => false,
@@ -216,17 +243,20 @@ pub fn add_entry(
         });
     }
 
-    let total_lines = shell_file.lines.len();
-    let safe_end = total_lines.saturating_sub(footer_offset);
-    let safe_start = header_offset;
+    let insert_idx = if let Some(zone) = find_managed_zone(shell_file) {
+        zone.end_idx
+    } else {
+        let total_lines = shell_file.lines.len();
+        let safe_end = total_lines.saturating_sub(footer_offset);
+        let safe_start = header_offset;
+        if safe_start >= safe_end {
+            return Err(OpsError::NoSafeZone {
+                file: shell_file.path.clone(),
+            });
+        }
+        safe_end
+    };
 
-    if safe_start >= safe_end {
-        return Err(OpsError::NoSafeZone {
-            file: shell_file.path.clone(),
-        });
-    }
-
-    // Build the new line
     let prefix = match export_style {
         ExportStyle::Export => "export ",
         ExportStyle::Bare => "",
@@ -239,7 +269,7 @@ pub fn add_entry(
     let text = format!("{}{}={}", prefix, key, quoted_value);
 
     let new_node = LineNode::EnvExport {
-        line_number: safe_end,
+        line_number: insert_idx,
         original_text: text,
         key: key.to_string(),
         value: value.to_string(),
@@ -248,8 +278,7 @@ pub fn add_entry(
         inline_comment: None,
     };
 
-    // Insert at end of safe zone
-    shell_file.lines.insert(safe_end, new_node);
+    shell_file.lines.insert(insert_idx, new_node);
 
     Ok(())
 }
@@ -362,10 +391,124 @@ fn find_unique_export(shell_file: &ShellFile, key: &str) -> Result<usize, OpsErr
     }
 }
 
+pub fn find_soft_deleted(shell_file: &ShellFile, key: &str) -> Option<usize> {
+    let target_tag = format!("deleted:{}", key);
+    shell_file
+        .lines
+        .iter()
+        .position(|node| matches!(node, LineNode::ManagedComment { tag, .. } if tag == &target_tag))
+}
+
+pub fn ensure_managed_zone(shell_file: &mut ShellFile) -> bool {
+    if find_managed_zone(shell_file).is_some() {
+        return true;
+    }
+
+    let start_pos = find_best_marker_position(shell_file);
+    let end_pos = find_end_marker_position(shell_file, start_pos);
+
+    let start_node = LineNode::EnvforgeStart {
+        line_number: start_pos,
+        original_text: ENVFORGE_START_MARKER.to_string(),
+    };
+    let end_node = LineNode::EnvforgeEnd {
+        line_number: end_pos + 1,
+        original_text: ENVFORGE_END_MARKER.to_string(),
+    };
+
+    shell_file.lines.insert(start_pos, start_node);
+    shell_file.lines.insert(end_pos + 1, end_node);
+
+    true
+}
+
+fn find_end_marker_position(shell_file: &ShellFile, after_idx: usize) -> usize {
+    let search_start = after_idx + 1;
+    if search_start >= shell_file.lines.len() {
+        return search_start;
+    }
+
+    let last_env = shell_file
+        .lines
+        .iter()
+        .enumerate()
+        .skip(search_start)
+        .rev()
+        .find(|(_, node)| {
+            matches!(
+                node,
+                LineNode::EnvExport { .. }
+                | LineNode::ManagedComment { .. }
+                | LineNode::SourceDirective { .. }
+            )
+        })
+        .map(|(i, _)| i + 1);
+
+    let first_protected = shell_file
+        .lines
+        .iter()
+        .enumerate()
+        .skip(search_start)
+        .find(|(_, node)| {
+            let text = node.original_text().trim();
+            text.starts_with("# >>> conda")
+            || text.starts_with("# <<< conda")
+            || text.contains("Q pre block.")
+            || text.contains("Q post block.")
+        })
+        .map(|(i, _)| i);
+
+    match (last_env, first_protected) {
+        (Some(env_pos), Some(prot_pos)) if prot_pos > env_pos => env_pos,
+        (Some(env_pos), Some(_)) => env_pos,
+        (Some(env_pos), None) => env_pos,
+        (None, Some(prot_pos)) => prot_pos,
+        (None, None) => search_start,
+    }
+}
+
+fn find_best_marker_position(shell_file: &ShellFile) -> usize {
+    let first_env_or_managed = shell_file
+        .lines
+        .iter()
+        .enumerate()
+        .find(|(_, node)| {
+            matches!(
+                node,
+                LineNode::EnvExport { .. }
+                | LineNode::ManagedComment { .. }
+                | LineNode::SourceDirective { .. }
+            )
+        })
+        .map(|(i, _)| i);
+
+    let first_protected_from_end = shell_file
+        .lines
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, node)| {
+            let text = node.original_text().trim();
+            text.starts_with("# >>> conda")
+            || text.starts_with("# <<< conda")
+            || text.contains("Q pre block.")
+            || text.contains("Q post block.")
+        })
+        .map(|(i, _)| i);
+
+    match (first_env_or_managed, first_protected_from_end) {
+        (Some(env_pos), Some(prot_pos)) if prot_pos > env_pos => env_pos,
+        (Some(env_pos), Some(_)) => env_pos,
+        (Some(env_pos), None) => env_pos,
+        (None, Some(prot_pos)) => prot_pos,
+        (None, None) => shell_file.lines.len(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::parse_shell_content;
+    use crate::parser::{parse_shell_content, serialize_shell_file};
     use std::path::Path;
 
     fn make_shell_file(content: &str) -> ShellFile {
@@ -579,5 +722,125 @@ mod tests {
             }
             other => panic!("Expected EnvExport, got: {:?}", other),
         }
+    }
+
+    // ─── relocate_into_zone ─────────────────────────────────
+
+    #[test]
+    fn test_edit_entry_relocates_outside_var_into_zone() {
+        let mut sf = make_shell_file(
+            "export OUTSIDE=\"old\"\n# >>> envforge >>>\nexport INSIDE=\"keep\"\n# <<< envforge <<<\n",
+        );
+
+        edit_entry(&mut sf, "OUTSIDE", "updated").unwrap();
+
+        let serialized = serialize_shell_file(&sf);
+        let start_pos = serialized.find("# >>> envforge >>>").unwrap();
+        let end_pos = serialized.find("# <<< envforge <<<").unwrap();
+        let outside_pos = serialized.find("export OUTSIDE=").unwrap();
+        let inside_pos = serialized.find("export INSIDE=").unwrap();
+
+        assert!(
+            outside_pos > start_pos,
+            "OUTSIDE should be after start marker"
+        );
+        assert!(
+            outside_pos < end_pos,
+            "OUTSIDE should be before end marker"
+        );
+        assert!(
+            inside_pos > start_pos,
+            "INSIDE should still be after start marker"
+        );
+        assert!(
+            inside_pos < end_pos,
+            "INSIDE should still be before end marker"
+        );
+    }
+
+    #[test]
+    fn test_edit_entry_stays_put_when_already_in_zone() {
+        let mut sf = make_shell_file(
+            "# >>> envforge >>>\nexport FIRST=\"1\"\nexport SECOND=\"2\"\n# <<< envforge <<<\n",
+        );
+
+        edit_entry(&mut sf, "FIRST", "updated").unwrap();
+
+        let serialized = serialize_shell_file(&sf);
+        let start_pos = serialized.find("# >>> envforge >>>").unwrap();
+        let end_pos = serialized.find("# <<< envforge <<<").unwrap();
+        let first_pos = serialized.find("export FIRST=").unwrap();
+        let second_pos = serialized.find("export SECOND=").unwrap();
+
+        assert!(first_pos > start_pos);
+        assert!(first_pos < end_pos);
+        assert!(second_pos > start_pos);
+        assert!(second_pos < end_pos);
+        assert!(first_pos < second_pos, "order preserved");
+    }
+
+    #[test]
+    fn test_edit_entry_no_zone_no_relocation() {
+        let mut sf = make_shell_file("export FOO=\"old\"\nexport BAR=\"keep\"\n");
+        edit_entry(&mut sf, "FOO", "new").unwrap();
+
+        match &sf.lines[0] {
+            LineNode::EnvExport { key, value, .. } => {
+                assert_eq!(key, "FOO");
+                assert_eq!(value, "new");
+            }
+            other => panic!("Expected EnvExport, got: {:?}", other),
+        }
+    }
+
+    // ─── ensure_managed_zone wraps existing vars ─────────────
+
+    #[test]
+    fn test_ensure_managed_zone_wraps_existing_vars() {
+        let mut sf = make_shell_file("# header\nexport FOO=\"bar\"\nexport BAZ=\"qux\"\n# footer\n");
+
+        ensure_managed_zone(&mut sf);
+
+        let serialized = serialize_shell_file(&sf);
+        let start_pos = serialized.find("# >>> envforge >>>").unwrap();
+        let end_pos = serialized.find("# <<< envforge <<<").unwrap();
+        let foo_pos = serialized.find("export FOO=").unwrap();
+        let baz_pos = serialized.find("export BAZ=").unwrap();
+
+        assert!(
+            foo_pos > start_pos,
+            "FOO should be inside zone"
+        );
+        assert!(
+            baz_pos > start_pos,
+            "BAZ should be inside zone"
+        );
+        assert!(
+            foo_pos < end_pos,
+            "FOO should be before end marker"
+        );
+        assert!(
+            baz_pos < end_pos,
+            "BAZ should be before end marker"
+        );
+    }
+
+    #[test]
+    fn test_ensure_managed_zone_wraps_vars_before_conda() {
+        let mut sf = make_shell_file(
+            "export FOO=\"bar\"\n# >>> conda initialize >>>\nconda_stuff\n# <<< conda initialize <<<\n",
+        );
+
+        ensure_managed_zone(&mut sf);
+
+        let serialized = serialize_shell_file(&sf);
+        let start_pos = serialized.find("# >>> envforge >>>").unwrap();
+        let end_pos = serialized.find("# <<< envforge <<<").unwrap();
+        let foo_pos = serialized.find("export FOO=").unwrap();
+        let conda_pos = serialized.find("# >>> conda").unwrap();
+
+        assert!(foo_pos > start_pos, "FOO inside zone");
+        assert!(foo_pos < end_pos, "FOO before end marker");
+        assert!(conda_pos > end_pos, "conda after envforge zone");
     }
 }

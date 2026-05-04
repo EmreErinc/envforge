@@ -475,7 +475,7 @@ fn test_safe_export_redacts_sensitive() {
             value: "3000".into(),
             source_file: std::path::PathBuf::from("test"),
             line_number: 1,
-        line_index: 0,
+            line_index: 0,
             location: envforge::ops::EntryLocation::InFile,
             export_style: ExportStyle::Bare,
             quote_style: QuoteStyle::None,

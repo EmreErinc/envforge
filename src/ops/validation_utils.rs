@@ -6,9 +6,8 @@ static URL_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// Validate an email address with a reasonably good regex.
 pub fn is_valid_email(email: &str) -> bool {
-    let re = EMAIL_REGEX.get_or_init(|| {
-        Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap()
-    });
+    let re = EMAIL_REGEX
+        .get_or_init(|| Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap());
     re.is_match(email)
 }
 
@@ -20,8 +19,16 @@ pub fn is_valid_url(url: &str) -> bool {
     }
 
     let protocols = [
-        "http://", "https://", "postgres://", "mysql://", "redis://",
-        "mongodb://", "amqp://", "ssh://", "git://", "s3://",
+        "http://",
+        "https://",
+        "postgres://",
+        "mysql://",
+        "redis://",
+        "mongodb://",
+        "amqp://",
+        "ssh://",
+        "git://",
+        "s3://",
     ];
 
     if !protocols.iter().any(|p| url.starts_with(p)) {
@@ -29,9 +36,7 @@ pub fn is_valid_url(url: &str) -> bool {
     }
 
     // Basic regex for the rest of the URL
-    let re = URL_REGEX.get_or_init(|| {
-        Regex::new(r"^[a-z0-9]+://[^\s/$.?#].[^\s]*$").unwrap()
-    });
+    let re = URL_REGEX.get_or_init(|| Regex::new(r"^[a-z0-9]+://[^\s/$.?#].[^\s]*$").unwrap());
     re.is_match(url)
 }
 

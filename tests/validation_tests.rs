@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use envforge::ops::{validate_value, validate_entries, EnvEntry, EntryLocation};
 use envforge::model::{ExportStyle, QuoteStyle};
+use envforge::ops::{validate_entries, validate_value, EntryLocation, EnvEntry};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[test]
@@ -83,11 +83,11 @@ fn test_validate_entries() {
             is_dirty: false,
         },
     ];
-    
+
     let mut rules = HashMap::new();
     rules.insert("PORT".to_string(), "number".to_string());
     rules.insert("DEBUG".to_string(), "bool".to_string());
-    
+
     let errors = validate_entries(&entries, &rules);
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].key, "DEBUG");

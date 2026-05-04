@@ -4,7 +4,7 @@ use chrono::Local;
 
 use crate::config::AppConfig;
 use crate::model::{ExportStyle, LineNode, QuoteStyle, ShellFile};
-use crate::ops::crud::{add_entry, edit_entry};
+use crate::ops::crud::{add_entry, edit_entry, find_soft_deleted, undo_delete};
 use crate::ops::listing::{filter_entries, EntryLocation, EnvEntry};
 
 /// Result of an import operation.
@@ -94,18 +94,27 @@ pub fn import_entries(
                 skipped += 1;
             }
         } else {
-            // Add new entry
-            match add_entry(
-                shell_file,
-                &entry.key,
-                &entry.value,
-                ExportStyle::Export,
-                QuoteStyle::Double,
-                config.offsets.header_protected_lines,
-                config.offsets.footer_protected_lines,
-            ) {
-                Ok(()) => added += 1,
-                Err(_) => skipped += 1,
+            if let Some(_idx) = find_soft_deleted(shell_file, &entry.key) {
+                if force {
+                    undo_delete(shell_file, &entry.key).ok();
+                    edit_entry(shell_file, &entry.key, &entry.value).ok();
+                    overwritten += 1;
+                } else {
+                    skipped += 1;
+                }
+            } else {
+                match add_entry(
+                    shell_file,
+                    &entry.key,
+                    &entry.value,
+                    ExportStyle::Export,
+                    QuoteStyle::Double,
+                    config.offsets.header_protected_lines,
+                    config.offsets.footer_protected_lines,
+                ) {
+                    Ok(()) => added += 1,
+                    Err(_) => skipped += 1,
+                }
             }
         }
     }

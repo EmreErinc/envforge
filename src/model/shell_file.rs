@@ -51,6 +51,16 @@ pub enum LineNode {
         tag: String,
         original_export: String,
     },
+    /// `# >>> envforge >>>` managed zone start marker
+    EnvforgeStart {
+        line_number: usize,
+        original_text: String,
+    },
+    /// `# <<< envforge <<<` managed zone end marker
+    EnvforgeEnd {
+        line_number: usize,
+        original_text: String,
+    },
     /// A `source` or `.` directive
     SourceDirective {
         line_number: usize,
@@ -72,7 +82,9 @@ impl LineNode {
             | LineNode::EnvExport { line_number, .. }
             | LineNode::ManagedComment { line_number, .. }
             | LineNode::SourceDirective { line_number, .. }
-            | LineNode::Other { line_number, .. } => *line_number,
+            | LineNode::Other { line_number, .. }
+            | LineNode::EnvforgeStart { line_number, .. }
+            | LineNode::EnvforgeEnd { line_number, .. } => *line_number,
         }
     }
 
@@ -83,7 +95,9 @@ impl LineNode {
             | LineNode::EnvExport { original_text, .. }
             | LineNode::ManagedComment { original_text, .. }
             | LineNode::SourceDirective { original_text, .. }
-            | LineNode::Other { original_text, .. } => original_text,
+            | LineNode::Other { original_text, .. }
+            | LineNode::EnvforgeStart { original_text, .. }
+            | LineNode::EnvforgeEnd { original_text, .. } => original_text,
         }
     }
 
