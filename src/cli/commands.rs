@@ -4384,6 +4384,7 @@ fn cmd_project(
                         value: v.clone(),
                         source_file: env_path.clone(),
                         line_number: 0,
+                        line_index: 0,
                         location: EntryLocation::InFile,
                         export_style: ExportStyle::Bare,
                         quote_style: QuoteStyle::None,

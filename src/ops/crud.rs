@@ -22,6 +22,9 @@ pub enum OpsError {
 
     #[error("key '{key}' is not a deleted entry — cannot undo")]
     NotDeleted { key: String },
+
+    #[error("{0}")]
+    Other(String),
 }
 
 /// Edit an existing ENV entry's value in the ShellFile.
@@ -80,6 +83,33 @@ pub fn edit_entry(shell_file: &mut ShellFile, key: &str, new_value: &str) -> Res
             file: shell_file.path.clone(),
         }),
     }
+}
+
+/// Soft-delete an ENV entry by index, converting it to a ManagedComment.
+pub fn soft_delete_at(shell_file: &mut ShellFile, idx: usize) -> Result<(), OpsError> {
+    if idx >= shell_file.lines.len() {
+        return Err(OpsError::Other("index out of bounds".into()));
+    }
+
+    let node = &shell_file.lines[idx];
+    let key = match node {
+        LineNode::EnvExport { key, .. } => key.clone(),
+        _ => return Err(OpsError::Other("not an EnvExport node".into())),
+    };
+
+    let original_text = node.original_text().to_string();
+    let line_number = node.line_number();
+
+    let new_text = format!("#[envforge:deleted:{}] {}", key, original_text);
+
+    shell_file.lines[idx] = LineNode::ManagedComment {
+        line_number,
+        original_text: new_text,
+        tag: format!("deleted:{}", key),
+        original_export: original_text,
+    };
+
+    Ok(())
 }
 
 /// Soft-delete an ENV entry by converting it to a ManagedComment.
@@ -222,6 +252,47 @@ pub fn add_entry(
     shell_file.lines.insert(safe_end, new_node);
 
     Ok(())
+}
+
+/// Rename an ENV entry's key in the ShellFile by index.
+pub fn rename_entry_at(
+    shell_file: &mut ShellFile,
+    idx: usize,
+    new_key: &str,
+) -> Result<(), OpsError> {
+    if idx >= shell_file.lines.len() {
+        return Err(OpsError::Other("index out of bounds".into()));
+    }
+
+    if let LineNode::EnvExport {
+        key,
+        value,
+        original_text,
+        export_style,
+        quote_style,
+        inline_comment,
+        ..
+    } = &mut shell_file.lines[idx]
+    {
+        let prefix = match export_style {
+            ExportStyle::Export => "export ",
+            ExportStyle::Bare => "",
+        };
+        let quoted = match quote_style {
+            QuoteStyle::Double => format!("\"{}\"", value),
+            QuoteStyle::Single => format!("'{}'", value),
+            QuoteStyle::None => value.clone(),
+        };
+        let comment_suffix = match inline_comment {
+            Some(c) => c.clone(),
+            None => String::new(),
+        };
+        *original_text = format!("{}{}={}{}", prefix, new_key, quoted, comment_suffix);
+        *key = new_key.to_string();
+        Ok(())
+    } else {
+        Err(OpsError::Other("not an EnvExport node".into()))
+    }
 }
 
 /// Rename an ENV entry's key in the ShellFile.

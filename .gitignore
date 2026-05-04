@@ -27,3 +27,8 @@ skills-lock.json
 # Un-ignore editor plugin package files (needed for CI builds)
 !editors/**/package.json
 !editors/**/package-lock.json
+# EnvForge project environments
+.env.*
+!.env.schema
+!.env.example
+!.env.ai.md

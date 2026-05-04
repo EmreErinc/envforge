@@ -41,6 +41,7 @@ pub mod sync;
 pub mod undo;
 pub mod uri_resolve;
 pub mod validation;
+pub mod validation_utils;
 
 // ─── Shared Error Type ───────────────────────────────────────
 

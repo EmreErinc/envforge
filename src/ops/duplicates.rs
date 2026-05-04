@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::model::ShellFile;
-use crate::ops::crud::soft_delete;
+use crate::ops::crud::{rename_entry_at, soft_delete_at};
 use crate::ops::listing::{collect_all_entries, EntryLocation, EnvEntry};
 
 /// A group of entries sharing the same key.
@@ -17,6 +17,7 @@ pub struct DuplicateEntry {
     pub value: String,
     pub source_file: String,
     pub line_number: usize,
+    pub line_index: usize,
     pub file_index: usize,
 }
 
@@ -69,6 +70,7 @@ pub fn detect_duplicates(shell_files: &[ShellFile]) -> Vec<DuplicateGroup> {
                             .to_string_lossy()
                             .to_string(),
                         line_number: entry.line_number,
+                        line_index: entry.line_index,
                         file_index,
                     }
                 })
@@ -98,13 +100,32 @@ pub fn resolve_duplicate_keep(
         }
 
         if let Some(sf) = shell_files.get_mut(entry.file_index) {
-            if soft_delete(sf, &group.key).is_ok() {
+            if soft_delete_at(sf, entry.line_index).is_ok() {
                 deleted += 1;
             }
         }
     }
 
     Ok(deleted)
+}
+
+/// Resolve a duplicate by renaming one entry to a new key.
+pub fn resolve_duplicate_rename(
+    shell_files: &mut [ShellFile],
+    group: &DuplicateGroup,
+    rename_index: usize,
+    new_key: &str,
+) -> Result<(), String> {
+    let entry = group
+        .entries
+        .get(rename_index)
+        .ok_or_else(|| "Invalid rename index".to_string())?;
+
+    if let Some(sf) = shell_files.get_mut(entry.file_index) {
+        rename_entry_at(sf, entry.line_index, new_key).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 /// Get a set of duplicate key names for quick lookup (used by TUI for highlighting).
