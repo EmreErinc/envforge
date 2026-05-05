@@ -15,7 +15,7 @@ fn test_search_cli_variant_parsing() {
     assert!(cli.is_ok());
     let cli = cli.unwrap();
     match cli.command {
-        Some(Commands::Search { query }) => assert_eq!(query, "database"),
+        Some(Commands::Search { query, .. }) => assert_eq!(query, "database"),
         _ => panic!("Expected Search command"),
     }
 }
@@ -27,7 +27,7 @@ fn test_search_cli_with_json_flag() {
     let cli = cli.unwrap();
     assert!(cli.json);
     match cli.command {
-        Some(Commands::Search { query }) => assert_eq!(query, "db"),
+        Some(Commands::Search { query, .. }) => assert_eq!(query, "db"),
         _ => panic!("Expected Search command"),
     }
 }

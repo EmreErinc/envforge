@@ -438,8 +438,8 @@ fn find_end_marker_position(shell_file: &ShellFile, after_idx: usize) -> usize {
             matches!(
                 node,
                 LineNode::EnvExport { .. }
-                | LineNode::ManagedComment { .. }
-                | LineNode::SourceDirective { .. }
+                    | LineNode::ManagedComment { .. }
+                    | LineNode::SourceDirective { .. }
             )
         })
         .map(|(i, _)| i + 1);
@@ -452,9 +452,9 @@ fn find_end_marker_position(shell_file: &ShellFile, after_idx: usize) -> usize {
         .find(|(_, node)| {
             let text = node.original_text().trim();
             text.starts_with("# >>> conda")
-            || text.starts_with("# <<< conda")
-            || text.contains("Q pre block.")
-            || text.contains("Q post block.")
+                || text.starts_with("# <<< conda")
+                || text.contains("Q pre block.")
+                || text.contains("Q post block.")
         })
         .map(|(i, _)| i);
 
@@ -476,8 +476,8 @@ fn find_best_marker_position(shell_file: &ShellFile) -> usize {
             matches!(
                 node,
                 LineNode::EnvExport { .. }
-                | LineNode::ManagedComment { .. }
-                | LineNode::SourceDirective { .. }
+                    | LineNode::ManagedComment { .. }
+                    | LineNode::SourceDirective { .. }
             )
         })
         .map(|(i, _)| i);
@@ -490,9 +490,9 @@ fn find_best_marker_position(shell_file: &ShellFile) -> usize {
         .find(|(_, node)| {
             let text = node.original_text().trim();
             text.starts_with("# >>> conda")
-            || text.starts_with("# <<< conda")
-            || text.contains("Q pre block.")
-            || text.contains("Q post block.")
+                || text.starts_with("# <<< conda")
+                || text.contains("Q pre block.")
+                || text.contains("Q post block.")
         })
         .map(|(i, _)| i);
 
@@ -744,10 +744,7 @@ mod tests {
             outside_pos > start_pos,
             "OUTSIDE should be after start marker"
         );
-        assert!(
-            outside_pos < end_pos,
-            "OUTSIDE should be before end marker"
-        );
+        assert!(outside_pos < end_pos, "OUTSIDE should be before end marker");
         assert!(
             inside_pos > start_pos,
             "INSIDE should still be after start marker"
@@ -797,7 +794,8 @@ mod tests {
 
     #[test]
     fn test_ensure_managed_zone_wraps_existing_vars() {
-        let mut sf = make_shell_file("# header\nexport FOO=\"bar\"\nexport BAZ=\"qux\"\n# footer\n");
+        let mut sf =
+            make_shell_file("# header\nexport FOO=\"bar\"\nexport BAZ=\"qux\"\n# footer\n");
 
         ensure_managed_zone(&mut sf);
 
@@ -807,22 +805,10 @@ mod tests {
         let foo_pos = serialized.find("export FOO=").unwrap();
         let baz_pos = serialized.find("export BAZ=").unwrap();
 
-        assert!(
-            foo_pos > start_pos,
-            "FOO should be inside zone"
-        );
-        assert!(
-            baz_pos > start_pos,
-            "BAZ should be inside zone"
-        );
-        assert!(
-            foo_pos < end_pos,
-            "FOO should be before end marker"
-        );
-        assert!(
-            baz_pos < end_pos,
-            "BAZ should be before end marker"
-        );
+        assert!(foo_pos > start_pos, "FOO should be inside zone");
+        assert!(baz_pos > start_pos, "BAZ should be inside zone");
+        assert!(foo_pos < end_pos, "FOO should be before end marker");
+        assert!(baz_pos < end_pos, "BAZ should be before end marker");
     }
 
     #[test]

@@ -15,7 +15,7 @@ fn test_cli_list_command_parsing() {
     let cli = Cli::try_parse_from(["envforge", "list"]);
     assert!(cli.is_ok());
     let cli = cli.unwrap();
-    assert!(matches!(cli.command, Some(Commands::List)));
+    assert!(matches!(cli.command, Some(Commands::List { .. })));
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn test_cli_json_flag_parsing() {
     assert!(cli.is_ok());
     let cli = cli.unwrap();
     assert!(cli.json);
-    assert!(matches!(cli.command, Some(Commands::List)));
+    assert!(matches!(cli.command, Some(Commands::List { .. })));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn test_cli_multiple_global_flags() {
     let cli = cli.unwrap();
     assert!(cli.json);
     assert!(cli.dry_run);
-    assert!(matches!(cli.command, Some(Commands::List)));
+    assert!(matches!(cli.command, Some(Commands::List { .. })));
 }
 
 #[test]
@@ -374,7 +374,7 @@ fn test_list_command_no_args() {
 
     let cli = Cli::try_parse_from(["envforge", "list"]);
     assert!(cli.is_ok());
-    assert!(matches!(cli.unwrap().command, Some(Commands::List)));
+    assert!(matches!(cli.unwrap().command, Some(Commands::List { .. })));
 }
 
 #[test]
@@ -497,7 +497,7 @@ fn test_workflow_import_and_list() {
 
     // List all variables
     let list_cmd = Cli::try_parse_from(["envforge", "list"]).unwrap();
-    assert!(matches!(list_cmd.command, Some(Commands::List)));
+    assert!(matches!(list_cmd.command, Some(Commands::List { .. })));
 }
 
 #[test]
@@ -506,7 +506,7 @@ fn test_workflow_with_json_output() {
 
     let cli = Cli::try_parse_from(["envforge", "--json", "list"]).unwrap();
     assert!(cli.json);
-    assert!(matches!(cli.command, Some(Commands::List)));
+    assert!(matches!(cli.command, Some(Commands::List { .. })));
 }
 
 #[test]
@@ -545,7 +545,7 @@ fn test_workflow_with_profile_switching() {
 
     // Profile and List are the key commands to test
     let list = Cli::try_parse_from(["envforge", "list"]).unwrap();
-    assert!(matches!(list.command, Some(Commands::List)));
+    assert!(matches!(list.command, Some(Commands::List { .. })));
 
     // Profile subcommand existence is optional for this test
 }

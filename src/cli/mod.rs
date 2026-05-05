@@ -36,7 +36,23 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// List all environment variables
-    List,
+    List {
+        /// Filter entries by key pattern (substring match)
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Group entries by prefix or tag (prefix, tag)
+        #[arg(long)]
+        group: Option<String>,
+
+        /// Sort order: key, value, file (default: key)
+        #[arg(long, default_value = "key")]
+        sort: String,
+
+        /// Reverse sort order
+        #[arg(long)]
+        reverse: bool,
+    },
 
     /// Get the value of a specific variable
     Get {
@@ -176,6 +192,10 @@ pub enum Commands {
         /// Environment name for schema overrides (e.g., production)
         #[arg(long)]
         environment: Option<String>,
+
+        /// Additional validation rules as KEY=rule pairs (e.g., PORT=port, EMAIL=email)
+        #[arg(long, num_args = 1)]
+        rules: Vec<String>,
     },
 
     /// Generate shell completion scripts
@@ -413,6 +433,9 @@ pub enum Commands {
     Search {
         /// Search query
         query: String,
+        /// Use fuzzy matching (default is substring)
+        #[arg(long)]
+        fuzzy: bool,
     },
 
     /// Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code)
@@ -489,6 +512,23 @@ pub enum Commands {
         all: bool,
         /// Specific lease name to revoke
         name: Option<String>,
+    },
+
+    /// Undo the last mutation (uses backup snapshots)
+    Undo {
+        /// List available undo snapshots
+        #[arg(long)]
+        list: bool,
+    },
+
+    /// Show managed zone and protected block offsets
+    Offset {
+        /// Show detected protected blocks
+        #[arg(long)]
+        show: bool,
+        /// Suggest header/footer offsets
+        #[arg(long)]
+        suggest: bool,
     },
 
     /// Show where an environment variable is referenced across your project

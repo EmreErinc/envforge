@@ -14,7 +14,18 @@ use super::{
 /// Execute a CLI subcommand.
 pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
     let result = match command {
-        Commands::List => cmd_list(json),
+        Commands::List {
+            filter,
+            group,
+            sort,
+            reverse,
+        } => cmd_list(
+            json,
+            filter.as_deref(),
+            group.as_deref(),
+            sort.as_str(),
+            *reverse,
+        ),
         Commands::Get { key } => cmd_get(key, json),
         Commands::Set { assignment } => cmd_set(assignment, dry_run),
         Commands::Delete { key } => cmd_delete(key, dry_run),
@@ -66,24 +77,26 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
                 cmd_scan(path.as_deref(), *staged, json)
             }
         }
-        Commands::Diff => cmd_diff(),
-        Commands::Backup { action } => cmd_backup(action),
+        Commands::Diff => cmd_diff(json),
+        Commands::Backup { action } => cmd_backup(action, json),
         Commands::Profile { action } => cmd_profile(action, json),
         Commands::Validate {
             schema,
             env_file,
             environment,
+            rules,
         } => cmd_validate_enhanced(
             schema.as_deref(),
             env_file.as_deref(),
             environment.as_deref(),
             json,
+            rules,
         ),
         Commands::Encrypt { key } => cmd_encrypt(key, dry_run),
         Commands::Decrypt { key } => cmd_decrypt(key, dry_run),
         Commands::Completions { shell, install } => cmd_completions(shell, *install),
         Commands::Log { key, n } => cmd_log(key.as_deref(), *n, json),
-        Commands::Config => cmd_config(),
+        Commands::Config => cmd_config(json),
         Commands::Run {
             profile,
             profiles,
@@ -160,7 +173,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             *ai_leaks,
             *access,
         ),
-        Commands::Search { query } => cmd_search(query, json),
+        Commands::Search { query, fuzzy } => cmd_search(query, json, *fuzzy),
         Commands::Fence { status } => {
             if *status {
                 cmd_fence_status(json)
@@ -168,13 +181,13 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
                 cmd_fence(dry_run)
             }
         }
-        Commands::Sanitize { file, output } => cmd_sanitize(file, output.as_deref()),
-        Commands::AiHook { action } => cmd_ai_hook(action),
+        Commands::Sanitize { file, output } => cmd_sanitize(file, output.as_deref(), json, dry_run),
+        Commands::AiHook { action } => cmd_ai_hook(action, dry_run, json),
         Commands::AiGuard {
             stage,
             tool_name,
             tool_input,
-        } => cmd_ai_guard(stage, tool_name, tool_input.as_deref()),
+        } => cmd_ai_guard(stage, tool_name, tool_input.as_deref(), json),
         Commands::Proxy {
             port,
             keys,
@@ -192,8 +205,10 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         ),
         Commands::Lease { action } => cmd_lease(action, json),
         Commands::Canary { action } => cmd_canary(action, json),
-        Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref()),
-        Commands::Deps { key, source } => cmd_deps(key, *source),
+        Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref(), json),
+        Commands::Deps { key, source } => cmd_deps(key, *source, json),
+        Commands::Undo { list } => cmd_undo(*list, json),
+        Commands::Offset { show, suggest } => cmd_offset(*show, *suggest, json),
         Commands::Man { command } => cmd_man(command),
         Commands::Lsp => {
             crate::lsp::run_lsp();
@@ -225,11 +240,78 @@ fn load_context() -> Result<(AppConfig, Vec<ShellFile>), Box<dyn std::error::Err
     Ok((config, shell_files))
 }
 
-fn cmd_list(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_list(
+    json: bool,
+    filter: Option<&str>,
+    group: Option<&str>,
+    sort: &str,
+    reverse: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let (_config, shell_files) = load_context()?;
-    let entries = collect_all_entries(&shell_files);
+    let mut entries = collect_all_entries(&shell_files);
 
-    if json {
+    if let Some(f) = filter {
+        let f_lower = f.to_lowercase();
+        entries.retain(|e| e.key.to_lowercase().contains(&f_lower));
+    }
+
+    match sort {
+        "value" => entries.sort_by(|a, b| a.value.cmp(&b.value)),
+        "file" => entries.sort_by(|a, b| a.source_file.cmp(&b.source_file)),
+        _ => entries.sort_by(|a, b| a.key.cmp(&b.key)),
+    }
+    if reverse {
+        entries.reverse();
+    }
+
+    if group.is_some() {
+        let config = crate::ops::grouping::GroupConfig::default();
+        let groups = crate::ops::grouping::group_entries(&entries, &config);
+        if json {
+            let json_groups: Vec<serde_json::Value> = groups
+                .iter()
+                .map(|g| {
+                    let group_entries: Vec<serde_json::Value> = g
+                        .entries
+                        .iter()
+                        .map(|e| {
+                            let value = if is_sensitive(&e.key) {
+                                mask_value(&e.value)
+                            } else {
+                                e.value.clone()
+                            };
+                            serde_json::json!({
+                                "key": e.key,
+                                "value": value,
+                                "source_file": e.source_file.to_string_lossy(),
+                                "line_number": e.line_number,
+                            })
+                        })
+                        .collect();
+                    serde_json::json!({
+                        "group": g.name,
+                        "is_user_defined": g.is_user_defined,
+                        "entries": group_entries,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json_groups)?);
+        } else {
+            for g in &groups {
+                println!("╔══ {} ══", g.name);
+                for e in &g.entries {
+                    let value = if is_sensitive(&e.key) {
+                        mask_value(&e.value)
+                    } else {
+                        e.value.clone()
+                    };
+                    println!("  {} = {}", e.key, value);
+                }
+                println!("╚══");
+                println!();
+            }
+        }
+    } else if json {
         print_entries_json(&entries)?;
     } else {
         print_entries_table(&entries);
@@ -237,64 +319,120 @@ fn cmd_list(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn cmd_search(query: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::error::Error>> {
     if query.is_empty() {
         return Err("Search query cannot be empty".into());
     }
 
     let (_config, shell_files) = load_context()?;
     let entries = collect_all_entries(&shell_files);
-    let results = fuzzy_search(&entries, query);
 
-    if json {
-        let json_results: Vec<serde_json::Value> = results
-            .iter()
-            .map(|r| {
+    if fuzzy {
+        let results = fuzzy_search(&entries, query);
+
+        if json {
+            let json_results: Vec<serde_json::Value> = results
+                .iter()
+                .map(|r| {
+                    let value = if is_sensitive(&r.entry.key) {
+                        mask_value(&r.entry.value)
+                    } else {
+                        r.entry.value.clone()
+                    };
+                    serde_json::json!({
+                        "version": 1,
+                        "key": r.entry.key,
+                        "value": value,
+                        "source_file": r.entry.source_file.to_string_lossy(),
+                        "line_number": r.entry.line_number,
+                        "score": r.score,
+                        "matched_indices": r.matched_indices,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json_results)?);
+        } else if results.is_empty() {
+            println!("No results found for '{}'.", query);
+        } else {
+            let max_key = results
+                .iter()
+                .map(|r| r.entry.key.len())
+                .max()
+                .unwrap_or(10)
+                .min(30);
+
+            println!("{:<width$} {:<50} SCORE", "KEY", "VALUE", width = max_key);
+            println!("{}", "-".repeat(max_key + 55 + 8));
+
+            for r in &results {
                 let value = if is_sensitive(&r.entry.key) {
                     mask_value(&r.entry.value)
+                } else if r.entry.value.len() > 50 {
+                    format!("{}…", &r.entry.value[..49])
                 } else {
                     r.entry.value.clone()
                 };
-                serde_json::json!({
-                    "version": 1,
-                    "key": r.entry.key,
-                    "value": value,
-                    "source_file": r.entry.source_file.to_string_lossy(),
-                    "line_number": r.entry.line_number,
-                    "score": r.score,
-                    "matched_indices": r.matched_indices,
-                })
+                println!(
+                    "{:<width$} {:<50} {}",
+                    r.entry.key,
+                    value,
+                    r.score,
+                    width = max_key
+                );
+            }
+        }
+    } else {
+        let query_lower = query.to_lowercase();
+        let results: Vec<_> = entries
+            .iter()
+            .filter(|e| {
+                e.key.to_lowercase().contains(&query_lower)
+                    || e.value.to_lowercase().contains(&query_lower)
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&json_results)?);
-    } else if results.is_empty() {
-        println!("No results found for '{}'.", query);
-    } else {
-        let max_key = results
-            .iter()
-            .map(|r| r.entry.key.len())
-            .max()
-            .unwrap_or(10)
-            .min(30);
 
-        println!("{:<width$} {:<50} SCORE", "KEY", "VALUE", width = max_key);
-        println!("{}", "-".repeat(max_key + 55 + 8));
+        if json {
+            let json_results: Vec<serde_json::Value> = results
+                .iter()
+                .map(|e| {
+                    let value = if is_sensitive(&e.key) {
+                        mask_value(&e.value)
+                    } else {
+                        e.value.clone()
+                    };
+                    serde_json::json!({
+                        "version": 1,
+                        "key": e.key,
+                        "value": value,
+                        "source_file": e.source_file.to_string_lossy(),
+                        "line_number": e.line_number,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json_results)?);
+        } else if results.is_empty() {
+            println!("No results found for '{}'.", query);
+        } else {
+            let max_key = results
+                .iter()
+                .map(|e| e.key.len())
+                .max()
+                .unwrap_or(10)
+                .min(30);
 
-        for r in &results {
-            let value = if is_sensitive(&r.entry.key) {
-                mask_value(&r.entry.value)
-            } else if r.entry.value.len() > 50 {
-                format!("{}…", &r.entry.value[..49])
-            } else {
-                r.entry.value.clone()
-            };
-            println!(
-                "{:<width$} {:<50} {}",
-                r.entry.key,
-                value,
-                r.score,
-                width = max_key
-            );
+            println!("{:<width$} VALUE", "KEY", width = max_key);
+            println!("{}", "-".repeat(max_key + 6));
+
+            for e in &results {
+                let value = if is_sensitive(&e.key) {
+                    mask_value(&e.value)
+                } else if e.value.len() > 50 {
+                    format!("{}…", &e.value[..49])
+                } else {
+                    e.value.clone()
+                };
+                println!("{:<width$} {}", e.key, value, width = max_key);
+            }
         }
     }
 
@@ -1165,26 +1303,47 @@ fn cmd_mcp_harden(dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-fn cmd_diff() -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_diff(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     let (_config, shell_files) = load_context()?;
 
-    let mut any_diff = false;
+    let mut all_diffs = Vec::new();
     for sf in &shell_files {
         if let Ok(diff) = generate_diff(sf) {
             if !diff.is_empty() {
-                print!("{}", diff);
-                any_diff = true;
+                all_diffs.push((sf.path.to_string_lossy().to_string(), diff));
             }
         }
     }
 
-    if !any_diff {
+    if json {
+        let json_diffs: Vec<serde_json::Value> = all_diffs
+            .iter()
+            .map(|(file, diff)| {
+                serde_json::json!({
+                    "file": file,
+                    "diff": diff,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "has_changes": !all_diffs.is_empty(),
+                "diffs": json_diffs,
+            }))?
+        );
+    } else if all_diffs.is_empty() {
         println!("No changes.");
+    } else {
+        for (_, diff) in &all_diffs {
+            print!("{}", diff);
+        }
     }
     Ok(())
 }
 
-fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_backup(action: &BackupAction, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         BackupAction::Restore { file } => {
             let backup_path = Path::new(file);
@@ -1192,23 +1351,30 @@ fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
                 return Err(format!("Backup file not found: {}", file).into());
             }
 
-            // Determine target from backup filename (e.g., ".zshrc.20260406T120000.bak" -> ".zshrc")
             let file_name = backup_path
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy();
 
-            // Find the original filename (everything before the first timestamp-like segment)
             let first_part = file_name.split('.').next();
             if first_part.is_none() {
                 return Err("Cannot determine target file from backup name".into());
             }
 
             let content = std::fs::read_to_string(backup_path)?;
-            println!("Restored from {}", file);
-            println!("Content length: {} bytes", content.len());
-            // In a full implementation, we'd write back to the original path
-            // For now, just confirm the backup is readable
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "restored_from": file,
+                        "content_length": content.len(),
+                    }))?
+                );
+            } else {
+                println!("Restored from {}", file);
+                println!("Content length: {} bytes", content.len());
+            }
             Ok(())
         }
         BackupAction::List => {
@@ -1216,7 +1382,25 @@ fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
             let primary = shellexpand(&config.files.primary);
             let backups = list_backups(&primary)?;
 
-            if backups.is_empty() {
+            if json {
+                let json_backups: Vec<serde_json::Value> = backups
+                    .iter()
+                    .map(|b| {
+                        serde_json::json!({
+                            "path": b.to_string_lossy(),
+                            "size": std::fs::metadata(b).map(|m| m.len()).unwrap_or(0),
+                        })
+                    })
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "count": json_backups.len(),
+                        "backups": json_backups,
+                    }))?
+                );
+            } else if backups.is_empty() {
                 println!("No backups found.");
             } else {
                 for b in &backups {
@@ -1592,10 +1776,30 @@ fn install_shell_completion(script: &str, shell: &str) -> Result<(), Box<dyn std
     Ok(())
 }
 
-fn cmd_config() -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_config(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     let config = load_or_create_default()?;
-    let toml_str = toml::to_string_pretty(&config)?;
-    println!("{}", toml_str);
+    if json {
+        let json_val = serde_json::json!({
+            "version": 1,
+            "files": {
+                "primary": config.files.primary,
+                "reference": config.files.reference,
+                "use_reference_file": config.files.use_reference_file,
+            },
+            "profiles": {
+                "active": config.profiles.active,
+                "names": config.profiles.profile_names(),
+            },
+            "offsets": {
+                "header_protected_lines": config.offsets.header_protected_lines,
+                "footer_protected_lines": config.offsets.footer_protected_lines,
+            },
+        });
+        println!("{}", serde_json::to_string_pretty(&json_val)?);
+    } else {
+        let toml_str = toml::to_string_pretty(&config)?;
+        println!("{}", toml_str);
+    }
     Ok(())
 }
 
@@ -1831,12 +2035,12 @@ fn cmd_validate_enhanced(
     env_file: Option<&str>,
     environment: Option<&str>,
     json: bool,
+    rules: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::schema::{find_schema, parse_schema, validate_against_schema};
 
     let config = load_or_create_default()?;
 
-    // Load ENV vars
     let env: std::collections::HashMap<String, String> = if let Some(env_path) = env_file {
         let entries = crate::ops::dotenv::parse_dotenv(std::path::Path::new(env_path))?;
         entries.into_iter().map(|e| (e.key, e.value)).collect()
@@ -1849,6 +2053,52 @@ fn cmd_validate_enhanced(
             .map(|e| (e.key, e.value))
             .collect()
     };
+
+    // Parse --rules KEY=rule pairs
+    let mut extra_rules: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for rule in rules {
+        if let Some((key, validator)) = rule.split_once('=') {
+            extra_rules.insert(key.to_string(), validator.to_string());
+        }
+    }
+
+    let mut all_errors = Vec::new();
+
+    // Run value-rule validation if --rules provided
+    if !extra_rules.is_empty() {
+        let env_entries: Vec<crate::ops::EnvEntry> = env
+            .iter()
+            .map(|(k, v)| crate::ops::EnvEntry {
+                key: k.clone(),
+                value: v.clone(),
+                source_file: std::path::PathBuf::new(),
+                line_number: 0,
+                line_index: 0,
+                location: EntryLocation::InFile,
+                export_style: ExportStyle::Export,
+                quote_style: QuoteStyle::Double,
+                is_dirty: false,
+            })
+            .collect();
+        let rule_errors = crate::ops::validation::validate_entries(&env_entries, &extra_rules);
+        for e in &rule_errors {
+            all_errors.push(serde_json::json!({
+                "key": e.key,
+                "message": e.message,
+                "rule": e.rule,
+                "source": "rules",
+            }));
+        }
+        if !json {
+            for e in &rule_errors {
+                println!(
+                    "\x1b[31m✗\x1b[0m {:<30} — {} (rule: {})",
+                    e.key, e.message, e.rule
+                );
+            }
+        }
+    }
 
     // Try to load schema
     let schema_file = schema_path
@@ -1868,15 +2118,11 @@ fn cmd_validate_enhanced(
                         "message": e.message,
                         "expected": e.expected,
                         "actual": e.actual,
+                        "source": "schema",
                     })
                 })
                 .collect();
-            println!(
-                "{}",
-                serde_json::to_string_pretty(
-                    &serde_json::json!({"errors": items, "valid": errors.is_empty()})
-                )?
-            );
+            all_errors.extend(items);
         } else if errors.is_empty() {
             println!(
                 "All variables valid ({} checked against schema).",
@@ -1886,11 +2132,34 @@ fn cmd_validate_enhanced(
             for e in &errors {
                 println!("\x1b[31m✗\x1b[0m {:<30} — {}", e.key, e.message);
             }
+        }
+
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"errors": all_errors, "valid": all_errors.is_empty()})
+                )?
+            );
+        } else if !errors.is_empty() {
             println!("\n{} error(s) found.", errors.len());
             std::process::exit(1);
         }
+    } else if !extra_rules.is_empty() {
+        // Only had --rules, no schema
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"errors": all_errors, "valid": all_errors.is_empty()})
+                )?
+            );
+        }
+        if !all_errors.is_empty() {
+            println!("\n{} error(s) found.", all_errors.len());
+            std::process::exit(1);
+        }
     } else {
-        // Fallback to config.toml validation only
         return cmd_validate(json);
     }
 
@@ -3434,7 +3703,12 @@ fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn cmd_sanitize(file: &str, output: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_sanitize(
+    file: &str,
+    output: Option<&str>,
+    json: bool,
+    dry_run: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::sanitize::sanitize_file;
 
     let file_path = Path::new(file);
@@ -3442,11 +3716,9 @@ fn cmd_sanitize(file: &str, output: Option<&str>) -> Result<(), Box<dyn std::err
         return Err(format!("File not found: {}", file).into());
     }
 
-    // Load all entries from EnvForge config
     let (_config, shell_files) = load_context()?;
     let entries = collect_all_entries(&shell_files);
 
-    // Build secret pairs from sensitive entries
     let secrets: Vec<(String, String)> = entries
         .iter()
         .filter(|e| e.location != EntryLocation::Commented)
@@ -3455,21 +3727,75 @@ fn cmd_sanitize(file: &str, output: Option<&str>) -> Result<(), Box<dyn std::err
         .collect();
 
     if secrets.is_empty() {
-        eprintln!("No sensitive ENV values found to sanitize against.");
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "file": file,
+                    "sanitized": false,
+                    "count": 0,
+                    "message": "No sensitive ENV values found",
+                }))?
+            );
+        } else {
+            eprintln!("No sensitive ENV values found to sanitize against.");
+        }
         return Ok(());
     }
 
-    let output_path = output.map(Path::new);
-    let count = sanitize_file(file_path, output_path, &secrets)?;
+    if dry_run {
+        if json {
+            let secret_keys: Vec<&str> = secrets.iter().map(|(k, _)| k.as_str()).collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "file": file,
+                    "dry_run": true,
+                    "secrets_would_replace": secret_keys,
+                    "count": secrets.len(),
+                }))?
+            );
+        } else {
+            eprintln!(
+                "Dry run: would replace {} secret(s) in {}",
+                secrets.len(),
+                file
+            );
+            for (key, _) in &secrets {
+                eprintln!("  {} → ${{{}}}", key, key);
+            }
+        }
+    } else {
+        let output_path = output.map(Path::new);
+        let count = sanitize_file(file_path, output_path, &secrets)?;
 
-    eprintln!("Sanitized: {} secret(s) replaced", count);
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "file": file,
+                    "sanitized": true,
+                    "count": count,
+                }))?
+            );
+        } else {
+            eprintln!("Sanitized: {} secret(s) replaced", count);
+        }
+    }
 
     Ok(())
 }
 
 // ─── AI Hook Command ───────────────────────────────────────
 
-fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_ai_hook(
+    action: &AiHookAction,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::ai_hooks::{install_ai_hook, parse_ai_tool, remove_ai_hook};
 
     let cwd = std::env::current_dir()?;
@@ -3478,26 +3804,95 @@ fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> 
         AiHookAction::Install { tool } => {
             let ai_tool =
                 parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-            let result = install_ai_hook(&ai_tool, &cwd)?;
-            if result.installed {
-                println!("{}", result.message);
-                println!("  Config: {}", result.config_path.display());
+            if dry_run {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "action": "install",
+                            "tool": tool,
+                            "dry_run": true,
+                            "message": format!("Would install {} hook", tool),
+                        }))?
+                    );
+                } else {
+                    println!("Dry run: would install {} hook", tool);
+                }
             } else {
-                println!("{}", result.message);
+                let result = install_ai_hook(&ai_tool, &cwd)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "action": "install",
+                            "tool": tool,
+                            "installed": result.installed,
+                            "message": result.message,
+                            "config_path": result.config_path.to_string_lossy(),
+                        }))?
+                    );
+                } else if result.installed {
+                    println!("{}", result.message);
+                    println!(" Config: {}", result.config_path.display());
+                } else {
+                    println!("{}", result.message);
+                }
             }
         }
         AiHookAction::Remove { tool } => {
             let ai_tool =
                 parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-            let result = remove_ai_hook(&ai_tool, &cwd)?;
-            println!("{}", result.message);
-            if result.config_path.exists() {
-                println!("  Config: {}", result.config_path.display());
+            if dry_run {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "action": "remove",
+                            "tool": tool,
+                            "dry_run": true,
+                            "message": format!("Would remove {} hook", tool),
+                        }))?
+                    );
+                } else {
+                    println!("Dry run: would remove {} hook", tool);
+                }
+            } else {
+                let result = remove_ai_hook(&ai_tool, &cwd)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "action": "remove",
+                            "tool": tool,
+                            "message": result.message,
+                            "config_path": result.config_path.to_string_lossy(),
+                        }))?
+                    );
+                } else {
+                    println!("{}", result.message);
+                    if result.config_path.exists() {
+                        println!(" Config: {}", result.config_path.display());
+                    }
+                }
             }
         }
         AiHookAction::Status => {
             let status = crate::ops::ai_hooks::check_hook_status(&cwd);
-            println!("{}", serde_json::to_string_pretty(&status)?);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "status": status,
+                    }))?
+                );
+            } else {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            }
         }
     }
 
@@ -3510,23 +3905,37 @@ fn cmd_ai_guard(
     stage: &str,
     tool_name: &str,
     tool_input: Option<&str>,
+    json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::ai_guard::{run_guard, GuardStage};
 
-    let stage = match stage {
+    let stage_enum = match stage {
         "pre-tool" => GuardStage::PreTool,
         "post-tool" => GuardStage::PostTool,
-        _ => return Ok(()), // unknown stage, skip silently
+        _ => return Ok(()),
     };
+    let stage_str = stage;
 
     let secrets = load_sensitive_secrets();
-    let result = run_guard(stage, tool_name, tool_input, &secrets);
+    let result = run_guard(stage_enum, tool_name, tool_input, &secrets);
 
-    for warning in &result.warnings {
-        eprintln!("{}", warning);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "stage": stage_str,
+                "tool": tool_name,
+                "blocked": result.blocked,
+                "warnings": result.warnings,
+            }))?
+        );
+    } else {
+        for warning in &result.warnings {
+            eprintln!("{}", warning);
+        }
     }
 
-    // Don't block (exit 0 always) — hooks are advisory
     Ok(())
 }
 
@@ -3973,14 +4382,42 @@ fn cmd_lease(action: &LeaseAction, json: bool) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-fn cmd_revoke(all: bool, name: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_revoke(all: bool, name: Option<&str>, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::lease;
 
     if all {
         let count = lease::revoke_all_leases()?;
-        eprintln!("KILLSWITCH: {} lease(s) revoked and removed.", count);
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "action": "revoke_all",
+                    "count": count,
+                    "message": format!("{} lease(s) revoked", count),
+                }))?
+            );
+        } else {
+            eprintln!("KILLSWITCH: {} lease(s) revoked and removed.", count);
+        }
     } else if let Some(lease_name) = name {
-        if lease::revoke_lease(lease_name)? {
+        let found = lease::revoke_lease(lease_name)?;
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "action": "revoke",
+                    "lease": lease_name,
+                    "found": found,
+                    "message": if found {
+                        format!("Revoked lease: {}", lease_name)
+                    } else {
+                        format!("Lease not found: {}", lease_name)
+                    },
+                }))?
+            );
+        } else if found {
             eprintln!("Revoked lease: {}", lease_name);
         } else {
             eprintln!("Lease not found: {}", lease_name);
@@ -4019,14 +4456,13 @@ fn shellexpand(path: &str) -> std::path::PathBuf {
 
 // ─── Deps command ─────────────────────────────────────────
 
-fn cmd_deps(key: &str, include_source: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_deps(key: &str, include_source: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::deps::{find_dependencies, group_by_type};
     use std::collections::HashSet;
 
     let config = load_or_create_default()?;
     let project_dir = std::env::current_dir()?;
 
-    // Collect EnvForge managed files
     let mut managed_files = Vec::new();
     managed_files.push(shellexpand(&config.files.primary));
     if config.files.use_reference_file {
@@ -4039,37 +4475,226 @@ fn cmd_deps(key: &str, include_source: bool) -> Result<(), Box<dyn std::error::E
 
     let refs = find_dependencies(key, &project_dir, include_source, &managed_files)?;
 
-    if refs.is_empty() {
+    if json {
+        let json_refs: Vec<serde_json::Value> = refs
+            .iter()
+            .map(|dep| {
+                let display_path = dep.file.strip_prefix(&project_dir).unwrap_or(&dep.file);
+                serde_json::json!({
+                    "file": display_path.to_string_lossy(),
+                    "line": dep.line,
+                    "context": dep.context,
+                    "type": dep.ref_type.to_string(),
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "key": key,
+                "references": json_refs,
+                "total": refs.len(),
+            }))?
+        );
+    } else if refs.is_empty() {
         println!("No references found for {}", key);
+    } else {
+        println!("Dependencies for {}\n", key);
+
+        let grouped = group_by_type(&refs);
+        let mut total_files = HashSet::new();
+
+        for (ref_type, items) in &grouped {
+            println!("{}:", ref_type);
+            for dep in items {
+                let display_path = dep.file.strip_prefix(&project_dir).unwrap_or(&dep.file);
+                println!(
+                    " {}:{} {}",
+                    display_path.display(),
+                    dep.line,
+                    truncate_context(&dep.context, 60)
+                );
+                total_files.insert(dep.file.clone());
+            }
+            println!();
+        }
+
+        println!(
+            "Total: {} references across {} files",
+            refs.len(),
+            total_files.len()
+        );
+    }
+
+    Ok(())
+}
+
+fn cmd_undo(list: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if list {
+        let config = load_or_create_default()?;
+        let primary = shellexpand(&config.files.primary);
+        let backups = list_backups(&primary)?;
+
+        if json {
+            let json_backups: Vec<serde_json::Value> = backups
+                .iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "path": b.to_string_lossy(),
+                        "size": std::fs::metadata(b).map(|m| m.len()).unwrap_or(0),
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "snapshots": json_backups,
+                }))?
+            );
+        } else if backups.is_empty() {
+            println!("No undo snapshots available.");
+        } else {
+            println!("Available undo snapshots:\n");
+            for b in &backups {
+                let name = b.file_name().unwrap_or_default().to_string_lossy();
+                let size = std::fs::metadata(b).map(|m| m.len()).unwrap_or(0);
+                println!("  {} ({} bytes)", name, size);
+            }
+        }
         return Ok(());
     }
 
-    println!("Dependencies for {}\n", key);
+    let config = load_or_create_default()?;
+    let primary = shellexpand(&config.files.primary);
+    let backups = list_backups(&primary)?;
 
-    let grouped = group_by_type(&refs);
-    let mut total_files = HashSet::new();
+    if let Some(latest) = backups.last() {
+        let backup_content = std::fs::read_to_string(latest)?;
+        crate::config::safe_write(&primary, &backup_content, None)?;
 
-    for (ref_type, items) in &grouped {
-        println!("{}:", ref_type);
-        for dep in items {
-            // Show relative path if possible
-            let display_path = dep.file.strip_prefix(&project_dir).unwrap_or(&dep.file);
+        if json {
             println!(
-                "  {}:{}  {}",
-                display_path.display(),
-                dep.line,
-                truncate_context(&dep.context, 60)
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "action": "undo",
+                    "restored_from": latest.to_string_lossy(),
+                    "target": primary.to_string_lossy(),
+                }))?
             );
-            total_files.insert(dep.file.clone());
+        } else {
+            println!(
+                "Undone: restored {} from {}",
+                primary.display(),
+                latest.display()
+            );
         }
-        println!();
+    } else if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "action": "undo",
+                "error": "No backup snapshots available",
+            }))?
+        );
+    } else {
+        eprintln!("No backup snapshots available for undo.");
     }
 
-    println!(
-        "Total: {} references across {} files",
-        refs.len(),
-        total_files.len()
-    );
+    Ok(())
+}
+
+fn cmd_offset(show: bool, suggest: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::offset;
+
+    let (config, shell_files) = load_context()?;
+
+    if shell_files.is_empty() {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "error": "No shell files found",
+                }))?
+            );
+        } else {
+            eprintln!("No shell files found.");
+        }
+        return Ok(());
+    }
+
+    let sf = &shell_files[0];
+
+    let zone = offset::find_managed_zone(sf);
+    let blocks = if show {
+        offset::detect_protected_blocks(sf)
+    } else {
+        vec![]
+    };
+    let (header, footer) = if suggest || show {
+        offset::suggest_offsets(sf)
+    } else {
+        (
+            config.offsets.header_protected_lines,
+            config.offsets.footer_protected_lines,
+        )
+    };
+
+    if json {
+        let json_blocks: Vec<serde_json::Value> = blocks
+            .iter()
+            .map(|b| {
+                serde_json::json!({
+                    "name": b.name,
+                    "start_line": b.start_line,
+                    "end_line": b.end_line,
+                })
+            })
+            .collect();
+
+        let mut obj = serde_json::json!({
+            "version": 1,
+            "file": sf.path.to_string_lossy(),
+            "total_lines": sf.lines.len(),
+            "header_offset": header,
+            "footer_offset": footer,
+            "managed_zone": zone.as_ref().map(|z| serde_json::json!({
+                "start_idx": z.start_idx,
+                "end_idx": z.end_idx,
+            })),
+        });
+
+        if show {
+            obj["protected_blocks"] = serde_json::json!(json_blocks);
+        }
+
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+    } else {
+        if let Some(z) = &zone {
+            println!("Managed zone: lines {}–{}", z.start_idx + 1, z.end_idx + 1);
+        } else {
+            println!("No managed zone detected.");
+        }
+
+        if show && !blocks.is_empty() {
+            println!("\nProtected blocks:");
+            for b in &blocks {
+                println!(
+                    "  {} (lines {}–{})",
+                    b.name,
+                    b.start_line + 1,
+                    b.end_line + 1
+                );
+            }
+        }
+
+        println!("\nHeader offset: {}", header);
+        println!("Footer offset: {}", footer);
+    }
 
     Ok(())
 }

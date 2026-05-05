@@ -42,15 +42,14 @@ pub fn is_valid_url(url: &str) -> bool {
 
 /// Validate if a string is a valid port number (1-65535).
 pub fn is_valid_port(port: &str) -> bool {
-    port.parse::<u16>().map_or(false, |p| p > 0)
+    port.parse::<u16>().is_ok_and(|p| p > 0)
 }
 
-/// Validate if a string is a valid boolean representation.
 pub fn is_valid_bool(val: &str) -> bool {
-    match val.to_lowercase().as_str() {
-        "true" | "false" | "1" | "0" | "yes" | "no" | "on" | "off" => true,
-        _ => false,
-    }
+    matches!(
+        val.to_lowercase().as_str(),
+        "true" | "false" | "1" | "0" | "yes" | "no" | "on" | "off"
+    )
 }
 
 #[cfg(test)]
