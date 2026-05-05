@@ -190,7 +190,12 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             stage,
             tool_name,
             tool_input,
-        } => cmd_ai_guard(stage.as_deref(), tool_name.as_deref(), tool_input.as_deref(), json),
+        } => cmd_ai_guard(
+            stage.as_deref(),
+            tool_name.as_deref(),
+            tool_input.as_deref(),
+            json,
+        ),
         Commands::Proxy {
             port,
             keys,
