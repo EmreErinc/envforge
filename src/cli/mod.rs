@@ -402,9 +402,10 @@ pub enum Commands {
     },
 
     /// Harden MCP config files — replace plaintext secrets with env var references
+    #[command(visible_alias = "mcp-scan")]
     Mcp {
         #[command(subcommand)]
-        action: McpAction,
+        action: Option<McpAction>,
     },
 
     /// View change audit trail from sync history
@@ -461,12 +462,12 @@ pub enum Commands {
     },
 
     /// AI agent guard — invoked by AI tool hooks (not for direct use)
-    #[command(hide = true)]
+    #[command(hide = true, visible_alias = "guard")]
     AiGuard {
         /// Hook stage: pre-tool, post-tool
-        stage: String,
+        stage: Option<String>,
         /// Tool name
-        tool_name: String,
+        tool_name: Option<String>,
         /// Tool input (JSON string or path)
         tool_input: Option<String>,
     },

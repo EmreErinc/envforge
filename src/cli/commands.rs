@@ -156,7 +156,10 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::ResolveUri { file, env, output } => {
             cmd_resolve_uri(file, *env, output.as_deref(), json)
         }
-        Commands::Mcp { action } => cmd_mcp(action, dry_run, json),
+        Commands::Mcp { action } => {
+            let action = action.as_ref().unwrap_or(&crate::cli::McpAction::Status);
+            cmd_mcp(action, dry_run, json)
+        }
         Commands::Audit {
             key,
             since,
@@ -187,7 +190,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             stage,
             tool_name,
             tool_input,
-        } => cmd_ai_guard(stage, tool_name, tool_input.as_deref(), json),
+        } => cmd_ai_guard(stage.as_deref(), tool_name.as_deref(), tool_input.as_deref(), json),
         Commands::Proxy {
             port,
             keys,
@@ -3902,12 +3905,21 @@ fn cmd_ai_hook(
 // ─── AI Guard Command ──────────────────────────────────────
 
 fn cmd_ai_guard(
-    stage: &str,
-    tool_name: &str,
+    stage: Option<&str>,
+    tool_name: Option<&str>,
     tool_input: Option<&str>,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::ai_guard::{run_guard, GuardStage};
+
+    let stage = match stage {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    let tool_name = match tool_name {
+        Some(t) => t,
+        None => return Ok(()),
+    };
 
     let stage_enum = match stage {
         "pre-tool" => GuardStage::PreTool,
