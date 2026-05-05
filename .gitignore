@@ -32,3 +32,5 @@ skills-lock.json
 !.env.schema
 !.env.example
 !.env.ai.md
+AGENTS.md
+editors/intellij/.intellijPlatform/

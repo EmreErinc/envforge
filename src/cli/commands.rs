@@ -250,8 +250,26 @@ fn cmd_list(
     sort: &str,
     reverse: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (_config, shell_files) = load_context()?;
+    let (config, shell_files) = load_context()?;
     let mut entries = collect_all_entries(&shell_files);
+
+    // Include shared file entries
+    let shared_path = shellexpand_path(&config.profiles.shared_file);
+    if shared_path.exists() {
+        if let Ok(shared_sf) = parse_shell_file(&shared_path) {
+            entries.extend(collect_entries(&shared_sf));
+        }
+    }
+
+    // Include active profile entries
+    if let Some(profile_file) = config.profiles.active_file() {
+        let profile_path = shellexpand_path(&profile_file);
+        if profile_path.exists() {
+            if let Ok(profile_sf) = parse_shell_file(&profile_path) {
+                entries.extend(collect_entries(&profile_sf));
+            }
+        }
+    }
 
     if let Some(f) = filter {
         let f_lower = f.to_lowercase();
@@ -327,8 +345,26 @@ fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::e
         return Err("Search query cannot be empty".into());
     }
 
-    let (_config, shell_files) = load_context()?;
-    let entries = collect_all_entries(&shell_files);
+    let (config, shell_files) = load_context()?;
+    let mut entries = collect_all_entries(&shell_files);
+
+    // Include shared file entries
+    let shared_path = shellexpand_path(&config.profiles.shared_file);
+    if shared_path.exists() {
+        if let Ok(shared_sf) = parse_shell_file(&shared_path) {
+            entries.extend(collect_entries(&shared_sf));
+        }
+    }
+
+    // Include active profile entries
+    if let Some(profile_file) = config.profiles.active_file() {
+        let profile_path = shellexpand_path(&profile_file);
+        if profile_path.exists() {
+            if let Ok(profile_sf) = parse_shell_file(&profile_path) {
+                entries.extend(collect_entries(&profile_sf));
+            }
+        }
+    }
 
     if fuzzy {
         let results = fuzzy_search(&entries, query);
