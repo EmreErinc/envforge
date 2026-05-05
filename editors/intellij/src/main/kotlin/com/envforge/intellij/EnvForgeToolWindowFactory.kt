@@ -88,6 +88,20 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
         val group = DefaultActionGroup().apply {
             add(createGearMenu())
             addSeparator()
+            add(object : AnAction("Load into Run Configs", "Inject env vars into IDE run configurations", com.intellij.icons.AllIcons.Actions.Execute) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val confirmed = Messages.showYesNoDialog(
+                        project,
+                        "This will overwrite environment variables in all run configurations. Continue?",
+                        "Load into Run Configurations",
+                        Messages.getQuestionIcon()
+                    )
+                    if (confirmed == Messages.YES) {
+                        loadAndInjectVariables()
+                    }
+                }
+            })
+            addSeparator()
             add(object : AnAction("Toggle Grouping", "Toggle variable grouping", com.intellij.icons.AllIcons.Actions.GroupBy) {
                 override fun actionPerformed(e: AnActionEvent) {
                     grouped = !grouped
@@ -295,7 +309,6 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
         loadProfiles()
         if (searchField.text.isEmpty()) {
             loadVariables()
-            loadAndInjectVariables()  // Auto-inject env vars into IDE run configurations
         } else {
             searchVariables(searchField.text)
         }
