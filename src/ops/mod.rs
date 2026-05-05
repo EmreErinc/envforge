@@ -22,7 +22,7 @@ pub mod lease;
 mod listing;
 pub mod man;
 pub mod mcp_scan;
-mod offset;
+pub mod offset;
 pub mod profile;
 pub mod profile_diff;
 pub mod project;
@@ -41,6 +41,7 @@ pub mod sync;
 pub mod undo;
 pub mod uri_resolve;
 pub mod validation;
+pub mod validation_utils;
 
 // ─── Shared Error Type ───────────────────────────────────────
 

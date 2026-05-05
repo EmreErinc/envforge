@@ -7,11 +7,16 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::ops::schema::{parse_schema_content, EnvSchema};
 
+use super::code_action::code_actions;
+use super::code_lens::code_lenses;
 use super::completion::completions;
 use super::definition::goto_definition;
 use super::diagnostics::compute_diagnostics;
 use super::document::{parse_env_document, schema_line_map, DocumentState};
+use super::document_symbol::document_symbols;
+use super::folding_range::compute_folding_ranges;
 use super::hover::hover_info;
+use super::workspace_symbol::workspace_symbols;
 
 /// A known env var from envforge's managed files.
 #[derive(Debug, Clone)]
@@ -182,6 +187,13 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -369,6 +381,115 @@ impl LanguageServer for Backend {
             schema_uri.as_ref(),
             &schema_lines,
         ))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = &params.text_document.uri;
+
+        let doc = self
+            .documents
+            .read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let doc = match doc {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        Ok(document_symbols(&doc.entries))
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let query = params.query;
+        let managed = self
+            .managed_vars
+            .read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+
+        let symbols = workspace_symbols(&query, &managed, schema.as_ref());
+
+        if symbols.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(symbols))
+        }
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let uri = &params.text_document.uri;
+
+        let doc = self
+            .documents
+            .read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let doc = match doc {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+        let lenses = code_lenses(&doc.entries, schema.as_ref());
+
+        if lenses.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(lenses))
+        }
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = &params.text_document.uri;
+
+        let doc = self
+            .documents
+            .read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let doc = match doc {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+
+        Ok(code_actions(
+            uri,
+            &doc.entries,
+            &params.context.diagnostics,
+            schema.as_ref(),
+        ))
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = &params.text_document.uri;
+
+        let doc = self
+            .documents
+            .read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let doc = match doc {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        let ranges = compute_folding_ranges(&doc.entries);
+
+        if ranges.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(ranges))
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {

@@ -36,7 +36,23 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// List all environment variables
-    List,
+    List {
+        /// Filter entries by key pattern (substring match)
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Group entries by prefix or tag (prefix, tag)
+        #[arg(long)]
+        group: Option<String>,
+
+        /// Sort order: key, value, file (default: key)
+        #[arg(long, default_value = "key")]
+        sort: String,
+
+        /// Reverse sort order
+        #[arg(long)]
+        reverse: bool,
+    },
 
     /// Get the value of a specific variable
     Get {
@@ -65,10 +81,12 @@ pub enum Commands {
         key_only: bool,
     },
 
-    /// Move a variable to the reference file
+    /// Move a variable to the reference file, or rename in-place
     Move {
         /// Variable name
         key: String,
+        /// New key name (renames in-place if provided)
+        new_key: Option<String>,
     },
 
     /// Import variables from a .env file
@@ -174,6 +192,10 @@ pub enum Commands {
         /// Environment name for schema overrides (e.g., production)
         #[arg(long)]
         environment: Option<String>,
+
+        /// Additional validation rules as KEY=rule pairs (e.g., PORT=port, EMAIL=email)
+        #[arg(long, num_args = 1)]
+        rules: Vec<String>,
     },
 
     /// Generate shell completion scripts
@@ -380,9 +402,10 @@ pub enum Commands {
     },
 
     /// Harden MCP config files — replace plaintext secrets with env var references
+    #[command(visible_alias = "mcp-scan")]
     Mcp {
         #[command(subcommand)]
-        action: McpAction,
+        action: Option<McpAction>,
     },
 
     /// View change audit trail from sync history
@@ -407,8 +430,21 @@ pub enum Commands {
         access: bool,
     },
 
+    /// Search environment variables by fuzzy matching
+    Search {
+        /// Search query
+        query: String,
+        /// Use fuzzy matching (default is substring)
+        #[arg(long)]
+        fuzzy: bool,
+    },
+
     /// Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code)
-    Fence,
+    Fence {
+        /// Check fence status instead of creating
+        #[arg(long)]
+        status: bool,
+    },
 
     /// Sanitize a file by replacing secret values with ${KEY} placeholders
     Sanitize {
@@ -426,12 +462,12 @@ pub enum Commands {
     },
 
     /// AI agent guard — invoked by AI tool hooks (not for direct use)
-    #[command(hide = true)]
+    #[command(hide = true, visible_alias = "guard")]
     AiGuard {
         /// Hook stage: pre-tool, post-tool
-        stage: String,
+        stage: Option<String>,
         /// Tool name
-        tool_name: String,
+        tool_name: Option<String>,
         /// Tool input (JSON string or path)
         tool_input: Option<String>,
     },
@@ -477,6 +513,23 @@ pub enum Commands {
         all: bool,
         /// Specific lease name to revoke
         name: Option<String>,
+    },
+
+    /// Undo the last mutation (uses backup snapshots)
+    Undo {
+        /// List available undo snapshots
+        #[arg(long)]
+        list: bool,
+    },
+
+    /// Show managed zone and protected block offsets
+    Offset {
+        /// Show detected protected blocks
+        #[arg(long)]
+        show: bool,
+        /// Suggest header/footer offsets
+        #[arg(long)]
+        suggest: bool,
     },
 
     /// Show where an environment variable is referenced across your project
@@ -627,6 +680,8 @@ pub enum ProfileAction {
 pub enum McpAction {
     /// Replace plaintext secrets with ${VAR} env var references (backs up originals)
     Harden,
+    /// Check if any MCP config files contain plaintext secrets
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -636,11 +691,13 @@ pub enum AiHookAction {
         /// Tool name: claude-code, cursor
         tool: String,
     },
-    /// Remove hooks from an AI coding tool
+    /// Remove hooks for an AI coding tool
     Remove {
         /// Tool name: claude-code, cursor
         tool: String,
     },
+    /// Check if hooks are installed
+    Status,
 }
 
 #[derive(Subcommand)]

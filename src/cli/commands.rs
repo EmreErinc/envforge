@@ -14,12 +14,23 @@ use super::{
 /// Execute a CLI subcommand.
 pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
     let result = match command {
-        Commands::List => cmd_list(json),
+        Commands::List {
+            filter,
+            group,
+            sort,
+            reverse,
+        } => cmd_list(
+            json,
+            filter.as_deref(),
+            group.as_deref(),
+            sort.as_str(),
+            *reverse,
+        ),
         Commands::Get { key } => cmd_get(key, json),
         Commands::Set { assignment } => cmd_set(assignment, dry_run),
         Commands::Delete { key } => cmd_delete(key, dry_run),
         Commands::Copy { key, key_only } => cmd_copy(key, *key_only),
-        Commands::Move { key } => cmd_move(key, dry_run),
+        Commands::Move { key, new_key } => cmd_move(key, new_key.as_deref(), dry_run, json),
         Commands::Import { path, force } => cmd_import(path, *force, dry_run),
         Commands::Export {
             path,
@@ -66,24 +77,26 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
                 cmd_scan(path.as_deref(), *staged, json)
             }
         }
-        Commands::Diff => cmd_diff(),
-        Commands::Backup { action } => cmd_backup(action),
-        Commands::Profile { action } => cmd_profile(action),
+        Commands::Diff => cmd_diff(json),
+        Commands::Backup { action } => cmd_backup(action, json),
+        Commands::Profile { action } => cmd_profile(action, json),
         Commands::Validate {
             schema,
             env_file,
             environment,
+            rules,
         } => cmd_validate_enhanced(
             schema.as_deref(),
             env_file.as_deref(),
             environment.as_deref(),
             json,
+            rules,
         ),
         Commands::Encrypt { key } => cmd_encrypt(key, dry_run),
         Commands::Decrypt { key } => cmd_decrypt(key, dry_run),
         Commands::Completions { shell, install } => cmd_completions(shell, *install),
         Commands::Log { key, n } => cmd_log(key.as_deref(), *n, json),
-        Commands::Config => cmd_config(),
+        Commands::Config => cmd_config(json),
         Commands::Run {
             profile,
             profiles,
@@ -138,12 +151,15 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()).map_err(|e| e.into()),
         Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
         Commands::Check { only } => cmd_check(only.as_deref(), json),
-        Commands::Snapshot { action } => cmd_snapshot(action, dry_run),
+        Commands::Snapshot { action } => cmd_snapshot(action, dry_run, json),
         Commands::Share { action } => cmd_share(action, dry_run),
         Commands::ResolveUri { file, env, output } => {
             cmd_resolve_uri(file, *env, output.as_deref(), json)
         }
-        Commands::Mcp { action } => cmd_mcp(action, dry_run, json),
+        Commands::Mcp { action } => {
+            let action = action.as_ref().unwrap_or(&crate::cli::McpAction::Status);
+            cmd_mcp(action, dry_run, json)
+        }
         Commands::Audit {
             key,
             since,
@@ -160,14 +176,21 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             *ai_leaks,
             *access,
         ),
-        Commands::Fence => cmd_fence(dry_run),
-        Commands::Sanitize { file, output } => cmd_sanitize(file, output.as_deref()),
-        Commands::AiHook { action } => cmd_ai_hook(action),
+        Commands::Search { query, fuzzy } => cmd_search(query, json, *fuzzy),
+        Commands::Fence { status } => {
+            if *status {
+                cmd_fence_status(json)
+            } else {
+                cmd_fence(dry_run)
+            }
+        }
+        Commands::Sanitize { file, output } => cmd_sanitize(file, output.as_deref(), json, dry_run),
+        Commands::AiHook { action } => cmd_ai_hook(action, dry_run, json),
         Commands::AiGuard {
             stage,
             tool_name,
             tool_input,
-        } => cmd_ai_guard(stage, tool_name, tool_input.as_deref()),
+        } => cmd_ai_guard(stage.as_deref(), tool_name.as_deref(), tool_input.as_deref(), json),
         Commands::Proxy {
             port,
             keys,
@@ -183,10 +206,12 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             *require_lease,
             *require_approval,
         ),
-        Commands::Lease { action } => cmd_lease(action),
-        Commands::Canary { action } => cmd_canary(action),
-        Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref()),
-        Commands::Deps { key, source } => cmd_deps(key, *source),
+        Commands::Lease { action } => cmd_lease(action, json),
+        Commands::Canary { action } => cmd_canary(action, json),
+        Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref(), json),
+        Commands::Deps { key, source } => cmd_deps(key, *source, json),
+        Commands::Undo { list } => cmd_undo(*list, json),
+        Commands::Offset { show, suggest } => cmd_offset(*show, *suggest, json),
         Commands::Man { command } => cmd_man(command),
         Commands::Lsp => {
             crate::lsp::run_lsp();
@@ -218,16 +243,221 @@ fn load_context() -> Result<(AppConfig, Vec<ShellFile>), Box<dyn std::error::Err
     Ok((config, shell_files))
 }
 
-fn cmd_list(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_list(
+    json: bool,
+    filter: Option<&str>,
+    group: Option<&str>,
+    sort: &str,
+    reverse: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let (_config, shell_files) = load_context()?;
-    let entries = collect_all_entries(&shell_files);
+    let mut entries = collect_all_entries(&shell_files);
 
-    if json {
+    if let Some(f) = filter {
+        let f_lower = f.to_lowercase();
+        entries.retain(|e| e.key.to_lowercase().contains(&f_lower));
+    }
+
+    match sort {
+        "value" => entries.sort_by(|a, b| a.value.cmp(&b.value)),
+        "file" => entries.sort_by(|a, b| a.source_file.cmp(&b.source_file)),
+        _ => entries.sort_by(|a, b| a.key.cmp(&b.key)),
+    }
+    if reverse {
+        entries.reverse();
+    }
+
+    if group.is_some() {
+        let config = crate::ops::grouping::GroupConfig::default();
+        let groups = crate::ops::grouping::group_entries(&entries, &config);
+        if json {
+            let json_groups: Vec<serde_json::Value> = groups
+                .iter()
+                .map(|g| {
+                    let group_entries: Vec<serde_json::Value> = g
+                        .entries
+                        .iter()
+                        .map(|e| {
+                            let value = if is_sensitive(&e.key) {
+                                mask_value(&e.value)
+                            } else {
+                                e.value.clone()
+                            };
+                            serde_json::json!({
+                                "key": e.key,
+                                "value": value,
+                                "source_file": e.source_file.to_string_lossy(),
+                                "line_number": e.line_number,
+                            })
+                        })
+                        .collect();
+                    serde_json::json!({
+                        "group": g.name,
+                        "is_user_defined": g.is_user_defined,
+                        "entries": group_entries,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json_groups)?);
+        } else {
+            for g in &groups {
+                println!("╔══ {} ══", g.name);
+                for e in &g.entries {
+                    let value = if is_sensitive(&e.key) {
+                        mask_value(&e.value)
+                    } else {
+                        e.value.clone()
+                    };
+                    println!("  {} = {}", e.key, value);
+                }
+                println!("╚══");
+                println!();
+            }
+        }
+    } else if json {
         print_entries_json(&entries)?;
     } else {
         print_entries_table(&entries);
     }
     Ok(())
+}
+
+fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if query.is_empty() {
+        return Err("Search query cannot be empty".into());
+    }
+
+    let (_config, shell_files) = load_context()?;
+    let entries = collect_all_entries(&shell_files);
+
+    if fuzzy {
+        let results = fuzzy_search(&entries, query);
+
+        if json {
+            let json_results: Vec<serde_json::Value> = results
+                .iter()
+                .map(|r| {
+                    let value = if is_sensitive(&r.entry.key) {
+                        mask_value(&r.entry.value)
+                    } else {
+                        r.entry.value.clone()
+                    };
+                    serde_json::json!({
+                        "version": 1,
+                        "key": r.entry.key,
+                        "value": value,
+                        "source_file": r.entry.source_file.to_string_lossy(),
+                        "line_number": r.entry.line_number,
+                        "score": r.score,
+                        "matched_indices": r.matched_indices,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json_results)?);
+        } else if results.is_empty() {
+            println!("No results found for '{}'.", query);
+        } else {
+            let max_key = results
+                .iter()
+                .map(|r| r.entry.key.len())
+                .max()
+                .unwrap_or(10)
+                .min(30);
+
+            println!("{:<width$} {:<50} SCORE", "KEY", "VALUE", width = max_key);
+            println!("{}", "-".repeat(max_key + 55 + 8));
+
+            for r in &results {
+                let value = if is_sensitive(&r.entry.key) {
+                    mask_value(&r.entry.value)
+                } else if r.entry.value.len() > 50 {
+                    format!("{}…", &r.entry.value[..49])
+                } else {
+                    r.entry.value.clone()
+                };
+                println!(
+                    "{:<width$} {:<50} {}",
+                    r.entry.key,
+                    value,
+                    r.score,
+                    width = max_key
+                );
+            }
+        }
+    } else {
+        let query_lower = query.to_lowercase();
+        let results: Vec<_> = entries
+            .iter()
+            .filter(|e| {
+                e.key.to_lowercase().contains(&query_lower)
+                    || e.value.to_lowercase().contains(&query_lower)
+            })
+            .collect();
+
+        if json {
+            let json_results: Vec<serde_json::Value> = results
+                .iter()
+                .map(|e| {
+                    let value = if is_sensitive(&e.key) {
+                        mask_value(&e.value)
+                    } else {
+                        e.value.clone()
+                    };
+                    serde_json::json!({
+                        "version": 1,
+                        "key": e.key,
+                        "value": value,
+                        "source_file": e.source_file.to_string_lossy(),
+                        "line_number": e.line_number,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json_results)?);
+        } else if results.is_empty() {
+            println!("No results found for '{}'.", query);
+        } else {
+            let max_key = results
+                .iter()
+                .map(|e| e.key.len())
+                .max()
+                .unwrap_or(10)
+                .min(30);
+
+            println!("{:<width$} VALUE", "KEY", width = max_key);
+            println!("{}", "-".repeat(max_key + 6));
+
+            for e in &results {
+                let value = if is_sensitive(&e.key) {
+                    mask_value(&e.value)
+                } else if e.value.len() > 50 {
+                    format!("{}…", &e.value[..49])
+                } else {
+                    e.value.clone()
+                };
+                println!("{:<width$} {}", e.key, value, width = max_key);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn is_sensitive(key: &str) -> bool {
+    let lower = key.to_lowercase();
+    lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("credential")
+        || (lower.contains("key") && !lower.contains("keyboard"))
+}
+
+fn mask_value(value: &str) -> String {
+    if value.len() < 8 {
+        return "****".to_string();
+    }
+    let first2 = &value[..3];
+    let last2 = &value[value.len() - 3..];
+    format!("{}***{}", first2, last2)
 }
 
 fn cmd_get(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -270,19 +500,25 @@ fn cmd_set(assignment: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Er
 
     let sf = &mut shell_files[0];
 
-    // Try edit first, if not found, add
+    ensure_managed_zone(sf);
+
     match edit_entry(sf, &key, &value) {
         Ok(()) => {}
         Err(OpsError::KeyNotFound { .. }) => {
-            add_entry(
-                sf,
-                &key,
-                &value,
-                ExportStyle::Export,
-                QuoteStyle::Double,
-                config.offsets.header_protected_lines,
-                config.offsets.footer_protected_lines,
-            )?;
+            if find_soft_deleted(sf, &key).is_some() {
+                undo_delete(sf, &key)?;
+                edit_entry(sf, &key, &value)?;
+            } else {
+                add_entry(
+                    sf,
+                    &key,
+                    &value,
+                    ExportStyle::Export,
+                    QuoteStyle::Double,
+                    config.offsets.header_protected_lines,
+                    config.offsets.footer_protected_lines,
+                )?;
+            }
         }
         Err(e) => return Err(e.into()),
     }
@@ -347,7 +583,16 @@ fn cmd_copy(key: &str, key_only: bool) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn cmd_move(key: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_move(
+    key: &str,
+    new_key: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(new_name) = new_key {
+        return cmd_rename(key, new_name, dry_run, json);
+    }
+
     let (config, mut shell_files) = load_context()?;
 
     if shell_files.is_empty() {
@@ -393,6 +638,48 @@ fn cmd_move(key: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> 
         }
         println!("Moved {} to {}", key, ref_path.display());
     }
+    Ok(())
+}
+
+fn cmd_rename(
+    old_key: &str,
+    new_key: &str,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_config, mut shell_files) = load_context()?;
+
+    if shell_files.is_empty() {
+        return Err("No shell config files found".into());
+    }
+
+    let sf = &mut shell_files[0];
+    rename_entry(sf, old_key, new_key)?;
+
+    if dry_run {
+        let diff = generate_diff_from_strings(
+            &std::fs::read_to_string(&sf.path).unwrap_or_default(),
+            &serialize_shell_file(sf),
+            &sf.path.to_string_lossy(),
+        );
+        print!("{}", diff);
+    } else {
+        let content = serialize_shell_file(sf);
+        safe_write(&sf.path, &content, Some(sf.hash))?;
+    }
+
+    if json {
+        let obj = serde_json::json!({
+            "version": 1,
+            "old_key": old_key,
+            "new_key": new_key,
+            "renamed": true,
+        });
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+    } else {
+        println!("Renamed {} → {}", old_key, new_key);
+    }
+
     Ok(())
 }
 
@@ -901,7 +1188,49 @@ fn cmd_mcp(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         McpAction::Harden => cmd_mcp_harden(dry_run, json),
+        McpAction::Status => cmd_mcp_status(json),
     }
+}
+
+fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::mcp_scan::scan_mcp_configs;
+
+    let findings = scan_mcp_configs();
+
+    if json {
+        let items: Vec<serde_json::Value> = findings
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "file": f.file.to_string_lossy(),
+                    "key": f.key,
+                    "pattern": f.pattern,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "vulnerable_files": items.iter().map(|i| i["file"].as_str().unwrap()).collect::<std::collections::HashSet<_>>().len(),
+                "total_findings": items.len(),
+                "findings": items,
+            }))?
+        );
+        return Ok(());
+    }
+
+    if findings.is_empty() {
+        println!("No plaintext secrets found in MCP configs.");
+    } else {
+        println!(
+            "Found {} potential secret(s) in MCP configs.",
+            findings.len()
+        );
+        println!("Run `envforge mcp harden` to fix them.");
+    }
+
+    Ok(())
 }
 
 fn cmd_mcp_harden(dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -977,26 +1306,47 @@ fn cmd_mcp_harden(dry_run: bool, json: bool) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-fn cmd_diff() -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_diff(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     let (_config, shell_files) = load_context()?;
 
-    let mut any_diff = false;
+    let mut all_diffs = Vec::new();
     for sf in &shell_files {
         if let Ok(diff) = generate_diff(sf) {
             if !diff.is_empty() {
-                print!("{}", diff);
-                any_diff = true;
+                all_diffs.push((sf.path.to_string_lossy().to_string(), diff));
             }
         }
     }
 
-    if !any_diff {
+    if json {
+        let json_diffs: Vec<serde_json::Value> = all_diffs
+            .iter()
+            .map(|(file, diff)| {
+                serde_json::json!({
+                    "file": file,
+                    "diff": diff,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "has_changes": !all_diffs.is_empty(),
+                "diffs": json_diffs,
+            }))?
+        );
+    } else if all_diffs.is_empty() {
         println!("No changes.");
+    } else {
+        for (_, diff) in &all_diffs {
+            print!("{}", diff);
+        }
     }
     Ok(())
 }
 
-fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_backup(action: &BackupAction, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         BackupAction::Restore { file } => {
             let backup_path = Path::new(file);
@@ -1004,23 +1354,30 @@ fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
                 return Err(format!("Backup file not found: {}", file).into());
             }
 
-            // Determine target from backup filename (e.g., ".zshrc.20260406T120000.bak" -> ".zshrc")
             let file_name = backup_path
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy();
 
-            // Find the original filename (everything before the first timestamp-like segment)
             let first_part = file_name.split('.').next();
             if first_part.is_none() {
                 return Err("Cannot determine target file from backup name".into());
             }
 
             let content = std::fs::read_to_string(backup_path)?;
-            println!("Restored from {}", file);
-            println!("Content length: {} bytes", content.len());
-            // In a full implementation, we'd write back to the original path
-            // For now, just confirm the backup is readable
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "restored_from": file,
+                        "content_length": content.len(),
+                    }))?
+                );
+            } else {
+                println!("Restored from {}", file);
+                println!("Content length: {} bytes", content.len());
+            }
             Ok(())
         }
         BackupAction::List => {
@@ -1028,7 +1385,25 @@ fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
             let primary = shellexpand(&config.files.primary);
             let backups = list_backups(&primary)?;
 
-            if backups.is_empty() {
+            if json {
+                let json_backups: Vec<serde_json::Value> = backups
+                    .iter()
+                    .map(|b| {
+                        serde_json::json!({
+                            "path": b.to_string_lossy(),
+                            "size": std::fs::metadata(b).map(|m| m.len()).unwrap_or(0),
+                        })
+                    })
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "count": json_backups.len(),
+                        "backups": json_backups,
+                    }))?
+                );
+            } else if backups.is_empty() {
                 println!("No backups found.");
             } else {
                 for b in &backups {
@@ -1040,13 +1415,35 @@ fn cmd_backup(action: &BackupAction) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn cmd_profile(action: &super::ProfileAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_profile(
+    action: &super::ProfileAction,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = load_or_create_default()?;
 
     match action {
         super::ProfileAction::List => {
             let names = config.profiles.profile_names();
-            if names.is_empty() {
+            if json {
+                let json_profiles: Vec<serde_json::Value> = names
+                    .iter()
+                    .map(|name| {
+                        let file = config
+                            .profiles
+                            .entries
+                            .get(name)
+                            .map(|e| e.file.as_str())
+                            .unwrap_or("?");
+                        serde_json::json!({
+                            "version": 1,
+                            "name": name,
+                            "file": file,
+                            "active": *name == config.profiles.active,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&json_profiles)?);
+            } else if names.is_empty() {
                 println!("No profiles defined.");
             } else {
                 println!("Profiles:\n");
@@ -1062,7 +1459,7 @@ fn cmd_profile(action: &super::ProfileAction) -> Result<(), Box<dyn std::error::
                         .get(name)
                         .map(|e| e.file.as_str())
                         .unwrap_or("?");
-                    println!("  {} ({}){}", name, file, active);
+                    println!(" {} ({}){}", name, file, active);
                 }
                 println!("\nShared: {}", config.profiles.shared_file);
             }
@@ -1382,10 +1779,30 @@ fn install_shell_completion(script: &str, shell: &str) -> Result<(), Box<dyn std
     Ok(())
 }
 
-fn cmd_config() -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_config(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     let config = load_or_create_default()?;
-    let toml_str = toml::to_string_pretty(&config)?;
-    println!("{}", toml_str);
+    if json {
+        let json_val = serde_json::json!({
+            "version": 1,
+            "files": {
+                "primary": config.files.primary,
+                "reference": config.files.reference,
+                "use_reference_file": config.files.use_reference_file,
+            },
+            "profiles": {
+                "active": config.profiles.active,
+                "names": config.profiles.profile_names(),
+            },
+            "offsets": {
+                "header_protected_lines": config.offsets.header_protected_lines,
+                "footer_protected_lines": config.offsets.footer_protected_lines,
+            },
+        });
+        println!("{}", serde_json::to_string_pretty(&json_val)?);
+    } else {
+        let toml_str = toml::to_string_pretty(&config)?;
+        println!("{}", toml_str);
+    }
     Ok(())
 }
 
@@ -1558,7 +1975,9 @@ fn print_entries_table(entries: &[EnvEntry]) {
     println!("{}", "-".repeat(max_key + 55 + 15));
 
     for entry in entries {
-        let value = if entry.value.len() > 50 {
+        let value = if is_sensitive(&entry.key) {
+            mask_value(&entry.value)
+        } else if entry.value.len() > 50 {
             format!("{}…", &entry.value[..49])
         } else {
             entry.value.clone()
@@ -1591,9 +2010,14 @@ fn print_entries_json(entries: &[EnvEntry]) -> Result<(), Box<dyn std::error::Er
     let json_entries: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
+            let value = if is_sensitive(&e.key) {
+                mask_value(&e.value)
+            } else {
+                e.value.clone()
+            };
             serde_json::json!({
                 "key": e.key,
-                "value": e.value,
+                "value": value,
                 "source_file": e.source_file.to_string_lossy(),
                 "line_number": e.line_number,
                 "location": match e.location {
@@ -1614,12 +2038,12 @@ fn cmd_validate_enhanced(
     env_file: Option<&str>,
     environment: Option<&str>,
     json: bool,
+    rules: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::schema::{find_schema, parse_schema, validate_against_schema};
 
     let config = load_or_create_default()?;
 
-    // Load ENV vars
     let env: std::collections::HashMap<String, String> = if let Some(env_path) = env_file {
         let entries = crate::ops::dotenv::parse_dotenv(std::path::Path::new(env_path))?;
         entries.into_iter().map(|e| (e.key, e.value)).collect()
@@ -1632,6 +2056,52 @@ fn cmd_validate_enhanced(
             .map(|e| (e.key, e.value))
             .collect()
     };
+
+    // Parse --rules KEY=rule pairs
+    let mut extra_rules: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for rule in rules {
+        if let Some((key, validator)) = rule.split_once('=') {
+            extra_rules.insert(key.to_string(), validator.to_string());
+        }
+    }
+
+    let mut all_errors = Vec::new();
+
+    // Run value-rule validation if --rules provided
+    if !extra_rules.is_empty() {
+        let env_entries: Vec<crate::ops::EnvEntry> = env
+            .iter()
+            .map(|(k, v)| crate::ops::EnvEntry {
+                key: k.clone(),
+                value: v.clone(),
+                source_file: std::path::PathBuf::new(),
+                line_number: 0,
+                line_index: 0,
+                location: EntryLocation::InFile,
+                export_style: ExportStyle::Export,
+                quote_style: QuoteStyle::Double,
+                is_dirty: false,
+            })
+            .collect();
+        let rule_errors = crate::ops::validation::validate_entries(&env_entries, &extra_rules);
+        for e in &rule_errors {
+            all_errors.push(serde_json::json!({
+                "key": e.key,
+                "message": e.message,
+                "rule": e.rule,
+                "source": "rules",
+            }));
+        }
+        if !json {
+            for e in &rule_errors {
+                println!(
+                    "\x1b[31m✗\x1b[0m {:<30} — {} (rule: {})",
+                    e.key, e.message, e.rule
+                );
+            }
+        }
+    }
 
     // Try to load schema
     let schema_file = schema_path
@@ -1651,15 +2121,11 @@ fn cmd_validate_enhanced(
                         "message": e.message,
                         "expected": e.expected,
                         "actual": e.actual,
+                        "source": "schema",
                     })
                 })
                 .collect();
-            println!(
-                "{}",
-                serde_json::to_string_pretty(
-                    &serde_json::json!({"errors": items, "valid": errors.is_empty()})
-                )?
-            );
+            all_errors.extend(items);
         } else if errors.is_empty() {
             println!(
                 "All variables valid ({} checked against schema).",
@@ -1669,11 +2135,34 @@ fn cmd_validate_enhanced(
             for e in &errors {
                 println!("\x1b[31m✗\x1b[0m {:<30} — {}", e.key, e.message);
             }
+        }
+
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"errors": all_errors, "valid": all_errors.is_empty()})
+                )?
+            );
+        } else if !errors.is_empty() {
             println!("\n{} error(s) found.", errors.len());
             std::process::exit(1);
         }
+    } else if !extra_rules.is_empty() {
+        // Only had --rules, no schema
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"errors": all_errors, "valid": all_errors.is_empty()})
+                )?
+            );
+        }
+        if !all_errors.is_empty() {
+            println!("\n{} error(s) found.", all_errors.len());
+            std::process::exit(1);
+        }
     } else {
-        // Fallback to config.toml validation only
         return cmd_validate(json);
     }
 
@@ -1746,7 +2235,13 @@ fn cmd_drift(
                 })
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&items)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "drift": items,
+            }))?
+        );
         return Ok(());
     }
 
@@ -2512,7 +3007,11 @@ fn propagate_to_sync(key: &str, new_value: &str) -> Result<(), Box<dyn std::erro
     }
 }
 
-fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_snapshot(
+    action: &SnapshotAction,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::snapshot;
 
     match action {
@@ -2554,22 +3053,54 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
             let metas = snapshot::list_snapshots()?;
 
             if metas.is_empty() {
-                println!("No snapshots found.");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "version": 1,
+                            "snapshots": [],
+                        })
+                    );
+                } else {
+                    println!("No snapshots found.");
+                }
                 return Ok(());
             }
 
-            println!(
-                "{:<25} {:<12} {:<15} {:<6}",
-                "NAME", "PROFILE", "MACHINE", "VARS"
-            );
-            println!("{}", "-".repeat(60));
-            for m in &metas {
+            if json {
+                let json_snapshots: Vec<serde_json::Value> = metas
+                    .iter()
+                    .map(|m| {
+                        serde_json::json!({
+                            "name": m.name,
+                            "profile": m.profile,
+                            "machine_id": m.machine_id,
+                            "var_count": m.var_count,
+                            "created_at": m.created_at,
+                        })
+                    })
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "snapshots": json_snapshots,
+                    }))?
+                );
+            } else {
                 println!(
                     "{:<25} {:<12} {:<15} {:<6}",
-                    m.name, m.profile, m.machine_id, m.var_count
+                    "NAME", "PROFILE", "MACHINE", "VARS"
                 );
+                println!("{}", "-".repeat(60));
+                for m in &metas {
+                    println!(
+                        "{:<25} {:<12} {:<15} {:<6}",
+                        m.name, m.profile, m.machine_id, m.var_count
+                    );
+                }
+                println!("\n{} snapshot(s)", metas.len());
             }
-            println!("\n{} snapshot(s)", metas.len());
         }
 
         SnapshotAction::Restore { name, last } => {
@@ -2609,20 +3140,26 @@ fn cmd_snapshot(action: &SnapshotAction, dry_run: bool) -> Result<(), Box<dyn st
             }
 
             let sf = &mut shell_files[0];
+            ensure_managed_zone(sf);
 
             for (key, value) in &snap.entries {
                 match edit_entry(sf, key, value) {
                     Ok(()) => {}
                     Err(OpsError::KeyNotFound { .. }) => {
-                        add_entry(
-                            sf,
-                            key,
-                            value,
-                            ExportStyle::Export,
-                            QuoteStyle::Double,
-                            config.offsets.header_protected_lines,
-                            config.offsets.footer_protected_lines,
-                        )?;
+                        if find_soft_deleted(sf, key).is_some() {
+                            undo_delete(sf, key)?;
+                            edit_entry(sf, key, value)?;
+                        } else {
+                            add_entry(
+                                sf,
+                                key,
+                                value,
+                                ExportStyle::Export,
+                                QuoteStyle::Double,
+                                config.offsets.header_protected_lines,
+                                config.offsets.footer_protected_lines,
+                            )?;
+                        }
                     }
                     Err(e) => return Err(e.into()),
                 }
@@ -2843,24 +3380,31 @@ fn cmd_share(action: &ShareAction, dry_run: bool) -> Result<(), Box<dyn std::err
                 }
 
                 let sf = &mut shell_files[0];
+                ensure_managed_zone(sf);
                 let mut imported = 0;
 
                 for (key, value) in &package.entries {
                     match edit_entry(sf, key, value) {
                         Ok(()) => {
-                            println!("  Updated: {}", key);
+                            println!(" Updated: {}", key);
                         }
                         Err(OpsError::KeyNotFound { .. }) => {
-                            add_entry(
-                                sf,
-                                key,
-                                value,
-                                ExportStyle::Export,
-                                QuoteStyle::Double,
-                                config.offsets.header_protected_lines,
-                                config.offsets.footer_protected_lines,
-                            )?;
-                            println!("  Added:   {}", key);
+                            if find_soft_deleted(sf, key).is_some() {
+                                undo_delete(sf, key)?;
+                                edit_entry(sf, key, value)?;
+                                println!(" Restored: {}", key);
+                            } else {
+                                add_entry(
+                                    sf,
+                                    key,
+                                    value,
+                                    ExportStyle::Export,
+                                    QuoteStyle::Double,
+                                    config.offsets.header_protected_lines,
+                                    config.offsets.footer_protected_lines,
+                                )?;
+                                println!(" Added: {}", key);
+                            }
                         }
                         Err(e) => {
                             eprintln!("  Failed:  {} ({})", key, e);
@@ -3119,7 +3663,55 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn cmd_sanitize(file: &str, output: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::fence::check_fence_status;
+
+    let project_dir = std::env::current_dir()?;
+    let status = check_fence_status(&project_dir)?;
+
+    if json {
+        let obj = serde_json::json!({
+            "version": 1,
+            "all_fenced": status.all_fenced,
+            "files": status.files,
+        });
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+    } else {
+        println!("AI Secret Fence Status\n");
+        for f in &status.files {
+            let icon = if f.fenced {
+                "\x1b[32m✓\x1b[0m"
+            } else if f.exists {
+                "\x1b[33m⚠\x1b[0m"
+            } else {
+                "\x1b[31m✗\x1b[0m"
+            };
+            let label = if f.fenced {
+                "fenced"
+            } else if f.exists {
+                "exists (not fenced)"
+            } else {
+                "missing"
+            };
+            println!(" {} {} — {}", icon, f.path, label);
+        }
+        println!();
+        if status.all_fenced {
+            println!("\x1b[32mAll fence files configured.\x1b[0m");
+        } else {
+            println!("\x1b[33mSome fence files missing or incomplete. Run `envforge fence` to set up.\x1b[0m");
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_sanitize(
+    file: &str,
+    output: Option<&str>,
+    json: bool,
+    dry_run: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::sanitize::sanitize_file;
 
     let file_path = Path::new(file);
@@ -3127,11 +3719,9 @@ fn cmd_sanitize(file: &str, output: Option<&str>) -> Result<(), Box<dyn std::err
         return Err(format!("File not found: {}", file).into());
     }
 
-    // Load all entries from EnvForge config
     let (_config, shell_files) = load_context()?;
     let entries = collect_all_entries(&shell_files);
 
-    // Build secret pairs from sensitive entries
     let secrets: Vec<(String, String)> = entries
         .iter()
         .filter(|e| e.location != EntryLocation::Commented)
@@ -3140,21 +3730,75 @@ fn cmd_sanitize(file: &str, output: Option<&str>) -> Result<(), Box<dyn std::err
         .collect();
 
     if secrets.is_empty() {
-        eprintln!("No sensitive ENV values found to sanitize against.");
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "file": file,
+                    "sanitized": false,
+                    "count": 0,
+                    "message": "No sensitive ENV values found",
+                }))?
+            );
+        } else {
+            eprintln!("No sensitive ENV values found to sanitize against.");
+        }
         return Ok(());
     }
 
-    let output_path = output.map(Path::new);
-    let count = sanitize_file(file_path, output_path, &secrets)?;
+    if dry_run {
+        if json {
+            let secret_keys: Vec<&str> = secrets.iter().map(|(k, _)| k.as_str()).collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "file": file,
+                    "dry_run": true,
+                    "secrets_would_replace": secret_keys,
+                    "count": secrets.len(),
+                }))?
+            );
+        } else {
+            eprintln!(
+                "Dry run: would replace {} secret(s) in {}",
+                secrets.len(),
+                file
+            );
+            for (key, _) in &secrets {
+                eprintln!("  {} → ${{{}}}", key, key);
+            }
+        }
+    } else {
+        let output_path = output.map(Path::new);
+        let count = sanitize_file(file_path, output_path, &secrets)?;
 
-    eprintln!("Sanitized: {} secret(s) replaced", count);
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "file": file,
+                    "sanitized": true,
+                    "count": count,
+                }))?
+            );
+        } else {
+            eprintln!("Sanitized: {} secret(s) replaced", count);
+        }
+    }
 
     Ok(())
 }
 
 // ─── AI Hook Command ───────────────────────────────────────
 
-fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_ai_hook(
+    action: &AiHookAction,
+    dry_run: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::ai_hooks::{install_ai_hook, parse_ai_tool, remove_ai_hook};
 
     let cwd = std::env::current_dir()?;
@@ -3163,21 +3807,94 @@ fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> 
         AiHookAction::Install { tool } => {
             let ai_tool =
                 parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-            let result = install_ai_hook(&ai_tool, &cwd)?;
-            if result.installed {
-                println!("{}", result.message);
-                println!("  Config: {}", result.config_path.display());
+            if dry_run {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "action": "install",
+                            "tool": tool,
+                            "dry_run": true,
+                            "message": format!("Would install {} hook", tool),
+                        }))?
+                    );
+                } else {
+                    println!("Dry run: would install {} hook", tool);
+                }
             } else {
-                println!("{}", result.message);
+                let result = install_ai_hook(&ai_tool, &cwd)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "action": "install",
+                            "tool": tool,
+                            "installed": result.installed,
+                            "message": result.message,
+                            "config_path": result.config_path.to_string_lossy(),
+                        }))?
+                    );
+                } else if result.installed {
+                    println!("{}", result.message);
+                    println!(" Config: {}", result.config_path.display());
+                } else {
+                    println!("{}", result.message);
+                }
             }
         }
         AiHookAction::Remove { tool } => {
             let ai_tool =
                 parse_ai_tool(tool).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-            let result = remove_ai_hook(&ai_tool, &cwd)?;
-            println!("{}", result.message);
-            if result.config_path.exists() {
-                println!("  Config: {}", result.config_path.display());
+            if dry_run {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "action": "remove",
+                            "tool": tool,
+                            "dry_run": true,
+                            "message": format!("Would remove {} hook", tool),
+                        }))?
+                    );
+                } else {
+                    println!("Dry run: would remove {} hook", tool);
+                }
+            } else {
+                let result = remove_ai_hook(&ai_tool, &cwd)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "action": "remove",
+                            "tool": tool,
+                            "message": result.message,
+                            "config_path": result.config_path.to_string_lossy(),
+                        }))?
+                    );
+                } else {
+                    println!("{}", result.message);
+                    if result.config_path.exists() {
+                        println!(" Config: {}", result.config_path.display());
+                    }
+                }
+            }
+        }
+        AiHookAction::Status => {
+            let status = crate::ops::ai_hooks::check_hook_status(&cwd);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "status": status,
+                    }))?
+                );
+            } else {
+                println!("{}", serde_json::to_string_pretty(&status)?);
             }
         }
     }
@@ -3188,26 +3905,49 @@ fn cmd_ai_hook(action: &AiHookAction) -> Result<(), Box<dyn std::error::Error>> 
 // ─── AI Guard Command ──────────────────────────────────────
 
 fn cmd_ai_guard(
-    stage: &str,
-    tool_name: &str,
+    stage: Option<&str>,
+    tool_name: Option<&str>,
     tool_input: Option<&str>,
+    json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::ai_guard::{run_guard, GuardStage};
 
     let stage = match stage {
-        "pre-tool" => GuardStage::PreTool,
-        "post-tool" => GuardStage::PostTool,
-        _ => return Ok(()), // unknown stage, skip silently
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    let tool_name = match tool_name {
+        Some(t) => t,
+        None => return Ok(()),
     };
 
-    let secrets = load_sensitive_secrets();
-    let result = run_guard(stage, tool_name, tool_input, &secrets);
+    let stage_enum = match stage {
+        "pre-tool" => GuardStage::PreTool,
+        "post-tool" => GuardStage::PostTool,
+        _ => return Ok(()),
+    };
+    let stage_str = stage;
 
-    for warning in &result.warnings {
-        eprintln!("{}", warning);
+    let secrets = load_sensitive_secrets();
+    let result = run_guard(stage_enum, tool_name, tool_input, &secrets);
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "stage": stage_str,
+                "tool": tool_name,
+                "blocked": result.blocked,
+                "warnings": result.warnings,
+            }))?
+        );
+    } else {
+        for warning in &result.warnings {
+            eprintln!("{}", warning);
+        }
     }
 
-    // Don't block (exit 0 always) — hooks are advisory
     Ok(())
 }
 
@@ -3301,80 +4041,170 @@ fn cmd_proxy(
 
 // ─── Canary Commands ──────────────────────────────────────────
 
-fn cmd_canary(action: &super::CanaryAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_canary(action: &super::CanaryAction, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::canary;
 
     match action {
         super::CanaryAction::Create { key, pattern } => {
             let canary = canary::create_canary(key, pattern)?;
-            println!("Canary created: {}", canary.key);
-            println!("  Fake value: {}", canary.fake_value);
-            println!("  Pattern: {}", canary.pattern);
-            println!();
-            println!("Add to your .env: {}={}", canary.key, canary.fake_value);
-            println!(
-                "If this value appears in logs, git, or API calls \u{2014} an agent leaked it."
-            );
+            if json {
+                let obj = serde_json::json!({
+                    "version": 1,
+                    "key": canary.key,
+                    "fake_value": canary.fake_value,
+                    "pattern": canary.pattern,
+                    "created_at": canary.created_at,
+                    "triggered": canary.triggered,
+                    "trigger_count": canary.trigger_count,
+                });
+                println!("{}", serde_json::to_string_pretty(&obj)?);
+            } else {
+                println!("Canary created: {}", canary.key);
+                println!(" Fake value: {}", canary.fake_value);
+                println!(" Pattern: {}", canary.pattern);
+                println!();
+                println!("Add to your .env: {}={}", canary.key, canary.fake_value);
+                println!("If this value appears in logs, git, or API calls — an agent leaked it.");
+            }
         }
         super::CanaryAction::List => {
             let canaries = canary::list_canaries()?;
             if canaries.is_empty() {
-                println!("No canary secrets configured.");
-                println!("Create one with: envforge canary create KEY --pattern generic");
+                if json {
+                    println!("[]");
+                } else {
+                    println!("No canary secrets configured.");
+                    println!("Create one with: envforge canary create KEY --pattern generic");
+                }
                 return Ok(());
             }
-            println!(
-                "{:<25} {:<15} {:<10} {:<8}",
-                "KEY", "PATTERN", "TRIGGERED", "COUNT"
-            );
-            println!("{}", "-".repeat(60));
-            for c in &canaries {
+            if json {
+                let json_canaries: Vec<serde_json::Value> = canaries
+                    .iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "version": 1,
+                            "key": c.key,
+                            "pattern": c.pattern,
+                            "fake_value": c.fake_value,
+                            "created_at": c.created_at,
+                            "triggered": c.triggered,
+                            "trigger_count": c.trigger_count,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&json_canaries)?);
+            } else {
                 println!(
                     "{:<25} {:<15} {:<10} {:<8}",
-                    c.key,
-                    c.pattern,
-                    if c.triggered { "YES" } else { "no" },
-                    c.trigger_count,
+                    "KEY", "PATTERN", "TRIGGERED", "COUNT"
                 );
+                println!("{}", "-".repeat(60));
+                for c in &canaries {
+                    println!(
+                        "{:<25} {:<15} {:<10} {:<8}",
+                        c.key,
+                        c.pattern,
+                        if c.triggered { "YES" } else { "no" },
+                        c.trigger_count,
+                    );
+                }
+                println!("\nTotal: {} canary secret(s)", canaries.len());
             }
-            println!("\nTotal: {} canary secret(s)", canaries.len());
         }
         super::CanaryAction::Check => {
             let triggered = canary::check_canaries()?;
             if triggered.is_empty() {
-                println!("No canaries have been triggered. All clear.");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "version": 1,
+                            "triggered": [],
+                            "total": 0,
+                        })
+                    );
+                } else {
+                    println!("No canaries have been triggered. All clear.");
+                }
                 return Ok(());
             }
-            println!(
-                "\u{1f6a8} {} canary secret(s) TRIGGERED:\n",
-                triggered.len()
-            );
-            for c in &triggered {
+            if json {
+                let json_triggered: Vec<serde_json::Value> = triggered
+                    .iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "version": 1,
+                            "key": c.key,
+                            "pattern": c.pattern,
+                            "trigger_count": c.trigger_count,
+                        })
+                    })
+                    .collect();
+                let alerts = canary::read_alerts()?;
+                let json_alerts: Vec<serde_json::Value> = alerts
+                    .iter()
+                    .rev()
+                    .take(10)
+                    .map(|a| {
+                        serde_json::json!({
+                            "timestamp": a.timestamp,
+                            "key": a.key,
+                            "source": a.source,
+                            "details": a.details,
+                        })
+                    })
+                    .collect();
                 println!(
-                    "  {} (pattern: {}, triggered {} time(s))",
-                    c.key, c.pattern, c.trigger_count
+                    "{}",
+                    serde_json::json!({
+                        "version": 1,
+                        "triggered": json_triggered,
+                        "total": triggered.len(),
+                        "recent_alerts": json_alerts,
+                    })
                 );
-            }
-
-            // Show recent alerts
-            let alerts = canary::read_alerts()?;
-            if !alerts.is_empty() {
-                println!("\nRecent alerts:");
-                let start = if alerts.len() > 10 {
-                    alerts.len() - 10
-                } else {
-                    0
-                };
-                for alert in &alerts[start..] {
+            } else {
+                println!(
+                    "\u{1f6a8} {} canary secret(s) TRIGGERED:\n",
+                    triggered.len()
+                );
+                for c in &triggered {
                     println!(
-                        "  [{}] {} via {} - {}",
-                        alert.timestamp, alert.key, alert.source, alert.details
+                        " {} (pattern: {}, triggered {} time(s))",
+                        c.key, c.pattern, c.trigger_count
                     );
+                }
+
+                let alerts = canary::read_alerts()?;
+                if !alerts.is_empty() {
+                    println!("\nRecent alerts:");
+                    let start = if alerts.len() > 10 {
+                        alerts.len() - 10
+                    } else {
+                        0
+                    };
+                    for alert in &alerts[start..] {
+                        println!(
+                            " [{}] {} via {} - {}",
+                            alert.timestamp, alert.key, alert.source, alert.details
+                        );
+                    }
                 }
             }
         }
         super::CanaryAction::Delete { key } => {
-            if canary::delete_canary(key)? {
+            let found = canary::delete_canary(key)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "version": 1,
+                        "key": key,
+                        "deleted": found,
+                    })
+                );
+            } else if found {
                 println!("Canary deleted: {}", key);
             } else {
                 println!("Canary not found: {}", key);
@@ -3391,7 +4221,10 @@ fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
     let entries = read_audit_log()?;
     if entries.is_empty() {
         if json {
-            println!("{}", serde_json::json!({"entries": [], "total": 0}));
+            println!(
+                "{}",
+                serde_json::json!({"version": 1, "entries": [], "total": 0})
+            );
         } else {
             println!("No proxy access audit entries found.");
             println!("Start the proxy with `envforge proxy` to generate audit logs.");
@@ -3425,6 +4258,7 @@ fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
                 "entries": items,
                 "total": entries.len(),
             }))?
@@ -3456,7 +4290,7 @@ fn cmd_audit_access(n: usize, json: bool) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-fn cmd_lease(action: &LeaseAction) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_lease(action: &LeaseAction, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::lease;
 
     match action {
@@ -3487,29 +4321,68 @@ fn cmd_lease(action: &LeaseAction) -> Result<(), Box<dyn std::error::Error>> {
         LeaseAction::List => {
             let statuses = lease::list_leases()?;
             if statuses.is_empty() {
-                eprintln!("No leases found.");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "version": 1,
+                            "leases": [],
+                        })
+                    );
+                } else {
+                    eprintln!("No leases found.");
+                }
                 return Ok(());
             }
-            println!("{:<25} {:<12} {:<12} KEYS", "NAME", "STATUS", "REMAINING");
-            println!("{}", "-".repeat(65));
-            for s in &statuses {
-                let status = if s.revoked {
-                    "REVOKED"
-                } else if s.expired {
-                    "EXPIRED"
-                } else {
-                    "ACTIVE"
-                };
-                let remaining = if s.expired || s.revoked {
-                    "-".to_string()
-                } else {
-                    format_duration_short(s.remaining_seconds)
-                };
-                let keys = match s.key_count {
-                    Some(n) => format!("{} key(s)", n),
-                    None => "ALL".to_string(),
-                };
-                println!("{:<25} {:<12} {:<12} {}", s.name, status, remaining, keys);
+
+            if json {
+                let items: Vec<serde_json::Value> = statuses
+                .iter()
+                .map(|s| {
+                    let status_str = if s.revoked {
+                        "revoked"
+                    } else if s.expired {
+                        "expired"
+                    } else {
+                        "active"
+                    };
+                    serde_json::json!({
+                        "name": s.name,
+                        "status": status_str,
+                        "remaining_seconds": if s.expired || s.revoked { None } else { Some(s.remaining_seconds) },
+                        "key_count": s.key_count,
+                    })
+                })
+                .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "leases": items,
+                    }))?
+                );
+            } else {
+                println!("{:<25} {:<12} {:<12} KEYS", "NAME", "STATUS", "REMAINING");
+                println!("{}", "-".repeat(65));
+                for s in &statuses {
+                    let status = if s.revoked {
+                        "REVOKED"
+                    } else if s.expired {
+                        "EXPIRED"
+                    } else {
+                        "ACTIVE"
+                    };
+                    let remaining = if s.expired || s.revoked {
+                        "-".to_string()
+                    } else {
+                        format_duration_short(s.remaining_seconds)
+                    };
+                    let keys = match s.key_count {
+                        Some(n) => format!("{} key(s)", n),
+                        None => "ALL".to_string(),
+                    };
+                    println!("{:<25} {:<12} {:<12} {}", s.name, status, remaining, keys);
+                }
             }
         }
         LeaseAction::Cleanup => {
@@ -3521,14 +4394,42 @@ fn cmd_lease(action: &LeaseAction) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn cmd_revoke(all: bool, name: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_revoke(all: bool, name: Option<&str>, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::lease;
 
     if all {
         let count = lease::revoke_all_leases()?;
-        eprintln!("KILLSWITCH: {} lease(s) revoked and removed.", count);
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "action": "revoke_all",
+                    "count": count,
+                    "message": format!("{} lease(s) revoked", count),
+                }))?
+            );
+        } else {
+            eprintln!("KILLSWITCH: {} lease(s) revoked and removed.", count);
+        }
     } else if let Some(lease_name) = name {
-        if lease::revoke_lease(lease_name)? {
+        let found = lease::revoke_lease(lease_name)?;
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "action": "revoke",
+                    "lease": lease_name,
+                    "found": found,
+                    "message": if found {
+                        format!("Revoked lease: {}", lease_name)
+                    } else {
+                        format!("Lease not found: {}", lease_name)
+                    },
+                }))?
+            );
+        } else if found {
             eprintln!("Revoked lease: {}", lease_name);
         } else {
             eprintln!("Lease not found: {}", lease_name);
@@ -3567,14 +4468,13 @@ fn shellexpand(path: &str) -> std::path::PathBuf {
 
 // ─── Deps command ─────────────────────────────────────────
 
-fn cmd_deps(key: &str, include_source: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_deps(key: &str, include_source: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::deps::{find_dependencies, group_by_type};
     use std::collections::HashSet;
 
     let config = load_or_create_default()?;
     let project_dir = std::env::current_dir()?;
 
-    // Collect EnvForge managed files
     let mut managed_files = Vec::new();
     managed_files.push(shellexpand(&config.files.primary));
     if config.files.use_reference_file {
@@ -3587,37 +4487,226 @@ fn cmd_deps(key: &str, include_source: bool) -> Result<(), Box<dyn std::error::E
 
     let refs = find_dependencies(key, &project_dir, include_source, &managed_files)?;
 
-    if refs.is_empty() {
+    if json {
+        let json_refs: Vec<serde_json::Value> = refs
+            .iter()
+            .map(|dep| {
+                let display_path = dep.file.strip_prefix(&project_dir).unwrap_or(&dep.file);
+                serde_json::json!({
+                    "file": display_path.to_string_lossy(),
+                    "line": dep.line,
+                    "context": dep.context,
+                    "type": dep.ref_type.to_string(),
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "key": key,
+                "references": json_refs,
+                "total": refs.len(),
+            }))?
+        );
+    } else if refs.is_empty() {
         println!("No references found for {}", key);
+    } else {
+        println!("Dependencies for {}\n", key);
+
+        let grouped = group_by_type(&refs);
+        let mut total_files = HashSet::new();
+
+        for (ref_type, items) in &grouped {
+            println!("{}:", ref_type);
+            for dep in items {
+                let display_path = dep.file.strip_prefix(&project_dir).unwrap_or(&dep.file);
+                println!(
+                    " {}:{} {}",
+                    display_path.display(),
+                    dep.line,
+                    truncate_context(&dep.context, 60)
+                );
+                total_files.insert(dep.file.clone());
+            }
+            println!();
+        }
+
+        println!(
+            "Total: {} references across {} files",
+            refs.len(),
+            total_files.len()
+        );
+    }
+
+    Ok(())
+}
+
+fn cmd_undo(list: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if list {
+        let config = load_or_create_default()?;
+        let primary = shellexpand(&config.files.primary);
+        let backups = list_backups(&primary)?;
+
+        if json {
+            let json_backups: Vec<serde_json::Value> = backups
+                .iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "path": b.to_string_lossy(),
+                        "size": std::fs::metadata(b).map(|m| m.len()).unwrap_or(0),
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "snapshots": json_backups,
+                }))?
+            );
+        } else if backups.is_empty() {
+            println!("No undo snapshots available.");
+        } else {
+            println!("Available undo snapshots:\n");
+            for b in &backups {
+                let name = b.file_name().unwrap_or_default().to_string_lossy();
+                let size = std::fs::metadata(b).map(|m| m.len()).unwrap_or(0);
+                println!("  {} ({} bytes)", name, size);
+            }
+        }
         return Ok(());
     }
 
-    println!("Dependencies for {}\n", key);
+    let config = load_or_create_default()?;
+    let primary = shellexpand(&config.files.primary);
+    let backups = list_backups(&primary)?;
 
-    let grouped = group_by_type(&refs);
-    let mut total_files = HashSet::new();
+    if let Some(latest) = backups.last() {
+        let backup_content = std::fs::read_to_string(latest)?;
+        crate::config::safe_write(&primary, &backup_content, None)?;
 
-    for (ref_type, items) in &grouped {
-        println!("{}:", ref_type);
-        for dep in items {
-            // Show relative path if possible
-            let display_path = dep.file.strip_prefix(&project_dir).unwrap_or(&dep.file);
+        if json {
             println!(
-                "  {}:{}  {}",
-                display_path.display(),
-                dep.line,
-                truncate_context(&dep.context, 60)
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "action": "undo",
+                    "restored_from": latest.to_string_lossy(),
+                    "target": primary.to_string_lossy(),
+                }))?
             );
-            total_files.insert(dep.file.clone());
+        } else {
+            println!(
+                "Undone: restored {} from {}",
+                primary.display(),
+                latest.display()
+            );
         }
-        println!();
+    } else if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": 1,
+                "action": "undo",
+                "error": "No backup snapshots available",
+            }))?
+        );
+    } else {
+        eprintln!("No backup snapshots available for undo.");
     }
 
-    println!(
-        "Total: {} references across {} files",
-        refs.len(),
-        total_files.len()
-    );
+    Ok(())
+}
+
+fn cmd_offset(show: bool, suggest: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::offset;
+
+    let (config, shell_files) = load_context()?;
+
+    if shell_files.is_empty() {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "version": 1,
+                    "error": "No shell files found",
+                }))?
+            );
+        } else {
+            eprintln!("No shell files found.");
+        }
+        return Ok(());
+    }
+
+    let sf = &shell_files[0];
+
+    let zone = offset::find_managed_zone(sf);
+    let blocks = if show {
+        offset::detect_protected_blocks(sf)
+    } else {
+        vec![]
+    };
+    let (header, footer) = if suggest || show {
+        offset::suggest_offsets(sf)
+    } else {
+        (
+            config.offsets.header_protected_lines,
+            config.offsets.footer_protected_lines,
+        )
+    };
+
+    if json {
+        let json_blocks: Vec<serde_json::Value> = blocks
+            .iter()
+            .map(|b| {
+                serde_json::json!({
+                    "name": b.name,
+                    "start_line": b.start_line,
+                    "end_line": b.end_line,
+                })
+            })
+            .collect();
+
+        let mut obj = serde_json::json!({
+            "version": 1,
+            "file": sf.path.to_string_lossy(),
+            "total_lines": sf.lines.len(),
+            "header_offset": header,
+            "footer_offset": footer,
+            "managed_zone": zone.as_ref().map(|z| serde_json::json!({
+                "start_idx": z.start_idx,
+                "end_idx": z.end_idx,
+            })),
+        });
+
+        if show {
+            obj["protected_blocks"] = serde_json::json!(json_blocks);
+        }
+
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+    } else {
+        if let Some(z) = &zone {
+            println!("Managed zone: lines {}–{}", z.start_idx + 1, z.end_idx + 1);
+        } else {
+            println!("No managed zone detected.");
+        }
+
+        if show && !blocks.is_empty() {
+            println!("\nProtected blocks:");
+            for b in &blocks {
+                println!(
+                    "  {} (lines {}–{})",
+                    b.name,
+                    b.start_line + 1,
+                    b.end_line + 1
+                );
+            }
+        }
+
+        println!("\nHeader offset: {}", header);
+        println!("Footer offset: {}", footer);
+    }
 
     Ok(())
 }
@@ -3951,6 +5040,7 @@ fn cmd_project(
                         value: v.clone(),
                         source_file: env_path.clone(),
                         line_number: 0,
+                        line_index: 0,
                         location: EntryLocation::InFile,
                         export_style: ExportStyle::Bare,
                         quote_style: QuoteStyle::None,

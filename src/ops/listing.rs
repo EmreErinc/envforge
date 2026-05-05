@@ -21,6 +21,8 @@ pub struct EnvEntry {
     pub value: String,
     pub source_file: PathBuf,
     pub line_number: usize,
+    /// Vector index in ShellFile.lines
+    pub line_index: usize,
     pub location: EntryLocation,
     pub export_style: ExportStyle,
     pub quote_style: QuoteStyle,
@@ -54,7 +56,7 @@ pub struct EnvComparison {
 pub fn collect_entries(shell_file: &ShellFile) -> Vec<EnvEntry> {
     let mut entries = Vec::new();
 
-    for node in &shell_file.lines {
+    for (idx, node) in shell_file.lines.iter().enumerate() {
         match node {
             LineNode::EnvExport {
                 line_number,
@@ -69,6 +71,7 @@ pub fn collect_entries(shell_file: &ShellFile) -> Vec<EnvEntry> {
                     value: value.clone(),
                     source_file: shell_file.path.clone(),
                     line_number: *line_number,
+                    line_index: idx,
                     location: EntryLocation::InFile,
                     export_style: *export_style,
                     quote_style: *quote_style,
@@ -91,6 +94,7 @@ pub fn collect_entries(shell_file: &ShellFile) -> Vec<EnvEntry> {
                         value,
                         source_file: shell_file.path.clone(),
                         line_number: *line_number,
+                        line_index: idx,
                         location: EntryLocation::Commented,
                         export_style,
                         quote_style,

@@ -7,12 +7,14 @@ import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-lan
 import { registerCommands } from './commands';
 import { StatusBar } from './statusbar';
 import { EnvTreeProvider, ProfileTreeProvider } from './treeview';
+import { SecurityTreeProvider, registerSecurityCommands } from './security';
 
 let client: LanguageClient | undefined;
 let statusBar: StatusBar;
 let outputChannel: vscode.OutputChannel;
 let treeProvider: EnvTreeProvider;
 let profileProvider: ProfileTreeProvider;
+let securityProvider: SecurityTreeProvider;
 
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('EnvForge');
@@ -28,12 +30,27 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.createTreeView('envforgeVariables', { treeDataProvider: treeProvider })
     );
 
-    profileProvider = new ProfileTreeProvider();
-    context.subscriptions.push(
-        vscode.window.createTreeView('envforgeProfiles', { treeDataProvider: profileProvider })
-    );
+  profileProvider = new ProfileTreeProvider();
+  context.subscriptions.push(
+    vscode.window.createTreeView('envforgeProfiles', { treeDataProvider: profileProvider })
+  );
 
-    registerCommands(context, statusBar, treeProvider, profileProvider);
+  securityProvider = new SecurityTreeProvider();
+  context.subscriptions.push(
+    vscode.window.createTreeView('envforgeSecurity', { treeDataProvider: securityProvider })
+  );
+
+  registerCommands(context, statusBar, treeProvider, profileProvider);
+  registerSecurityCommands(context, securityProvider, treeProvider, statusBar);
+
+  // Auto-refresh security tree on .env file save
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument(doc => {
+      if (doc.uri.scheme === 'file' && doc.fileName.match(/\.env(\.|$)/)) {
+        securityProvider.refresh();
+      }
+    })
+  );
 
     // Now check binary
     const binaryPath = getEnvforgePath();

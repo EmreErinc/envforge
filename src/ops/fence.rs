@@ -9,6 +9,21 @@ pub struct FenceResult {
     pub files_skipped: Vec<PathBuf>,
 }
 
+/// Status of a single fence file.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FenceFileStatus {
+    pub path: String,
+    pub exists: bool,
+    pub fenced: bool,
+}
+
+/// Overall fence status.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FenceStatus {
+    pub files: Vec<FenceFileStatus>,
+    pub all_fenced: bool,
+}
+
 const ENVFORGEIGNORE_CONTENT: &str = ".env
 .env.*
 !.env.schema
@@ -255,6 +270,49 @@ fn write_claude_settings(
         result.files_created.push(path);
     }
     Ok(())
+}
+
+fn check_file_status(project_dir: &Path, rel_path: &str) -> FenceFileStatus {
+    let full_path = project_dir.join(rel_path);
+    let exists = full_path.exists();
+    let content = if exists {
+        std::fs::read_to_string(&full_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let fenced = match rel_path {
+        ".envforgeignore" => content.contains(".env"),
+        ".cursorignore" => content.contains(FENCE_MARKER),
+        ".cursorrules" => content.contains("Never read .env files directly"),
+        ".github/copilot-instructions.md" => content.contains("## Secret Safety Rules"),
+        ".claude/settings.json" => serde_json::from_str::<serde_json::Value>(&content)
+            .ok()
+            .and_then(|v| {
+                v.pointer("/permissions/deny")
+                    .and_then(|d| d.as_array())
+                    .map(|a| !a.is_empty())
+            })
+            .unwrap_or(false),
+        _ => false,
+    };
+    FenceFileStatus {
+        path: rel_path.to_string(),
+        exists,
+        fenced,
+    }
+}
+
+/// Check which fence files exist and are properly configured.
+pub fn check_fence_status(project_dir: &Path) -> Result<FenceStatus, OpError> {
+    let files = vec![
+        check_file_status(project_dir, ".envforgeignore"),
+        check_file_status(project_dir, ".cursorignore"),
+        check_file_status(project_dir, ".cursorrules"),
+        check_file_status(project_dir, ".github/copilot-instructions.md"),
+        check_file_status(project_dir, ".claude/settings.json"),
+    ];
+    let all_fenced = files.iter().all(|f| f.fenced);
+    Ok(FenceStatus { files, all_fenced })
 }
 
 #[cfg(test)]

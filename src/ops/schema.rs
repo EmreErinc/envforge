@@ -388,17 +388,20 @@ pub(crate) fn validate_value(
                 actual: value.into(),
             }),
         },
-        VarType::Bool => match value.to_lowercase().as_str() {
-            "true" | "false" | "1" | "0" | "yes" | "no" => None,
-            _ => Some(SchemaValidationError {
-                key: key.into(),
-                message: format!("'{}' is not a valid boolean", value),
-                expected: "true/false/1/0/yes/no".into(),
-                actual: value.into(),
-            }),
-        },
+        VarType::Bool => {
+            if crate::ops::validation_utils::is_valid_bool(value) {
+                None
+            } else {
+                Some(SchemaValidationError {
+                    key: key.into(),
+                    message: format!("'{}' is not a valid boolean", value),
+                    expected: "true/false/1/0/yes/no".into(),
+                    actual: value.into(),
+                })
+            }
+        }
         VarType::Url => {
-            if value.starts_with("http://") || value.starts_with("https://") {
+            if crate::ops::validation_utils::is_valid_url(value) {
                 if let Some(ref pattern) = eff.pattern {
                     return check_pattern(key, value, pattern);
                 }
@@ -407,13 +410,13 @@ pub(crate) fn validate_value(
                 Some(SchemaValidationError {
                     key: key.into(),
                     message: format!("'{}' is not a valid URL", value),
-                    expected: "http:// or https://".into(),
+                    expected: "URL (e.g., http://, https://, postgres://)".into(),
                     actual: value.into(),
                 })
             }
         }
         VarType::Email => {
-            if value.contains('@') && value.contains('.') {
+            if crate::ops::validation_utils::is_valid_email(value) {
                 None
             } else {
                 Some(SchemaValidationError {
@@ -424,15 +427,18 @@ pub(crate) fn validate_value(
                 })
             }
         }
-        VarType::Port => match value.parse::<u16>() {
-            Ok(_) => None,
-            _ => Some(SchemaValidationError {
-                key: key.into(),
-                message: format!("'{}' is not a valid port (1-65535)", value),
-                expected: "1-65535".into(),
-                actual: value.into(),
-            }),
-        },
+        VarType::Port => {
+            if crate::ops::validation_utils::is_valid_port(value) {
+                None
+            } else {
+                Some(SchemaValidationError {
+                    key: key.into(),
+                    message: format!("'{}' is not a valid port (1-65535)", value),
+                    expected: "1-65535".into(),
+                    actual: value.into(),
+                })
+            }
+        }
         VarType::Enum => {
             if let Some(ref allowed) = eff.values {
                 if allowed.contains(&value.to_string()) {

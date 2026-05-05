@@ -614,7 +614,13 @@ fn cmd_secrets_providers(json_output: bool) -> Result<(), Box<dyn std::error::Er
                 })
             })
             .collect();
-        println!("{}", json!(items));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "version": 1,
+                "providers": items,
+            }))?
+        );
     } else {
         for s in &statuses {
             let binary_icon = if s.binary_found { "✓" } else { "✗" };

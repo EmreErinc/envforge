@@ -348,6 +348,54 @@ pub fn remove_ai_hook(tool: &AiTool, project_dir: &Path) -> Result<HookInstallRe
     }
 }
 
+/// Check status of all supported AI tool hooks.
+pub fn check_hook_status(project_dir: &Path) -> serde_json::Value {
+    let claude_path = claude_settings_path(project_dir);
+    let claude_installed = if claude_path.exists() {
+        match std::fs::read_to_string(&claude_path) {
+            Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(settings) => settings
+                    .get("hooks")
+                    .and_then(|h| h.get("PreToolUse"))
+                    .and_then(|p| p.as_array())
+                    .map(|arr| has_envforge_hook(arr))
+                    .unwrap_or(false),
+                Err(_) => false,
+            },
+            Err(_) => false,
+        }
+    } else {
+        false
+    };
+
+    let cursor_path = cursor_rules_path(project_dir);
+    let cursor_installed = if cursor_path.exists() {
+        match std::fs::read_to_string(&cursor_path) {
+            Ok(content) => content.contains(CURSOR_RULES_MARKER),
+            Err(_) => false,
+        }
+    } else {
+        false
+    };
+
+    serde_json::json!({
+        "version": 1,
+        "tools": [
+            {
+                "name": "Claude Code",
+                "installed": claude_installed,
+                "path": claude_path.to_string_lossy(),
+            },
+            {
+                "name": "Cursor",
+                "installed": cursor_installed,
+                "path": cursor_path.to_string_lossy(),
+            }
+        ],
+        "enabled": claude_installed || cursor_installed
+    })
+}
+
 // ─── Tests ─────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -1,10 +1,10 @@
 plugins {
-    id("org.jetbrains.intellij.platform") version "2.3.0"
-    kotlin("jvm") version "2.2.0"
+    id("org.jetbrains.intellij.platform") version "2.2.1"
+    kotlin("jvm") version "1.9.25"
 }
 
 group = "com.envforge"
-version = "0.1.1"
+version = "0.1.2"
 
 repositories {
     mavenCentral()

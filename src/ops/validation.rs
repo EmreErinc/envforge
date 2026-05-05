@@ -38,6 +38,8 @@ pub fn validate_entries(
     errors
 }
 
+use super::validation_utils;
+
 /// Validate a single value against a rule string.
 /// Returns None if valid, Some(error_message) if invalid.
 pub fn validate_value(value: &str, rule: &str) -> Option<String> {
@@ -57,32 +59,31 @@ pub fn validate_value(value: &str, rule: &str) -> Option<String> {
             }
         }
         "bool" => {
-            let lower = value.to_lowercase();
-            if ["true", "false", "1", "0", "yes", "no"].contains(&lower.as_str()) {
+            if validation_utils::is_valid_bool(value) {
                 None
             } else {
                 Some(format!("Expected bool, got '{}'", value))
             }
         }
         "url" => {
-            if value.starts_with("http://")
-                || value.starts_with("https://")
-                || value.starts_with("postgres://")
-                || value.starts_with("mysql://")
-                || value.starts_with("redis://")
-                || value.starts_with("mongodb://")
-                || value.starts_with("amqp://")
-            {
+            if validation_utils::is_valid_url(value) {
                 None
             } else {
                 Some(format!("Expected URL, got '{}'", value))
             }
         }
         "email" => {
-            if value.contains('@') && value.contains('.') && value.len() >= 5 {
+            if validation_utils::is_valid_email(value) {
                 None
             } else {
                 Some(format!("Expected email, got '{}'", value))
+            }
+        }
+        "port" => {
+            if validation_utils::is_valid_port(value) {
+                None
+            } else {
+                Some(format!("Expected port (1-65535), got '{}'", value))
             }
         }
         rule if rule.starts_with("regex:") => {

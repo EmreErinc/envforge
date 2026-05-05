@@ -80,3 +80,22 @@ fn test_multiple_duplicate_groups() {
     let groups = detect_duplicates(&[sf]);
     assert_eq!(groups.len(), 2); // A and B are duplicated, C is not
 }
+
+#[test]
+fn test_resolve_duplicate_keep_same_file() {
+    let content = "export FOO=\"a\"\nexport FOO=\"b\"\nexport FOO=\"c\"";
+    let sf = make_sf(content, "/test/.zshrc");
+    let groups = detect_duplicates(&[sf]);
+
+    let mut files = vec![make_sf(content, "/test/.zshrc")];
+    // This used to fail due to ambiguity, now works using index-based soft-delete
+    let result = resolve_duplicate_keep(&mut files, &groups[0], 0);
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 2);
+
+    let output = files[0].serialize();
+    assert!(output.contains("export FOO=\"a\""));
+    assert!(output.contains("#[envforge:deleted:FOO] export FOO=\"b\""));
+    assert!(output.contains("#[envforge:deleted:FOO] export FOO=\"c\""));
+}

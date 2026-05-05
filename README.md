@@ -18,9 +18,11 @@ EnvForge provides the most comprehensive AI-agent secret protection of any CLI t
 | Layer | Tool | Command | What It Does |
 |-------|------|---------|-------------|
 | **Prevention** | Secret Fence | `envforge fence` | Create ignore rules for Cursor, Copilot, Claude Code |
+| **Prevention** | Fence Status | `envforge fence --status` | Verify if ignore rules are active |
 | **Prevention** | Pre-Commit Hook | `envforge scan --install-hook` | Block commits containing secrets |
 | **Prevention** | 3-Stage AI Guard | `envforge ai-guard pre-tool` | Scan before/after AI tool execution |
-| **Prevention** | AI Hooks | `envforge ai-hook install claude-code` | PreToolUse + PostToolUse hooks |
+| **Prevention** | AI Hooks | `envforge ai-hook install <tool>` | PreToolUse + PostToolUse hooks |
+| **Prevention** | Hook Status | `envforge ai-hook status` | Check which tools have active hooks |
 | **Prevention** | File Alerts | *(built into ai-guard)* | Warn on `.env`, `.pem`, `.ssh/` access |
 | **Runtime** | Volatile Mode | `envforge run --volatile` | Secrets in memory only — never on disk |
 | **Runtime** | Log Redaction | `envforge run --redact` | Mask secrets in subprocess output |
@@ -30,7 +32,7 @@ EnvForge provides the most comprehensive AI-agent secret protection of any CLI t
 | **Context** | AI-Safe Schema | `envforge schema emit-ai` | Types/names without values for AI |
 | **Context** | Safe Export | `envforge export --safe` | Redacted `[REDACTED]` values |
 | **Context** | Ignore File | `.envforgeignore` | Mark files AI tools should skip |
-| **Remediation** | MCP Scan | `envforge scan --mcp` | Find creds in AI tool configs |
+| **Remediation** | MCP Scan | `envforge mcp status` | Find creds in AI tool configs |
 | **Remediation** | MCP Harden | `envforge mcp harden` | Auto-replace with `${VAR}` references |
 | **Remediation** | Prompt Sanitizer | `envforge sanitize FILE` | Strip secrets from any file |
 | **Detection** | Canary Secrets | `envforge canary create KEY` | Honeypot credentials — alert on exfiltration |
@@ -46,16 +48,19 @@ EnvForge provides the most comprehensive AI-agent secret protection of any CLI t
 # 1. Create AI ignore rules for all tools
 envforge fence
 
-# 2. Generate AI-safe context file (names + types, no values)
+# 2. Verify rules are active
+envforge fence --status
+
+# 3. Install hooks for Claude Code or Cursor
+envforge ai-hook install claude-code
+
+# 4. Generate AI-safe context file
 envforge schema emit-ai --infer --output .env.ai.md
 
-# 3. Install pre-commit hook
-envforge scan --install-hook
+# 5. Scan AI tool configs for leaked credentials
+envforge mcp status
 
-# 4. Scan AI tool configs for leaked credentials
-envforge scan --mcp
-
-# 5. Auto-fix MCP configs
+# 6. Auto-fix MCP configs
 envforge mcp harden
 ```
 
@@ -361,11 +366,12 @@ All commands support `--json` for machine-readable output and `--dry-run` for pr
 ```bash
 # Variable management
 envforge list [--json]                   # List all variables
+envforge search QUERY [--json]           # Fuzzy search keys/values
 envforge get KEY [--json]                # Get a value
 envforge set KEY=VALUE                   # Set or create
 envforge delete KEY                      # Soft-delete
 envforge copy KEY                        # Copy to clipboard
-envforge move KEY                        # Move to reference file
+envforge move KEY [NEW_KEY]              # Move to reference or rename
 
 # Import / Export
 envforge import file.env [--force]       # Import from .env
@@ -437,13 +443,15 @@ envforge duplicates                      # Find duplicate keys
 envforge scan [path] [--staged]          # Scan for leaked secrets
   --install-hook                         # Install git pre-commit hook
   --remove-hook                          # Remove pre-commit hook
-  --mcp                                  # Scan AI tool configs for credentials
+envforge mcp status [--json]             # Scan AI tool configs for secrets
 envforge mcp harden                      # Replace MCP secrets with ${VAR} refs
-envforge fence                           # Create AI ignore rules for all tools
+envforge fence [--status]                # Create AI ignore rules or check status
 envforge sanitize FILE                   # Strip secrets from any file
-envforge ai-hook install claude-code     # Install AI tool security hooks
+envforge ai-hook status [--json]         # Check AI tool security hooks
+envforge ai-hook install <tool>          # Install hooks (claude-code, cursor)
 envforge proxy [--port 8100] [--keys K]  # Local credential proxy for AI agents
 envforge audit --ai-leaks                # Scan git for AI-assisted secret leaks
+envforge audit --access [--json]         # View proxy access audit log
 envforge diff                            # Show pending changes
 envforge doctor [--verbose]              # Health check with fix suggestions
 
