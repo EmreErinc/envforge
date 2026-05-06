@@ -564,6 +564,12 @@ pub enum Commands {
     /// Start Language Server Protocol server (for IDE extensions)
     Lsp,
 
+    /// Manage AI tool sessions with scoped secret access
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
+
     /// Project-scoped environment management
     Project {
         #[command(subcommand)]
@@ -848,4 +854,31 @@ pub enum ScannerAction {
         /// Scanner name
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum SessionAction {
+    /// Start a new AI tool session
+    Start {
+        /// AI tool type: claude-code, cursor, copilot (auto-detected if omitted)
+        #[arg(long)]
+        tool: Option<String>,
+        /// Session TTL (e.g., 1h, 30m, 8h, 1d; default: 1h)
+        #[arg(long, default_value = "1h")]
+        ttl: String,
+    },
+    /// Stop (expire) the current or a specific session
+    Stop {
+        /// Session ID to stop (current session if omitted)
+        id: Option<String>,
+    },
+    /// List active and expired sessions
+    List,
+    /// Show details for a specific session
+    Show {
+        /// Session ID
+        id: String,
+    },
+    /// Clean up expired sessions
+    Cleanup,
 }

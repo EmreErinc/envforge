@@ -38,6 +38,7 @@ pub mod scanner;
 pub mod schema;
 pub mod schema_json;
 pub mod secrets;
+pub mod session;
 pub mod share;
 pub mod snapshot;
 pub mod sync;

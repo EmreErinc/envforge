@@ -4034,6 +4034,125 @@ envforge lease cleanup --dry-run
 
 ---
 
+### envforge session start
+
+Start a new AI tool session with scoped secret access.
+
+```
+Usage: envforge session start [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--tool <TOOL>` | AI tool type: claude-code, cursor, copilot (auto-detected if omitted) |
+| `--ttl <TTL>` | Session TTL (e.g., "1h", "30m", "8h", "1d") [default: 1h] |
+
+**Examples:**
+
+```bash
+# Start a session (auto-detects tool from environment)
+envforge session start
+
+# Start a session for a specific tool
+envforge session start --tool claude-code
+
+# Start a session with a 30-minute TTL
+envforge session start --tool cursor --ttl 30m
+
+# Start a session and capture the ID for later cleanup
+SESSION_ID=$(envforge session start --tool copilot --ttl 2h --json | jq -r '.id')
+```
+
+---
+
+### envforge session stop
+
+Stop (expire) a session.
+
+```
+Usage: envforge session stop [OPTIONS] [ID]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[ID]` | Session ID to stop (uses ENVFORGE_SESSION_ID if omitted) |
+
+**Examples:**
+
+```bash
+# Stop the current session (uses ENVFORGE_SESSION_ID)
+envforge session stop
+
+# Stop a specific session
+envforge session stop 246f86ae-8b41-48bb-b9f7-0da491594b23
+```
+
+---
+
+### envforge session list
+
+List all active and expired sessions.
+
+```
+Usage: envforge session list [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+# List all sessions
+envforge session list
+
+# List as JSON
+envforge session list --json
+```
+
+---
+
+### envforge session show
+
+Show details for a specific session.
+
+```
+Usage: envforge session show [OPTIONS] <ID>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<ID>` | Session ID |
+
+**Examples:**
+
+```bash
+# Show session details
+envforge session show 246f86ae-8b41-48bb-b9f7-0da491594b23
+
+# Show as JSON
+envforge session show 246f86ae-8b41-48bb-b9f7-0da491594b23 --json
+```
+
+---
+
+### envforge session cleanup
+
+Clean up expired sessions.
+
+```
+Usage: envforge session cleanup [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+# Remove all expired sessions
+envforge session cleanup
+
+# Preview cleanup without removing
+envforge session cleanup --dry-run
+```
+
+---
+
 ### envforge revoke
 
 Emergency revoke all secret access.

@@ -8,7 +8,7 @@ use crate::parser::*;
 
 use super::{
     AiHookAction, BackupAction, Commands, LeaseAction, McpAction, ProjectAction, ProjectEnvAction,
-    ShareAction, SnapshotAction,
+    SessionAction, ShareAction, SnapshotAction,
 };
 
 /// Execute a CLI subcommand.
@@ -224,6 +224,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             crate::lsp::run_lsp();
             return;
         }
+        Commands::Session { action } => cmd_session(action, json),
         Commands::Project { action } => cmd_project(action, json, dry_run),
     };
 
@@ -4844,6 +4845,165 @@ fn cmd_lease(action: &LeaseAction, json: bool) -> Result<(), Box<dyn std::error:
         LeaseAction::Cleanup => {
             let removed = lease::cleanup_expired()?;
             eprintln!("Cleaned up {} expired/revoked lease(s).", removed);
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_session(action: &SessionAction, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::session;
+
+    match action {
+        SessionAction::Start { tool, ttl } => {
+            let tool_type = if let Some(t) = tool {
+                t.parse::<crate::model::AiTool>()
+                    .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?
+            } else {
+                session::detect_ai_tool()
+            };
+
+            let ttl_seconds =
+                session::parse_ttl(ttl).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+            let manager = session::SessionManager::new();
+            let s = manager
+                .create_session(tool_type, ttl_seconds)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "id": s.id.as_str(),
+                        "tool": s.tool_type.as_str(),
+                        "state": s.state.to_string(),
+                        "expires_at": s.expires_at.to_rfc3339(),
+                    })
+                );
+            } else {
+                eprintln!("Session started: {}", s.id);
+                eprintln!("  Tool: {}", s.tool_type);
+                eprintln!(
+                    "  Expires: {} ({})",
+                    s.expires_at.to_rfc3339(),
+                    session::format_duration(ttl_seconds as i64)
+                );
+            }
+        }
+        SessionAction::Stop { id } => {
+            let manager = session::SessionManager::new();
+            let target_id = id
+                .clone()
+                .unwrap_or_else(|| std::env::var("ENVFORGE_SESSION_ID").unwrap_or_default());
+
+            if target_id.is_empty() {
+                return Err("No session ID provided and ENVFORGE_SESSION_ID not set.".into());
+            }
+
+            let s = manager
+                .stop_session(&target_id)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "id": s.id.as_str(),
+                        "state": s.state.to_string(),
+                    })
+                );
+            } else {
+                eprintln!("Session stopped: {}", s.id);
+            }
+        }
+        SessionAction::List => {
+            let manager = session::SessionManager::new();
+            let sessions = manager.list_sessions();
+
+            if sessions.is_empty() {
+                if json {
+                    println!("{}", serde_json::json!({"version": 1, "sessions": []}));
+                } else {
+                    eprintln!("No sessions found.");
+                }
+                return Ok(());
+            }
+
+            if json {
+                let items: Vec<serde_json::Value> = sessions
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "id": s.id.as_str(),
+                            "tool": s.tool_type.as_str(),
+                            "state": s.state.to_string(),
+                            "remaining": s.remaining_seconds,
+                            "expires_at": s.expires_at.to_rfc3339(),
+                        })
+                    })
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "version": 1,
+                        "sessions": items,
+                    }))?
+                );
+            } else {
+                println!(
+                    "{:<40} {:<16} {:<12} {:<16}",
+                    "ID", "TOOL", "STATE", "REMAINING"
+                );
+                println!("{}", "-".repeat(90));
+                for s in &sessions {
+                    let remaining = session::format_duration(s.remaining_seconds);
+                    println!(
+                        "{:<40} {:<16} {:<12} {:<16}",
+                        s.id.as_str(),
+                        s.tool_type.as_str(),
+                        s.state.to_string(),
+                        remaining
+                    );
+                }
+            }
+        }
+        SessionAction::Show { id } => {
+            let manager = session::SessionManager::new();
+            let s = manager
+                .get_session(id)
+                .ok_or_else(|| -> Box<dyn std::error::Error> {
+                    format!("Session not found: {}", id).into()
+                })?;
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "id": s.id.as_str(),
+                        "tool": s.tool_type.as_str(),
+                        "state": s.state.to_string(),
+                        "created_at": s.created_at.to_rfc3339(),
+                        "expires_at": s.expires_at.to_rfc3339(),
+                        "remaining_seconds": s.remaining_seconds(),
+                    })
+                );
+            } else {
+                println!("Session: {}", s.id);
+                println!("  Tool:      {}", s.tool_type);
+                println!("  State:     {}", s.state);
+                println!("  Created:   {}", s.created_at.to_rfc3339());
+                println!("  Expires:   {}", s.expires_at.to_rfc3339());
+                println!(
+                    "  Remaining: {}",
+                    session::format_duration(s.remaining_seconds())
+                );
+            }
+        }
+        SessionAction::Cleanup => {
+            let manager = session::SessionManager::new();
+            let removed = manager.cleanup_expired();
+            eprintln!("Cleaned up {} expired session(s).", removed);
         }
     }
 

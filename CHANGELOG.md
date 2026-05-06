@@ -48,9 +48,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Injects `# envforge canary: KEY=VALUE` line at specified position
   - Detects and skips duplicates
 
+#### AI Tool Session Management (`envforge session`)
+- **New module**: `src/ops/session.rs` — lightweight per-AI-tool session scoping
+  - `SessionManager` — thread-safe in-memory store (`Mutex<HashMap>`) for active sessions
+  - `create_session(tool, ttl)` — start a session with auto-generated UUID and expiry
+  - `stop_session(id)` — expire a session (uses `ENVFORGE_SESSION_ID` env var as fallback)
+  - `list_sessions()` — show all sessions with remaining TTL
+  - `cleanup_expired()` — remove stale sessions
+  - `detect_ai_tool()` — auto-detects tool from env vars (`CLAUDE_CODE`, `CURSOR`, `GITHUB_COPILOT`)
+- **New model**: `src/model/session.rs` — session data types
+  - `SessionId`, `SessionState` (Active/Expired), `AiTool` (ClaudeCode, Copilot, Cursor, Unknown)
+  - `SessionConfig` with configurable default TTL (default: 1h)
+- **CLI**: `envforge session start` — start session; `envforge session stop [id]` — stop session; `envforge session list` — list sessions; `envforge session show <id>` — session details; `envforge session cleanup` — remove expired
+- **5 unit tests**: session lifecycle, TTL parsing, cleanup, tool detection, duration formatting
+
 ### Deprecated
 
 - **Intent 032 (Prompt Injection Detection)**: Deprecated in specsmd memory bank. Advisory-only prompt injection detection adds noise without security value. Replaced by the three features above which stay on envforge's core competency (secret/env-var protection).
+- **Intent 034 (AI Context Isolation)**: Deprecated in specsmd memory bank. Full namespace isolation + inheritance provided marginal incremental value over existing Fence + Guard + Volatile + Canary stack. Replaced by lightweight session management which achieves ~70% of the security benefit with ~20% of the code. Removed `src/model/context_isolation.rs` (557 lines).
 
 ### Changed
 
@@ -64,11 +79,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Quality
 
-- **786 total tests** (up from 610), all passing
+- **805 total tests** (up from 610), all passing
   - 16 new hardening tests (control chars, Base64, split strings, encoding chains, composition)
   - 7 new external scanner tests (registry, concurrent execution, timeout, findings)
   - 6 new canary pattern tests (database_url, jwt, openai_key, pem, smtp, ftp)
   - 176 new audit trail tests (core-data, emitter, tamper, query-engine, custody, report-generator, ai-guard-integration)
+  - 5 new session tests (lifecycle, TTL parsing, cleanup, tool detection, duration formatting)
 - **cargo clippy**: 0 warnings
 - **cargo fmt**: Clean
 - No breaking changes — all existing AI Guard behavior preserved when new features disabled
