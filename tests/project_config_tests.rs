@@ -68,6 +68,7 @@ fn sample_config() -> ProjectConfig {
                 description: None,
             },
         ],
+        ai_guard: envforge::ops::project::config::AiGuardConfig::default(),
     }
 }
 
@@ -632,6 +633,7 @@ fn test_config_env_without_description() {
             env_file: ".env.dev".into(),
             description: None,
         }],
+        ai_guard: envforge::ops::project::config::AiGuardConfig::default(),
     };
 
     // Serialize and parse back — None description should not appear
@@ -738,6 +740,7 @@ fn test_serialize_all_formats_no_description() {
             env_file: ".env.dev".into(),
             description: None,
         }],
+        ai_guard: envforge::ops::project::config::AiGuardConfig::default(),
     };
 
     // All formats should serialize without description field
@@ -782,6 +785,7 @@ fn test_active_env_path_with_nested_path() {
             env_file: "envs/.env.dev".into(),
             description: None,
         }],
+        ai_guard: envforge::ops::project::config::AiGuardConfig::default(),
     };
     let path = active_env_path(&config, Path::new("/project")).unwrap();
     assert_eq!(path, Path::new("/project/envs/.env.dev"));
@@ -815,6 +819,7 @@ fn test_config_with_multiple_wizard_steps() {
             env_file: ".env.dev".into(),
             description: None,
         }],
+        ai_guard: envforge::ops::project::config::AiGuardConfig::default(),
     };
 
     // Roundtrip all 3 formats
