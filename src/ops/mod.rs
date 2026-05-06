@@ -22,6 +22,7 @@ pub mod lease;
 mod listing;
 pub mod man;
 pub mod mcp_scan;
+pub mod monitor;
 pub mod offset;
 pub mod profile;
 pub mod profile_diff;

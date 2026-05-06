@@ -30,7 +30,7 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 toml = "1.1"
 tempfile = "3"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 copypasta = "0.10"
 ratatui = "0.30.0"
 crossterm = "0.29"
@@ -46,6 +46,7 @@ rand = "0.10.1"
 serde_norway = "0.9.42"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+dashmap = "5.5"
 
 [lints.rust]
 future-incompatible = "warn"
