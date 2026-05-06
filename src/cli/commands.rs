@@ -176,6 +176,8 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             *ai_leaks,
             *access,
         ),
+        Commands::AuditTrail { action } => super::audit_cmd::execute_audit_trail(action, json)
+            .map_err(|e| -> Box<dyn std::error::Error> { e.into() }),
         Commands::Search { query, fuzzy } => cmd_search(query, json, *fuzzy),
         Commands::Fence { status } => {
             if *status {

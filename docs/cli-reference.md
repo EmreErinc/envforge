@@ -19,11 +19,18 @@ Every command accepts these flags:
 
 ### envforge list
 
-List all environment variables.
+List all environment variables with optional filtering, grouping, and sorting.
 
 ```
 Usage: envforge list [OPTIONS]
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--filter <FILTER>` | Filter entries by key pattern (substring match) |
+| `--group <GROUP>` | Group entries by prefix or tag (`prefix`, `tag`) |
+| `--sort <SORT>` | Sort order: `key`, `value`, `file` [default: key] |
+| `--reverse` | Reverse sort order |
 
 **Examples:**
 
@@ -31,11 +38,17 @@ Usage: envforge list [OPTIONS]
 # List all variables
 envforge list
 
-# List in JSON format
-envforge list --json
+# List matching a pattern
+envforge list --filter DB
 
-# Preview without side effects
-envforge list --dry-run
+# Group by prefix
+envforge list --group prefix
+
+# Sort by value, descending
+envforge list --sort value --reverse
+
+# List as JSON
+envforge list --json
 ```
 
 ---
@@ -55,10 +68,7 @@ Usage: envforge get [OPTIONS] <KEY>
 **Examples:**
 
 ```bash
-# Get a single variable
 envforge get DATABASE_URL
-
-# Get as JSON
 envforge get API_KEY --json
 ```
 
@@ -72,20 +82,15 @@ Set a variable (create or update).
 Usage: envforge set [OPTIONS] <ASSIGNMENT>
 ```
 
-| Argument       | Description |
-|----------------|-------------|
+| Argument | Description |
+|----------|-------------|
 | `<ASSIGNMENT>` | KEY=VALUE pair |
 
 **Examples:**
 
 ```bash
-# Set a variable
 envforge set DATABASE_URL=postgres://localhost/mydb
-
-# Preview the change without writing
 envforge set API_KEY=sk-abc123 --dry-run
-
-# Set and output result as JSON
 envforge set NODE_ENV=production --json
 ```
 
@@ -106,10 +111,7 @@ Usage: envforge delete [OPTIONS] <KEY>
 **Examples:**
 
 ```bash
-# Delete a variable
 envforge delete OLD_API_KEY
-
-# Preview deletion
 envforge delete TEMP_VAR --dry-run
 ```
 
@@ -127,14 +129,16 @@ Usage: envforge copy [OPTIONS] <KEY>
 |----------|-------------|
 | `<KEY>` | Variable name |
 
+| Flag | Description |
+|------|-------------|
+| `--key-only` | Copy key name instead of value |
+
 **Examples:**
 
 ```bash
-# Copy value to clipboard
 envforge copy DATABASE_URL
-
-# Copy with JSON output confirmation
 envforge copy API_KEY --json
+envforge copy MY_VAR --key-only
 ```
 
 ---
@@ -169,7 +173,7 @@ envforge move OLD_SECRET --dry-run
 
 ### envforge search
 
-Search environment variables by fuzzy matching.
+Search environment variables by substring or fuzzy matching.
 
 ```
 Usage: envforge search [OPTIONS] <QUERY>
@@ -181,22 +185,22 @@ Usage: envforge search [OPTIONS] <QUERY>
 
 | Flag | Description |
 |------|-------------|
-| `--json` | Output in JSON format |
+| `--fuzzy` | Use fuzzy matching (default is substring match) |
 
 **Examples:**
 
 ```bash
-# Search for database-related variables
+# Substring search
 envforge search db
 
-# Search for a specific value
-envforge search "postgres://localhost"
+# Fuzzy search
+envforge search "database" --fuzzy
 
-# Output matches as JSON
+# JSON output
 envforge search api --json
 ```
 
-**Note**: Sensitive values are automatically masked in the output (e.g., `sk-ab***56`).
+Sensitive values are automatically masked in output (e.g., `sk-ab***56`).
 
 ---
 
@@ -211,10 +215,7 @@ Usage: envforge duplicates [OPTIONS]
 **Examples:**
 
 ```bash
-# Find duplicate keys
 envforge duplicates
-
-# Output duplicates as JSON
 envforge duplicates --json
 ```
 
@@ -231,10 +232,7 @@ Usage: envforge diff [OPTIONS]
 **Examples:**
 
 ```bash
-# Show pending changes
 envforge diff
-
-# Show diff in JSON format
 envforge diff --json
 ```
 
@@ -242,7 +240,7 @@ envforge diff --json
 
 ### envforge explain
 
-Show all known info about a single environment variable.
+Show all known info about a single environment variable (schema, history, provider).
 
 ```
 Usage: envforge explain [OPTIONS] <KEY>
@@ -255,10 +253,7 @@ Usage: envforge explain [OPTIONS] <KEY>
 **Examples:**
 
 ```bash
-# Explain a variable (schema, history, provider, etc.)
 envforge explain DATABASE_URL
-
-# Explain with JSON output
 envforge explain API_KEY --json
 ```
 
@@ -283,13 +278,8 @@ Usage: envforge deps [OPTIONS] <KEY>
 **Examples:**
 
 ```bash
-# Find references to a variable
 envforge deps DATABASE_URL
-
-# Include source code scanning
 envforge deps API_KEY --source
-
-# Output as JSON
 envforge deps SECRET_KEY --json
 ```
 
@@ -316,13 +306,8 @@ Usage: envforge import [OPTIONS] <PATH>
 **Examples:**
 
 ```bash
-# Import from a file
 envforge import .env.backup
-
-# Force overwrite existing keys
 envforge import .env.production --force
-
-# Preview what would be imported
 envforge import .env.staging --dry-run
 ```
 
@@ -330,7 +315,7 @@ envforge import .env.staging --dry-run
 
 ### envforge export
 
-Export variables to .env format.
+Export variables to various formats.
 
 ```
 Usage: envforge export [OPTIONS] [PATH]
@@ -346,7 +331,7 @@ Usage: envforge export [OPTIONS] [PATH]
 | `--safe` | Redact sensitive values as [REDACTED] (safe for AI tools) |
 | `--env-example` | Generate .env.example from schema with placeholder values |
 | `--filter <FILTER>` | Only export entries matching this query |
-| `--format <FORMAT>` | Output format: dotenv, json, yaml, toml, docker, k8s, tfvars |
+| `--format <FORMAT>` | Output format: `dotenv`, `json`, `yaml`, `toml`, `docker`, `k8s`, `tfvars` |
 | `--k8s-name <K8S_NAME>` | Kubernetes Secret name (for k8s format, default: envforge-secrets) |
 | `--k8s-namespace <K8S_NAMESPACE>` | Kubernetes namespace (for k8s format, default: default) |
 
@@ -367,6 +352,12 @@ envforge export --format k8s --k8s-name my-app-secrets --k8s-namespace prod
 
 # Export excluding sensitive values
 envforge export --exclude-sensitive
+
+# AWS Terraform tfvars format
+envforge export --format tfvars
+
+# Docker compose env_file format (quoted values)
+envforge export --format docker
 
 # Generate .env.example with placeholder values
 envforge export --env-example
@@ -395,6 +386,7 @@ Usage: envforge validate [OPTIONS]
 | `--schema <SCHEMA>` | Path to .env.schema (auto-detected if omitted) |
 | `--env <ENV_FILE>` | Validate a specific .env file instead of EnvForge config |
 | `--environment <ENVIRONMENT>` | Environment name for schema overrides (e.g., production) |
+| `--rules <RULES>` | Additional validation rules as KEY=rule pairs (e.g., PORT=port, EMAIL=email) |
 
 **Examples:**
 
@@ -410,6 +402,9 @@ envforge validate --env .env.production
 
 # Validate with environment-specific overrides
 envforge validate --environment production
+
+# Validate with ad-hoc rules
+envforge validate --rules PORT=port --rules HOST=url
 ```
 
 ---
@@ -449,10 +444,7 @@ Usage: envforge schema json-schema [OPTIONS]
 **Examples:**
 
 ```bash
-# Output the JSON Schema definition
 envforge schema json-schema
-
-# Pipe to a file
 envforge schema json-schema > env-schema.json
 ```
 
@@ -474,13 +466,8 @@ Usage: envforge schema emit-ai [OPTIONS]
 **Examples:**
 
 ```bash
-# Emit AI-safe context to stdout
 envforge schema emit-ai
-
-# Write to file
 envforge schema emit-ai --output .env.ai-context
-
-# Infer types when no schema exists
 envforge schema emit-ai --infer
 ```
 
@@ -502,13 +489,8 @@ Usage: envforge docs [OPTIONS]
 **Examples:**
 
 ```bash
-# Generate docs to stdout
 envforge docs
-
-# Write docs to a file
 envforge docs --output docs/env-vars.md
-
-# Use a specific schema
 envforge docs --schema .env.schema
 ```
 
@@ -530,10 +512,7 @@ Usage: envforge init [OPTIONS]
 **Examples:**
 
 ```bash
-# Interactive setup using auto-detected schema
 envforge init
-
-# Use a specific schema and output path
 envforge init --schema .env.schema --output .env.local
 ```
 
@@ -556,14 +535,115 @@ Usage: envforge drift [OPTIONS] --envs <ENV_FILES>...
 **Examples:**
 
 ```bash
-# Compare two .env files for drift
 envforge drift --envs .env.development .env.production
-
-# Compare with schema context
 envforge drift --envs .env .env.staging --schema .env.schema
-
-# Check drift for a specific environment
 envforge drift --envs .env .env.prod --environment production
+```
+
+---
+
+## Runtime
+
+### envforge run
+
+Run a command with EnvForge-managed environment variables.
+
+```
+Usage: envforge run [OPTIONS] -- <COMMAND>...
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<COMMAND>...` | Command and arguments to run (after `--`) |
+
+| Flag | Description |
+|------|-------------|
+| `--profile <PROFILE>` | Profile to use (default: active profile) |
+| `--profiles <PROFILES>` | Load and merge multiple profiles (comma-separated, last wins) |
+| `--resolve` | Resolve secret references (ref:provider:path) at runtime |
+| `--env-file <ENV_FILES>` | Load additional .env file(s) (can be repeated) |
+| `--override <OVERRIDES>` | Override a specific variable (KEY=VALUE, can be repeated) |
+| `--volatile` | AI-agent-safe mode: resolve secrets in memory only, skip .env disk files |
+| `--redact` | Redact known secret values in subprocess output |
+| `--no-project` | Skip project config auto-detection |
+
+**Examples:**
+
+```bash
+# Run a command with environment variables
+envforge run -- node server.js
+
+# Use a specific profile
+envforge run --profile production -- npm start
+
+# Merge multiple profiles (last wins)
+envforge run --profiles base,staging -- ./deploy.sh
+
+# Resolve secret references at runtime
+envforge run --resolve -- python app.py
+
+# Override a variable for this run
+envforge run --override PORT=3001 -- npm start
+
+# AI-safe volatile mode (secrets never touch disk)
+envforge run --volatile --resolve -- ./my-agent.sh
+
+# Redact secrets from subprocess output
+envforge run --redact -- ./scripts/debug.sh
+
+# Combine env files with overrides
+envforge run --env-file .env.local --override DEBUG=true -- cargo test
+
+# Skip project config auto-detection
+envforge run --no-project -- npm start
+```
+
+---
+
+### envforge env
+
+Output environment variables as shell export statements (for `eval`).
+
+```
+Usage: envforge env [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--dir <DIR>` | Directory to load from (default: current) |
+
+**Examples:**
+
+```bash
+eval "$(envforge env)"
+eval "$(envforge env --dir /path/to/project)"
+```
+
+---
+
+### envforge hook
+
+Generate shell hook for auto-loading environment variables.
+
+```
+Usage: envforge hook [OPTIONS] <SHELL>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<SHELL>` | Shell type: `zsh`, `bash`, `fish` |
+
+**Examples:**
+
+```bash
+# Add to .zshrc
+eval "$(envforge hook zsh)"
+
+# Add to .bashrc
+eval "$(envforge hook bash)"
+
+# Add to fish config
+envforge hook fish | source
 ```
 
 ---
@@ -692,13 +772,8 @@ Usage: envforge project init [OPTIONS]
 **Examples:**
 
 ```bash
-# Initialize with default TOML format
 envforge project init
-
-# Initialize with YAML
 envforge project init --format yaml
-
-# Reinitialize (overwrite existing)
 envforge project init --force
 ```
 
@@ -721,10 +796,7 @@ Usage: envforge project wizard [OPTIONS]
 **Examples:**
 
 ```bash
-# Run interactive wizard
 envforge project wizard
-
-# Re-run all steps
 envforge project wizard --force
 ```
 
@@ -854,10 +926,7 @@ Usage: envforge project validate [OPTIONS]
 **Examples:**
 
 ```bash
-# Validate active environment
 envforge project validate
-
-# Validate specific environment
 envforge project validate --environment production
 ```
 
@@ -879,13 +948,8 @@ Usage: envforge project scan [OPTIONS]
 **Examples:**
 
 ```bash
-# Full project scan
 envforge project scan
-
-# Scan only staged files (pre-commit)
 envforge project scan --staged
-
-# Include MCP config files
 envforge project scan --mcp
 ```
 
@@ -949,10 +1013,7 @@ Usage: envforge project config [OPTIONS]
 **Examples:**
 
 ```bash
-# Show current config
 envforge project config
-
-# Edit config
 envforge project config --set name=my-app
 envforge project config --set schema_path=.env.schema
 ```
@@ -993,13 +1054,8 @@ Usage: envforge project pull [OPTIONS] --from <FROM>
 **Examples:**
 
 ```bash
-# Pull from Vault into active environment
 envforge project pull --from vault --path secret/myapp
-
-# Pull into specific environment
 envforge project pull --from doppler --environment production
-
-# Pull with filter
 envforge project pull --from aws-ssm --path /myapp/ --filter "DB_*"
 ```
 
@@ -1024,10 +1080,7 @@ Usage: envforge project push [OPTIONS] --to <TO>
 **Examples:**
 
 ```bash
-# Push specific keys
 envforge project push --to vault --path secret/myapp --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge project push --to doppler --all
 ```
 
@@ -1068,10 +1121,7 @@ Usage: envforge project sanitize [OPTIONS] <FILE>
 **Examples:**
 
 ```bash
-# Sanitize to stdout
 envforge project sanitize docker-compose.yml
-
-# Sanitize to file
 envforge project sanitize config.yaml --output config.sanitized.yaml
 ```
 
@@ -1098,16 +1148,9 @@ Usage: envforge project export [OPTIONS] [PATH]
 **Examples:**
 
 ```bash
-# Export as dotenv to stdout
 envforge project export
-
-# Export as JSON
 envforge project export --format json
-
-# Export with redacted values
 envforge project export --safe --format yaml
-
-# Export filtered keys to file
 envforge project export .env.export --filter "DB_*"
 ```
 
@@ -1130,10 +1173,7 @@ Usage: envforge encrypt [OPTIONS] <KEY>
 **Examples:**
 
 ```bash
-# Encrypt a sensitive variable
 envforge encrypt DATABASE_PASSWORD
-
-# Preview encryption
 envforge encrypt API_SECRET --dry-run
 ```
 
@@ -1154,11 +1194,188 @@ Usage: envforge decrypt [OPTIONS] <KEY>
 **Examples:**
 
 ```bash
-# Decrypt a variable
 envforge decrypt DATABASE_PASSWORD
-
-# Output decrypted value as JSON
 envforge decrypt API_SECRET --json
+```
+
+---
+
+## Snapshots & Undo
+
+### envforge snapshot create
+
+Create a snapshot of current environment variables.
+
+```
+Usage: envforge snapshot create [OPTIONS] [NAME]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[NAME]` | Snapshot name (default: auto-generated timestamp) |
+
+**Examples:**
+
+```bash
+envforge snapshot create
+envforge snapshot create pre-deploy
+envforge snapshot create before-migration --dry-run
+```
+
+---
+
+### envforge snapshot list
+
+List all snapshots.
+
+```
+Usage: envforge snapshot list [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge snapshot list
+envforge snapshot list --json
+```
+
+---
+
+### envforge snapshot restore
+
+Restore environment variables from a snapshot.
+
+```
+Usage: envforge snapshot restore [OPTIONS] [NAME]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[NAME]` | Snapshot name (substring match) |
+
+| Flag | Description |
+|------|-------------|
+| `--last` | Restore the most recent snapshot |
+
+**Examples:**
+
+```bash
+envforge snapshot restore pre-deploy
+envforge snapshot restore --last
+envforge snapshot restore pre-deploy --dry-run
+```
+
+---
+
+### envforge snapshot diff
+
+Show diff between a snapshot and current environment.
+
+```
+Usage: envforge snapshot diff [OPTIONS] [NAME]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[NAME]` | Snapshot name (substring match) |
+
+| Flag | Description |
+|------|-------------|
+| `--last` | Diff against the most recent snapshot |
+
+**Examples:**
+
+```bash
+envforge snapshot diff pre-deploy
+envforge snapshot diff --last
+```
+
+---
+
+### envforge snapshot delete
+
+Delete a snapshot.
+
+```
+Usage: envforge snapshot delete [OPTIONS] <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Snapshot name (substring match) |
+
+**Examples:**
+
+```bash
+envforge snapshot delete pre-deploy
+envforge snapshot delete old-snapshot --dry-run
+```
+
+---
+
+### envforge undo
+
+Undo the last mutation using backup snapshots.
+
+```
+Usage: envforge undo [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--list` | List available undo snapshots |
+
+**Examples:**
+
+```bash
+# List available undo points
+envforge undo --list
+
+# Undo the last mutation
+envforge undo
+
+# Preview undo
+envforge undo --dry-run
+```
+
+---
+
+## Backups
+
+### envforge backup list
+
+List available backups.
+
+```
+Usage: envforge backup list [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge backup list
+envforge backup list --json
+```
+
+---
+
+### envforge backup restore
+
+Restore from a backup file.
+
+```
+Usage: envforge backup restore [OPTIONS] <FILE>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<FILE>` | Path to backup file |
+
+**Examples:**
+
+```bash
+envforge backup restore ~/.envforge/backups/2025-01-01.toml
+envforge backup restore backup.toml --dry-run
 ```
 
 ---
@@ -1182,13 +1399,8 @@ Usage: envforge sync init [OPTIONS]
 **Examples:**
 
 ```bash
-# Initialize local sync repo
 envforge sync init
-
-# Initialize with a remote git repository
 envforge sync init --remote git@github.com:myorg/env-sync.git
-
-# Reinitialize with custom machine ID
 envforge sync init --force --machine-id macbook-work
 ```
 
@@ -1209,13 +1421,8 @@ Usage: envforge sync push [OPTIONS]
 **Examples:**
 
 ```bash
-# Push changes
 envforge sync push
-
-# Push with a custom message
 envforge sync push -m "Updated API keys for Q2"
-
-# Preview what would be pushed
 envforge sync push --dry-run
 ```
 
@@ -1232,10 +1439,7 @@ Usage: envforge sync pull [OPTIONS]
 **Examples:**
 
 ```bash
-# Pull latest changes
 envforge sync pull
-
-# Preview pull
 envforge sync pull --dry-run
 ```
 
@@ -1268,7 +1472,7 @@ Usage: envforge sync mark [OPTIONS] [KEY]
 
 | Argument | Description |
 |----------|-------------|
-| `[KEY]` | Key name or glob pattern (optional when --all is used) |
+| `[KEY]` | Key name or glob pattern (optional when `--all` is used) |
 
 | Flag | Description |
 |------|-------------|
@@ -1279,13 +1483,8 @@ Usage: envforge sync mark [OPTIONS] [KEY]
 **Examples:**
 
 ```bash
-# Mark a key as local-only
 envforge sync mark LOCAL_SECRET --local
-
-# Mark all keys for sync
 envforge sync mark --all --sync
-
-# Mark keys matching a pattern as local
 envforge sync mark "DEV_*" --local
 ```
 
@@ -1329,13 +1528,8 @@ Usage: envforge sync override [OPTIONS] <KEY> [VALUE]
 **Examples:**
 
 ```bash
-# Set a machine-specific override
 envforge sync override DATABASE_HOST localhost
-
-# Remove an override
 envforge sync override DATABASE_HOST --remove
-
-# List all overrides
 envforge sync override unused --list
 ```
 
@@ -1382,13 +1576,8 @@ Usage: envforge sync rollback [OPTIONS] [COMMIT]
 **Examples:**
 
 ```bash
-# Rollback to the previous snapshot
 envforge sync rollback --last
-
-# Rollback to a specific commit
 envforge sync rollback abc1234
-
-# Preview rollback
 envforge sync rollback --last --dry-run
 ```
 
@@ -1451,16 +1640,10 @@ Usage: envforge secrets pull [OPTIONS] --from <FROM>
 **Examples:**
 
 ```bash
-# Pull all secrets from Vault
 envforge secrets pull --from vault --path secret/myapp
-
-# Pull from AWS SSM with filter
 envforge secrets pull --from aws-ssm --path /myapp/ --filter "DB_*"
-
-# Preview what would be pulled
 envforge secrets pull --from 1password --path "My Vault" --dry-run
 ```
-
 
 ---
 
@@ -1483,16 +1666,10 @@ Usage: envforge secrets push [OPTIONS] --to <TO>
 **Examples:**
 
 ```bash
-# Push specific keys to Vault
 envforge secrets push --to vault --path secret/myapp --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to doppler --all
-
-# Push filtered keys
 envforge secrets push --to aws-ssm --path /prod/ --filter "PROD_*"
 ```
-
 
 ---
 
@@ -1516,10 +1693,7 @@ Usage: envforge secrets ref [OPTIONS] --from <FROM> --path <PATH> <KEY>
 **Examples:**
 
 ```bash
-# Create a reference to a Vault secret
 envforge secrets ref DATABASE_URL --from vault --path secret/myapp/db_url
-
-# Reference an AWS SSM parameter
 envforge secrets ref API_KEY --from aws-ssm --path /prod/api-key
 ```
 
@@ -1540,10 +1714,7 @@ Usage: envforge secrets unref [OPTIONS] <KEY>
 **Examples:**
 
 ```bash
-# Remove a secret reference
 envforge secrets unref DATABASE_URL
-
-# Preview unreferencing
 envforge secrets unref API_KEY --dry-run
 ```
 
@@ -1564,10 +1735,7 @@ Usage: envforge secrets resolve [OPTIONS]
 **Examples:**
 
 ```bash
-# Resolve all secret references
 envforge secrets resolve
-
-# Resolve a specific key
 envforge secrets resolve --key DATABASE_URL
 ```
 
@@ -1595,17 +1763,11 @@ Usage: envforge secrets config [OPTIONS] <PROVIDER>
 **Examples:**
 
 ```bash
-# Configure Vault credentials
 envforge secrets config vault --set addr=https://vault.example.com
 envforge secrets config vault --set token=hvs.abc123 --ttl 8h
-
-# Show stored credentials
 envforge secrets config vault --show
-
-# Remove provider credentials
 envforge secrets config doppler --remove
 ```
-
 
 ---
 
@@ -1653,19 +1815,14 @@ Usage: envforge secrets age [OPTIONS]
 
 | Flag | Description |
 |------|-------------|
-| `--threshold <THRESHOLD>` | Stale threshold in days (default: 90) [default: 90] |
+| `--threshold <THRESHOLD>` | Stale threshold in days [default: 90] |
 | `--stale-only` | Only show stale secrets |
 
 **Examples:**
 
 ```bash
-# Show all secret ages
 envforge secrets age
-
-# Flag secrets older than 30 days
 envforge secrets age --threshold 30
-
-# Only show stale secrets
 envforge secrets age --stale-only
 ```
 
@@ -1688,10 +1845,7 @@ Usage: envforge secrets diff [OPTIONS] --from <FROM>
 **Examples:**
 
 ```bash
-# Compare local vs Vault
 envforge secrets diff --from vault --path secret/myapp
-
-# Compare with filter
 envforge secrets diff --from aws-ssm --path /prod/ --filter "API_*"
 ```
 
@@ -1729,18 +1883,15 @@ Usage: envforge secrets cache clear [OPTIONS]
 **Examples:**
 
 ```bash
-# Clear all cached secrets
 envforge secrets cache clear
-
-# Clear cache for a specific provider
 envforge secrets cache clear --provider vault
 ```
 
 ---
 
-### envforge secrets rotate
+### envforge rotate
 
-Rotate a secret: update value, reset age, optionally push.
+Rotate a secret: update value, reset age, optionally push to provider and sync.
 
 ```
 Usage: envforge rotate [OPTIONS] <KEY>
@@ -1759,16 +1910,9 @@ Usage: envforge rotate [OPTIONS] <KEY>
 **Examples:**
 
 ```bash
-# Rotate a single secret
 envforge rotate API_KEY
-
-# Preview rotation
 envforge rotate DATABASE_PASSWORD --dry-run
-
-# Rotate all stale secrets
 envforge rotate unused --stale
-
-# Rotate and propagate to provider + sync
 envforge rotate STRIPE_KEY --propagate
 ```
 
@@ -1794,13 +1938,8 @@ Usage: envforge resolve-uri [OPTIONS] <FILE>
 **Examples:**
 
 ```bash
-# Resolve URIs in a config file
 envforge resolve-uri config/secrets.yml
-
-# Output as .env format
 envforge resolve-uri config/secrets.yml --env
-
-# Write to a file
 envforge resolve-uri config/secrets.yml --output .env.resolved
 ```
 
@@ -1810,19 +1949,1246 @@ envforge resolve-uri config/secrets.yml --output .env.resolved
 
 | Provider | Name | Binary | Required Fields | Path Used? |
 |----------|------|--------|-----------------|------------|
-| [HashiCorp Vault](#hashicorp-vault-integration) | `vault` | `vault` | `addr` | Yes — KV mount path |
-| [AWS SSM](#aws-ssm-parameter-store-integration) | `aws-ssm` | `aws` | _(none)_ | Yes — parameter path prefix |
-| [1Password](#1password-integration) | `1password` | `op` | `service_account_token` | Yes — item name or UUID |
-| [Doppler](#doppler-integration) | `doppler` | `doppler` | `token`, `project`, `config` | No — ignored |
-| [Infisical](#infisical-integration) | `infisical` | `infisical` | `token`, `project_id`, `environment` | No — ignored |
-| [GCP Secret Manager](#gcp-secret-manager-integration) | `gcp` | `gcloud` | `project_id` | No — ignored |
-| [Azure Key Vault](#azure-key-vault-integration) | `azure` | `az` | `vault_name` | No — ignored |
-| [Bitwarden](#bitwarden-secrets-manager-integration) | `bitwarden` | `bws` | `access_token` | No — ignored |
-| [Akeyless](#akeyless-vault-integration) | `akeyless` | `akeyless` | `access_id`, `access_key` | Yes — item path prefix |
-| [CyberArk Conjur](#cyberark-conjur-integration) | `conjur` | `conjur` | `url`, `account`, `login`, `api_key` | Yes — variable path prefix |
-| [Mozilla SOPS](#mozilla-sops-integration) | `sops` | `sops` | `key_file` | Yes — encrypted file path |
-| [pass/gopass](#passgopass-integration) | `pass` | `pass`/`gopass` | _(none)_ | Yes — entry prefix filter |
-| [Keeper](#keeper-secrets-manager-integration) | `keeper` | `ksm` | _(none)_ | No — ignored |
+| HashiCorp Vault | `vault` | `vault` | `addr` | Yes — KV mount path |
+| AWS SSM | `aws-ssm` | `aws` | _(none)_ | Yes — parameter path prefix |
+| 1Password | `1password` | `op` | `service_account_token` | Yes — item name or UUID |
+| Doppler | `doppler` | `doppler` | `token`, `project`, `config` | No — ignored |
+| Infisical | `infisical` | `infisical` | `token`, `project_id`, `environment` | No — ignored |
+| GCP Secret Manager | `gcp` | `gcloud` | `project_id` | No — ignored |
+| Azure Key Vault | `azure` | `az` | `vault_name` | No — ignored |
+| Bitwarden | `bitwarden` | `bws` | `access_token` | No — ignored |
+| Akeyless | `akeyless` | `akeyless` | `access_id`, `access_key` | Yes — item path prefix |
+| CyberArk Conjur | `conjur` | `conjur` | `url`, `account`, `login`, `api_key` | Yes — variable path prefix |
+| Mozilla SOPS | `sops` | `sops` | `key_file` | Yes — encrypted file path |
+| pass/gopass | `pass` | `pass`/`gopass` | _(none)_ | Yes — entry prefix filter |
+| Keeper | `keeper` | `ksm` | _(none)_ | No — ignored |
+
+---
+
+## Secret Sharing
+
+### envforge share create
+
+Create an encrypted share file.
+
+```
+Usage: envforge share create [OPTIONS] --recipient <RECIPIENT>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--recipient <RECIPIENT>` | Recipient's age public key (age1...) |
+| `--keys <KEYS>` | Specific keys to share (comma-separated) |
+| `--all` | Share all keys |
+| `--filter <FILTER>` | Filter by pattern |
+| `--output <OUTPUT>` | Output file path [default: envforge-share.age] |
+| `--expire <EXPIRE>` | Expiry in hours |
+
+**Examples:**
+
+```bash
+envforge share create --recipient age1abc... --keys API_KEY,DB_URL
+envforge share create --recipient age1abc... --all --expire 24
+envforge share create --recipient age1abc... --filter "PROD_*" --output prod-secrets.age
+```
+
+---
+
+### envforge share receive
+
+Receive and import a share file.
+
+```
+Usage: envforge share receive [OPTIONS] <FILE>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<FILE>` | Path to share file |
+
+| Flag | Description |
+|------|-------------|
+| `--import` | Import keys into EnvForge config |
+
+**Examples:**
+
+```bash
+envforge share receive envforge-share.age
+envforge share receive prod-secrets.age --import
+```
+
+---
+
+## Security Scanning
+
+### envforge scan
+
+Scan files for leaked secrets.
+
+```
+Usage: envforge scan [OPTIONS] [PATH]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[PATH]` | Path to scan (default: current directory) |
+
+| Flag | Description |
+|------|-------------|
+| `--staged` | Only scan git staged files |
+| `--install-hook` | Install git pre-commit hook that runs `envforge scan --staged` |
+| `--remove-hook` | Remove the envforge pre-commit hook |
+| `--mcp` | Scan MCP config files for hardcoded credentials |
+
+**Examples:**
+
+```bash
+envforge scan
+envforge scan ./src
+envforge scan --staged
+envforge scan --install-hook
+envforge scan --mcp
+```
+
+---
+
+### envforge mcp status
+
+Check if any MCP config files contain plaintext secrets.
+
+```
+Usage: envforge mcp status [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge mcp status
+envforge mcp status --json
+```
+
+---
+
+### envforge mcp harden
+
+Replace plaintext secrets with ${VAR} env var references (backs up originals).
+
+```
+Usage: envforge mcp harden [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge mcp harden
+envforge mcp harden --dry-run
+```
+
+---
+
+## AI Safety
+
+### envforge fence
+
+Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), or check status.
+
+```
+Usage: envforge fence [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--status` | Check if all ignore rules are correctly installed |
+
+**Examples:**
+
+```bash
+envforge fence
+envforge fence --status
+envforge fence --dry-run
+```
+
+---
+
+### envforge sanitize
+
+Sanitize a file by replacing secret values with ${KEY} placeholders.
+
+```
+Usage: envforge sanitize [OPTIONS] <FILE>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<FILE>` | File to sanitize |
+
+| Flag | Description |
+|------|-------------|
+| `--output <OUTPUT>` | Output file (default: stdout) |
+
+**Examples:**
+
+```bash
+envforge sanitize config.json
+envforge sanitize docker-compose.yml --output docker-compose.sanitized.yml
+envforge sanitize .env --dry-run
+```
+
+---
+
+### envforge ai-hook install
+
+Install hooks for an AI coding tool.
+
+```
+Usage: envforge ai-hook install [OPTIONS] <TOOL>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<TOOL>` | Tool name: `claude-code`, `cursor` |
+
+**Examples:**
+
+```bash
+envforge ai-hook install claude-code
+envforge ai-hook install cursor
+```
+
+---
+
+### envforge ai-hook remove
+
+Remove hooks from an AI coding tool.
+
+```
+Usage: envforge ai-hook remove [OPTIONS] <TOOL>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<TOOL>` | Tool name: `claude-code`, `cursor` |
+
+**Examples:**
+
+```bash
+envforge ai-hook remove claude-code
+envforge ai-hook remove cursor
+```
+
+---
+
+### envforge ai-hook status
+
+Check if AI tool hooks are installed.
+
+```
+Usage: envforge ai-hook status [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge ai-hook status
+envforge ai-hook status --json
+```
+
+---
+
+### envforge ai-guard
+
+AI agent guard — invoked by AI tool hooks (not for direct use).
+
+```
+Usage: envforge ai-guard [OPTIONS] <STAGE> <TOOL_NAME> [TOOL_INPUT]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<STAGE>` | Hook stage: `pre-tool`, `post-tool` |
+| `<TOOL_NAME>` | Tool name |
+| `[TOOL_INPUT]` | Tool input (JSON string or path) |
+
+**Examples:**
+
+```bash
+envforge ai-guard pre-tool Write '{"file_path": ".env"}'
+envforge ai-guard post-tool Read '{"file_path": "config.json"}'
+```
+
+---
+
+### envforge proxy
+
+Start local credential proxy for AI agents.
+
+```
+Usage: envforge proxy [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--port <PORT>` | Port to listen on [default: 8100] |
+| `--keys <KEYS>` | Only serve these keys (comma-separated) |
+| `--profile <PROFILE>` | Profile to use |
+| `--allow-origins <ALLOW_ORIGINS>` | Allowed origins (comma-separated, default: localhost only) |
+| `--require-lease` | Require active lease for access |
+| `--require-approval` | Require human approval for each secret access |
+
+**Examples:**
+
+```bash
+envforge proxy
+envforge proxy --keys API_KEY,DATABASE_URL --port 9000
+envforge proxy --require-lease --require-approval
+envforge proxy --allow-origins "http://localhost:3000,http://localhost:8080"
+```
+
+---
+
+### envforge lease create
+
+Create a new time-bounded secret access lease.
+
+```
+Usage: envforge lease create [OPTIONS] --ttl <TTL>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--name <NAME>` | Lease name (default: auto-generated) |
+| `--ttl <TTL>` | Time-to-live (e.g., "1h", "30m", "8h", "24h", "7d") |
+| `--keys <KEYS>` | Restrict to specific keys (comma-separated) |
+
+**Examples:**
+
+```bash
+envforge lease create --ttl 1h
+envforge lease create --name deploy-lease --ttl 30m --keys API_KEY,SECRET
+envforge lease create --ttl 7d
+```
+
+---
+
+### envforge lease list
+
+List all leases.
+
+```
+Usage: envforge lease list [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge lease list
+envforge lease list --json
+```
+
+---
+
+### envforge lease cleanup
+
+Clean up expired leases.
+
+```
+Usage: envforge lease cleanup [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge lease cleanup
+envforge lease cleanup --dry-run
+```
+
+---
+
+### envforge session start
+
+Start a new AI tool session with scoped secret access.
+
+```
+Usage: envforge session start [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--tool <TOOL>` | AI tool type: `claude-code`, `cursor`, `copilot` (auto-detected if omitted) |
+| `--ttl <TTL>` | Session TTL (e.g., "1h", "30m", "8h", "1d") [default: 1h] |
+
+**Examples:**
+
+```bash
+envforge session start
+envforge session start --tool claude-code
+envforge session start --tool cursor --ttl 30m
+```
+
+---
+
+### envforge session stop
+
+Stop (expire) a session.
+
+```
+Usage: envforge session stop [OPTIONS] [ID]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[ID]` | Session ID to stop (current session if omitted) |
+
+**Examples:**
+
+```bash
+envforge session stop
+envforge session stop 246f86ae-8b41-48bb-b9f7-0da491594b23
+```
+
+---
+
+### envforge session list
+
+List active and expired sessions.
+
+```
+Usage: envforge session list [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge session list
+envforge session list --json
+```
+
+---
+
+### envforge session show
+
+Show details for a specific session.
+
+```
+Usage: envforge session show [OPTIONS] <ID>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<ID>` | Session ID |
+
+**Examples:**
+
+```bash
+envforge session show 246f86ae-8b41-48bb-b9f7-0da491594b23
+envforge session show 246f86ae-8b41-48bb-b9f7-0da491594b23 --json
+```
+
+---
+
+### envforge session cleanup
+
+Clean up expired sessions.
+
+```
+Usage: envforge session cleanup [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge session cleanup
+envforge session cleanup --dry-run
+```
+
+---
+
+### envforge revoke
+
+Emergency revoke all secret access.
+
+```
+Usage: envforge revoke [OPTIONS] [NAME]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[NAME]` | Specific lease name to revoke |
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Revoke all active leases (killswitch) |
+
+**Examples:**
+
+```bash
+envforge revoke deploy-lease
+envforge revoke --all
+envforge revoke --all --dry-run
+```
+
+---
+
+## Canary Tokens
+
+### envforge canary create
+
+Create a canary secret (honeypot credential for exfiltration detection).
+
+```
+Usage: envforge canary create [OPTIONS] <KEY>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<KEY>` | Key name (e.g., AWS_SECRET_KEY) |
+
+| Flag | Description |
+|------|-------------|
+| `--pattern <PATTERN>` | Pattern: `aws_key`, `github_token`, `stripe_key`, `slack_token`, `gitlab_token`, `generic` [default: generic] |
+
+**Examples:**
+
+```bash
+envforge canary create HONEYPOT_API_KEY
+envforge canary create AWS_SECRET_ACCESS_KEY --pattern aws_key
+envforge canary create GITHUB_TOKEN --pattern github_token
+```
+
+---
+
+### envforge canary list
+
+List all canary secrets.
+
+```
+Usage: envforge canary list [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge canary list
+envforge canary list --json
+```
+
+---
+
+### envforge canary check
+
+Check for triggered canaries.
+
+```
+Usage: envforge canary check [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge canary check
+envforge canary check --json
+```
+
+---
+
+### envforge canary delete
+
+Delete a canary.
+
+```
+Usage: envforge canary delete [OPTIONS] <KEY>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<KEY>` | Canary key name |
+
+**Examples:**
+
+```bash
+envforge canary delete HONEYPOT_API_KEY
+envforge canary delete OLD_CANARY --dry-run
+```
+
+---
+
+### envforge canary rotate
+
+Rotate canary values (regenerate fake values).
+
+```
+Usage: envforge canary rotate [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Rotate all eligible canaries |
+| `--key <KEY>` | Rotate a specific canary by key |
+| `--dry-run` | Show what would be rotated without making changes |
+
+**Examples:**
+
+```bash
+envforge canary rotate --key HONEYPOT_API_KEY
+envforge canary rotate --all
+envforge canary rotate --all --dry-run
+```
+
+---
+
+### envforge canary place
+
+Place a canary line into a file.
+
+```
+Usage: envforge canary place [OPTIONS] <KEY> <FILE>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<KEY>` | Canary key |
+| `<FILE>` | Target file path |
+
+| Flag | Description |
+|------|-------------|
+| `--position <POSITION>` | Position: `top`, `middle`, `bottom`, `random` [default: bottom] |
+
+**Examples:**
+
+```bash
+envforge canary place HONEYPOT_API_KEY ./src/config.ts
+envforge canary place AWS_SECRET ./src/index.ts --position top
+```
+
+---
+
+## Adversarial Hardening
+
+### envforge hardening show
+
+Show current hardening configuration.
+
+```
+Usage: envforge hardening show [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge hardening show
+```
+
+---
+
+### envforge hardening enable
+
+Enable a hardening layer.
+
+```
+Usage: envforge hardening enable [OPTIONS] <LAYER>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<LAYER>` | Layer name: `control_chars`, `base64_decode`, `split_strings`, `encoding_chain` |
+
+**Examples:**
+
+```bash
+envforge hardening enable control_chars
+envforge hardening enable base64_decode
+```
+
+---
+
+### envforge hardening disable
+
+Disable a hardening layer.
+
+```
+Usage: envforge hardening disable [OPTIONS] <LAYER>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<LAYER>` | Layer name: `control_chars`, `base64_decode`, `split_strings`, `encoding_chain` |
+
+**Examples:**
+
+```bash
+envforge hardening disable control_chars
+envforge hardening disable encoding_chain
+```
+
+---
+
+### envforge scanner list
+
+List configured external scanners.
+
+```
+Usage: envforge scanner list [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge scanner list
+```
+
+---
+
+### envforge scanner test
+
+Test a scanner with sample content.
+
+```
+Usage: envforge scanner test [OPTIONS] <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Scanner name |
+
+**Examples:**
+
+```bash
+envforge scanner test trufflehog
+```
+
+---
+
+### envforge scanner run
+
+Run a scanner against arbitrary content.
+
+```
+Usage: envforge scanner run [OPTIONS] <NAME> <CONTENT>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Scanner name |
+| `<CONTENT>` | Content to scan |
+
+**Examples:**
+
+```bash
+envforge scanner run trufflehog "sk-abc123def456"
+```
+
+---
+
+### envforge scanner enable
+
+Enable a scanner.
+
+```
+Usage: envforge scanner enable [OPTIONS] <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Scanner name |
+
+**Examples:**
+
+```bash
+envforge scanner enable trufflehog
+```
+
+---
+
+### envforge scanner disable
+
+Disable a scanner.
+
+```
+Usage: envforge scanner disable [OPTIONS] <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Scanner name |
+
+**Examples:**
+
+```bash
+envforge scanner disable trufflehog
+```
+
+---
+
+## Audit & Diagnostics
+
+### envforge audit
+
+View change audit trail from sync history.
+
+```
+Usage: envforge audit [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--key <KEY>` | Filter by key name |
+| `--since <SINCE>` | Filter changes since date (ISO 8601) |
+| `--machine <MACHINE>` | Filter by machine ID |
+| `-n, --n <N>` | Number of entries to show [default: 50] |
+| `--ai-leaks` | Scan git history for secrets leaked in AI-assisted commits |
+| `--access` | Show proxy access audit log |
+
+**Examples:**
+
+```bash
+envforge audit
+envforge audit --key DATABASE_URL
+envforge audit --since 2025-01-01
+envforge audit --ai-leaks
+envforge audit --access
+envforge audit --machine macbook-work -n 20
+```
+
+---
+
+### envforge audit-trail query
+
+Query audit events with filters.
+
+```
+Usage: envforge audit-trail query [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--event-type <EVENT_TYPE>` | Filter by event type |
+| `--source <SOURCE>` | Filter by source |
+| `--secret-key <SECRET_KEY>` | Filter by secret key |
+| `--time <TIME>` | Time range: last_1h, last_24h, last_7d, last_30d, all [default: last_24h] |
+| `--limit <LIMIT>` | Limit number of results [default: 50] |
+| `--log-dir <LOG_DIR>` | Audit log directory |
+
+**Examples:**
+
+```bash
+envforge audit-trail query --time last_24h
+envforge audit-trail query --event-type SECRET_ACCESS --source proxy
+envforge audit-trail query --secret-key API_KEY --time last_7d
+envforge audit-trail query --time all --limit 100 --json
+```
+
+---
+
+### envforge audit-trail report
+
+Generate a compliance report.
+
+```
+Usage: envforge audit-trail report [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--report-type <REPORT_TYPE>` | summary, detail, trend, violation, compliance [default: summary] |
+| `--group-by <GROUP_BY>` | event_type, source, result, hour, day, week, month, secret_key, tool_type |
+| `--time <TIME>` | Time range: last_1h, last_24h, last_7d, last_30d, all [default: last_24h] |
+| `--format <FORMAT>` | json, csv, markdown [default: json] |
+| `--output <OUTPUT>` | Output file path (stdout if not specified) |
+| `--log-dir <LOG_DIR>` | Audit log directory |
+
+**Examples:**
+
+```bash
+envforge audit-trail report --report-type summary
+envforge audit-trail report --report-type compliance --format markdown
+envforge audit-trail report --report-type trend --group-by day --time last_7d
+envforge audit-trail report --report-type detail --output report.csv --format csv
+```
+
+---
+
+### envforge audit-trail custody
+
+Show chain of custody for a secret.
+
+```
+Usage: envforge audit-trail custody [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--secret-key <SECRET_KEY>` | Secret key to trace |
+| `--session <SESSION>` | Session ID to trace |
+| `--ownership` | Show ownership report |
+| `--log-dir <LOG_DIR>` | Audit log directory |
+
+**Examples:**
+
+```bash
+envforge audit-trail custody --secret-key API_KEY
+envforge audit-trail custody --secret-key DB_PASSWORD --ownership
+envforge audit-trail custody --session 246f86ae-8b41
+```
+
+---
+
+### envforge audit-trail integrity
+
+Verify tamper-evident integrity of audit logs.
+
+```
+Usage: envforge audit-trail integrity [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--category <CATEGORY>` | Specific log category: ai-guard, proxy, sync, cli, tui, hook, general |
+| `--log-dir <LOG_DIR>` | Audit log directory |
+
+**Examples:**
+
+```bash
+envforge audit-trail integrity
+envforge audit-trail integrity --category proxy
+envforge audit-trail integrity --category ai-guard --json
+```
+
+---
+
+### envforge audit-trail stats
+
+Show audit statistics.
+
+```
+Usage: envforge audit-trail stats [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--time <TIME>` | Time range: last_1h, last_24h, last_7d, last_30d, all [default: last_24h] |
+| `--log-dir <LOG_DIR>` | Audit log directory |
+
+**Examples:**
+
+```bash
+envforge audit-trail stats
+envforge audit-trail stats --time last_7d
+envforge audit-trail stats --time all --json
+```
+
+---
+
+### envforge audit-trail tail
+
+Tail recent audit events.
+
+```
+Usage: envforge audit-trail tail [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--n <N>` | Number of recent events to show [default: 20] |
+| `--source <SOURCE>` | Filter by source |
+| `--log-dir <LOG_DIR>` | Audit log directory |
+
+**Examples:**
+
+```bash
+envforge audit-trail tail
+envforge audit-trail tail --n 50
+envforge audit-trail tail --source proxy --json
+```
+
+---
+
+### envforge audit-trail retention
+
+Manage audit log retention.
+
+```
+Usage: envforge audit-trail retention [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--policy <POLICY>` | Delete events older than: 1d, 7d, 30d, 90d, 365d [default: 90d] |
+| `--execute` | Actually perform cleanup (dry-run by default) |
+| `--log-dir <LOG_DIR>` | Audit log directory |
+
+**Examples:**
+
+```bash
+envforge audit-trail retention
+envforge audit-trail retention --policy 30d
+envforge audit-trail retention --policy 7d --execute
+```
+
+---
+
+### envforge doctor
+
+Run health checks on EnvForge setup.
+
+```
+Usage: envforge doctor [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Show detailed output for each check |
+
+**Examples:**
+
+```bash
+envforge doctor
+envforge doctor --verbose
+envforge doctor --json
+```
+
+---
+
+### envforge check
+
+Run all checks: doctor + validate + scan + age + drift.
+
+```
+Usage: envforge check [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--only <ONLY>` | Only run specific categories (comma-separated: `doctor`, `validate`, `scan`, `age`, `drift`) |
+
+**Examples:**
+
+```bash
+envforge check
+envforge check --only validate,scan
+envforge check --json
+```
+
+---
+
+### envforge log
+
+View change history.
+
+```
+Usage: envforge log [OPTIONS] [KEY]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[KEY]` | Filter by key name |
+
+| Flag | Description |
+|------|-------------|
+| `-n, --n <N>` | Number of entries to show [default: 50] |
+
+**Examples:**
+
+```bash
+envforge log
+envforge log API_KEY
+envforge log -n 10
+```
+
+---
+
+### envforge config
+
+Show current configuration.
+
+```
+Usage: envforge config [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge config
+envforge config --json
+```
+
+---
+
+### envforge offset
+
+Show managed zone and protected block offsets.
+
+```
+Usage: envforge offset [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--show` | Show detected protected blocks |
+| `--suggest` | Suggest header/footer offsets |
+
+**Examples:**
+
+```bash
+envforge offset --show
+envforge offset --suggest
+envforge offset --show --json
+```
+
+---
+
+## Git Integration
+
+### envforge git install-merge-driver
+
+Install EnvForge as a Git merge driver for .env files.
+
+```
+Usage: envforge git install-merge-driver [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge git install-merge-driver
+envforge git install-merge-driver --dry-run
+```
+
+---
+
+### envforge git remove-merge-driver
+
+Remove the Git merge driver.
+
+```
+Usage: envforge git remove-merge-driver [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge git remove-merge-driver
+```
+
+---
+
+### envforge git merge
+
+Three-way merge for .env files (called by Git, not directly by users).
+
+```
+Usage: envforge git merge <BASE> <OURS> <THEIRS>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<BASE>` | Base file (ancestor) |
+| `<OURS>` | Ours file (current branch) |
+| `<THEIRS>` | Theirs file (other branch) |
+
+---
+
+## Shell & Editor Integration
+
+### envforge completions
+
+Generate and install shell completion scripts.
+
+```
+Usage: envforge completions [OPTIONS] <SHELL>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<SHELL>` | Shell type: `zsh`, `bash`, `fish`, `kiro`, `fig` |
+
+| Flag | Description |
+|------|-------------|
+| `--install` | Install completion spec to the correct system path |
+
+**Examples:**
+
+```bash
+envforge completions zsh > ~/.zsh/completions/_envforge
+envforge completions zsh --install
+envforge completions bash --install
+envforge completions fish --install
+envforge completions kiro --install
+envforge completions fig --install
+```
+
+#### Kiro CLI Setup
+
+Kiro CLI uses a graphical dropdown autocomplete powered by Fig-format specs. To enable EnvForge completions in Kiro:
+
+```bash
+envforge completions kiro --install
+```
+
+This does three things:
+1. Writes the Fig spec to `~/.kiro/specs/envforge.js`
+2. Configures `kiro-cli settings autocomplete.devCompletionsFolder` to point to `~/.kiro/specs`
+3. Also writes to `~/.fig/autocomplete/build/envforge.js` for backward compatibility
+
+After installation:
+- Enable developer mode: `kiro-cli settings autocomplete.developerMode true`
+- Restart Kiro: `kiro-cli restart`
+- Open a new terminal and type `envforge <TAB>`
+
+> **Note:** The spec file must use plain JavaScript syntax (not TypeScript). The `--install` flag handles this automatically.
+
+---
+
+### envforge man
+
+Show built-in manual page for a command.
+
+```
+Usage: envforge man [OPTIONS] <COMMAND>...
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<COMMAND>...` | Command name (e.g., "list", "sync push", "secrets pull") |
+
+**Examples:**
+
+```bash
+envforge man list
+envforge man sync push
+envforge man secrets pull
+envforge man rotate
+```
+
+---
+
+### envforge lsp
+
+Start the Language Server Protocol server for IDE integration.
+
+```
+Usage: envforge lsp
+```
+
+The LSP server communicates over stdio (stdin/stdout) and is launched automatically by IDE extensions.
+
+**Capabilities:**
+
+| Feature | Description |
+|---------|-------------|
+| Diagnostics | Missing required vars, type validation, secret leak warnings |
+| Hover | Type, description, default, example from `.env.schema` |
+| Completions | All envforge-managed vars, schema keys, value suggestions |
+| Go-to-definition | `.env` key → `.env.schema` section |
+
+**Supported files:** `.env`, `.env.*`, `*.env`, `.env.schema`
+
+**IDE Extensions:**
+
+- **VS Code** — Install from [Marketplace](https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager) or `ext install emreerinc.envforge-env-manager`
+- **IntelliJ IDEA** — Install from [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/31385-envforge) (requires LSP4IJ plugin)
+- **Neovim** — Configure via `nvim-lspconfig` (see `editors/README.md`)
+- **Helix** — Add to `languages.toml` (see `editors/README.md`)
+- **Sublime Text** — Configure via LSP package (see `editors/README.md`)
 
 ---
 
@@ -1908,34 +3274,24 @@ EnvForge tries KV v2 path (`data.data`) first, falls back to KV v1 (`data`). You
 
 **Pull secrets from Vault**
 ```bash
-# Pull all keys from a secret path
 envforge secrets pull --from vault --path secret/myapp
-
-# Pull with filter
 envforge secrets pull --from vault --path secret/myapp --filter "DB_*"
 ```
 
 **Push secrets to Vault**
 ```bash
-# Push specific keys
 envforge secrets push --to vault --path secret/myapp --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to vault --path secret/myapp --all
 ```
 
 **Create references**
 ```bash
-# Reference a specific key within a Vault secret
 envforge secrets ref DATABASE_URL --from vault --path secret/myapp/DATABASE_URL
 ```
 
 **Resolve and run**
 ```bash
-# Resolve all secret references and run your app
 envforge run --resolve -- npm start
-
-# Preview what would be injected
 envforge run --resolve --dry-run -- npm start
 ```
 
@@ -2080,19 +3436,13 @@ When pushing, keys are appended to the path: `push --to aws-ssm --path /myapp/pr
 
 **Pull secrets from SSM**
 ```bash
-# Pull all parameters under a path
 envforge secrets pull --from aws-ssm --path /myapp/prod/
-
-# Pull with filter
 envforge secrets pull --from aws-ssm --path /myapp/ --filter "DB_*"
 ```
 
 **Push secrets to SSM**
 ```bash
-# Push specific keys (stored as SecureString)
 envforge secrets push --to aws-ssm --path /myapp/prod/ --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to aws-ssm --path /myapp/prod/ --all
 ```
 
@@ -2214,16 +3564,12 @@ Item fields are returned as key-value pairs where the **label** is the key and *
 
 **Pull secrets from 1Password**
 ```bash
-# Pull all fields from an item
 envforge secrets pull --from 1password --path "Backend Secrets"
-
-# Pull with filter
 envforge secrets pull --from 1password --path "Backend Secrets" --filter "DB_*"
 ```
 
 **Push secrets to 1Password**
 ```bash
-# Update existing fields in an item
 envforge secrets push --to 1password --path "Backend Secrets" --keys DATABASE_URL,API_KEY
 ```
 
@@ -2337,19 +3683,13 @@ envforge secrets pull --from doppler --path anything
 
 **Pull secrets from Doppler**
 ```bash
-# Pull all secrets for configured project/config
 envforge secrets pull --from doppler
-
-# Pull with filter
 envforge secrets pull --from doppler --filter "DB_*"
 ```
 
 **Push secrets to Doppler**
 ```bash
-# Push specific keys
 envforge secrets push --to doppler --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to doppler --all
 ```
 
@@ -2473,19 +3813,13 @@ envforge secrets config infisical --set environment=staging
 
 **Pull secrets from Infisical**
 ```bash
-# Pull all secrets for configured project/environment
 envforge secrets pull --from infisical
-
-# Pull with filter
 envforge secrets pull --from infisical --filter "DB_*"
 ```
 
 **Push secrets to Infisical**
 ```bash
-# Push specific keys (batch operation)
 envforge secrets push --to infisical --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to infisical --all
 ```
 
@@ -2512,12 +3846,6 @@ Infisical supports two automation auth methods:
 2. **Machine Identities** (recommended): More flexible, supports multiple auth methods (Universal Auth, Kubernetes, AWS, GCP, Azure).
 
 EnvForge uses the service token approach via `INFISICAL_TOKEN`.
-
-**Creating a service token:**
-1. Go to your project in the Infisical dashboard
-2. Navigate to **Project Settings** > **Service Tokens**
-3. Create a token scoped to the target environment
-4. Copy the token (starts with `st.`)
 
 #### Common Pitfalls
 
@@ -2606,19 +3934,13 @@ envforge secrets pull --from gcp --filter "DB_*"
 
 **Pull secrets from GCP**
 ```bash
-# Pull all secrets in project
 envforge secrets pull --from gcp
-
-# Pull with filter
 envforge secrets pull --from gcp --filter "PROD_*"
 ```
 
 **Push secrets to GCP**
 ```bash
-# Push specific keys (creates secret if not exists, adds new version)
 envforge secrets push --to gcp --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to gcp --all
 ```
 
@@ -2645,8 +3967,6 @@ GCP uses the standard `gcloud` authentication chain:
 2. **Service account**: `gcloud auth activate-service-account --key-file=sa-key.json` (CI/CD)
 3. **Application Default Credentials**: `GOOGLE_APPLICATION_CREDENTIALS` env var pointing to a service account key file
 4. **Metadata server**: Automatic on GCE/GKE/Cloud Run
-
-EnvForge doesn't set any GCP environment variables — it relies on the `gcloud` CLI's built-in authentication.
 
 **Required IAM roles:**
 - `roles/secretmanager.secretAccessor` (for pull/get)
@@ -2736,19 +4056,13 @@ envforge secrets pull --from azure --path anything
 
 **Pull secrets from Azure Key Vault**
 ```bash
-# Pull all secrets from vault
 envforge secrets pull --from azure
-
-# Pull with filter
 envforge secrets pull --from azure --filter "DB_*"
 ```
 
 **Push secrets to Azure Key Vault**
 ```bash
-# Push specific keys
 envforge secrets push --to azure --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to azure --all
 ```
 
@@ -2775,8 +4089,6 @@ Azure CLI uses its own authentication chain:
 2. **Service principal**: `az login --service-principal -u <app-id> -p <secret> --tenant <tenant-id>` (CI/CD)
 3. **Managed identity**: Automatic on Azure VMs, App Service, Functions
 4. **Device code**: `az login --use-device-code` (headless environments)
-
-EnvForge doesn't set any Azure environment variables — it relies on the `az` CLI's authentication state.
 
 **Required role:**
 - `Key Vault Secrets User` (for read/list)
@@ -2871,19 +4183,13 @@ envforge secrets pull --from bitwarden --path anything
 
 **Pull secrets from Bitwarden**
 ```bash
-# Pull all accessible secrets
 envforge secrets pull --from bitwarden
-
-# Pull with filter
 envforge secrets pull --from bitwarden --filter "DB_*"
 ```
 
 **Push secrets to Bitwarden**
 ```bash
-# Push specific keys (project_id required)
 envforge secrets push --to bitwarden --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to bitwarden --all
 ```
 
@@ -2905,13 +4211,6 @@ envforge secrets diff --from bitwarden
 #### Authentication Details
 
 Bitwarden uses **machine account access tokens** for automation. The token is passed as `BWS_ACCESS_TOKEN` environment variable.
-
-**Creating a machine account:**
-1. Sign in to your Bitwarden organization
-2. Go to **Secrets Manager** > **Machine Accounts**
-3. Create a new machine account
-4. Grant access to the desired projects
-5. Generate an access token
 
 #### Common Pitfalls
 
@@ -3001,22 +4300,14 @@ Key names are extracted from the **last segment** of the full path:
 
 **Pull secrets from Akeyless**
 ```bash
-# Pull all secrets under a path
 envforge secrets pull --from akeyless --path /myapp/production/
-
-# Pull from root
 envforge secrets pull --from akeyless --path /
-
-# Pull with filter
 envforge secrets pull --from akeyless --path /myapp/ --filter "DB_*"
 ```
 
 **Push secrets to Akeyless**
 ```bash
-# Push specific keys (updates existing, creates if not found)
 envforge secrets push --to akeyless --path /myapp/production/ --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to akeyless --path /myapp/production/ --all
 ```
 
@@ -3131,19 +4422,13 @@ myorg:variable:myapp/production/DATABASE_URL  →  EnvForge key: DATABASE_URL
 
 **Pull secrets from Conjur**
 ```bash
-# Pull all variables
 envforge secrets pull --from conjur
-
-# Pull variables under a path prefix
 envforge secrets pull --from conjur --path myapp/production/
-
-# Pull with filter
 envforge secrets pull --from conjur --path myapp/ --filter "DB_*"
 ```
 
 **Push secrets to Conjur**
 ```bash
-# Push specific keys (variables must exist in Conjur policy)
 envforge secrets push --to conjur --keys DATABASE_URL,API_KEY
 ```
 
@@ -3174,15 +4459,6 @@ EnvForge runs both steps automatically before each operation using the configure
 **Identity types:**
 - `host/myapp/production` — Machine identity (recommended for automation)
 - `admin` — Administrative user (not recommended for production)
-
-**Getting an API key:**
-```bash
-# For a host identity
-conjur host rotate-api-key -i myapp/production
-
-# For a user
-conjur user rotate-api-key -i myuser
-```
 
 #### Common Pitfalls
 
@@ -3281,19 +4557,13 @@ Without `--path`, operations fail with: `path must be a SOPS-encrypted file path
 
 **Pull (decrypt) secrets from a SOPS file**
 ```bash
-# Decrypt and import all keys
 envforge secrets pull --from sops --path secrets.enc.json
-
-# Pull with filter
 envforge secrets pull --from sops --path secrets.enc.json --filter "DB_*"
 ```
 
 **Push (encrypt) secrets to a SOPS file**
 ```bash
-# Push specific keys (merges with existing file, then re-encrypts)
 envforge secrets push --to sops --path secrets.enc.json --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to sops --path secrets.enc.json --all
 ```
 
@@ -3439,22 +4709,14 @@ EnvForge scans for `.gpg` files, strips the extension, and uses the relative pat
 
 **Pull secrets from password store**
 ```bash
-# Pull all entries
 envforge secrets pull --from pass
-
-# Pull entries under a prefix
 envforge secrets pull --from pass --path myapp/production/
-
-# Pull with filter
 envforge secrets pull --from pass --path myapp/ --filter "*DATABASE*"
 ```
 
 **Push secrets to password store**
 ```bash
-# Push specific keys
 envforge secrets push --to pass --keys DATABASE_URL,API_KEY
-
-# Push all keys
 envforge secrets push --to pass --all
 ```
 
@@ -3579,10 +4841,7 @@ envforge secrets pull --from keeper --path anything
 
 **Pull secrets from Keeper**
 ```bash
-# Pull all accessible secrets
 envforge secrets pull --from keeper
-
-# Pull with filter
 envforge secrets pull --from keeper --filter "DB_*"
 ```
 
@@ -3645,1385 +4904,3 @@ envforge secrets config keeper --set profile=production
 | `no extractable value` | Record has no password/login/secret field | Add a password field to the Keeper record |
 | `token already used` | One-time token consumed | Generate a new token in Keeper dashboard |
 | `ModuleNotFoundError` | Python dependency missing | `pip3 install keeper-secrets-manager-cli` |
-
-
----
-
-## Subprocess Runner
-
-### envforge run
-
-Run a command with EnvForge-managed environment variables.
-
-```
-Usage: envforge run [OPTIONS] -- <COMMAND>...
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<COMMAND>...` | Command and arguments to run (after --) |
-
-| Flag | Description |
-|------|-------------|
-| `--profile <PROFILE>` | Profile to use (default: active profile) |
-| `--profiles <PROFILES>` | Load and merge multiple profiles (comma-separated, last wins) |
-| `--resolve` | Resolve secret references (ref:provider:path) at runtime |
-| `--env-file <ENV_FILES>` | Load additional .env file(s) (can be repeated) |
-| `--override <OVERRIDES>` | Override a specific variable (KEY=VALUE, can be repeated) |
-| `--volatile` | AI-agent-safe mode: resolve secrets in memory only, skip .env disk files |
-| `--redact` | Redact known secret values in subprocess output |
-| `--no-project` | Skip project config auto-detection |
-
-**Examples:**
-
-```bash
-# Run a command with environment variables
-envforge run -- node server.js
-
-# Use a specific profile
-envforge run --profile production -- npm start
-
-# Merge multiple profiles (last wins)
-envforge run --profiles base,staging -- ./deploy.sh
-
-# Resolve secret references at runtime
-envforge run --resolve -- python app.py
-
-# Override a variable for this run
-envforge run --override PORT=3001 -- npm start
-
-# AI-safe volatile mode (secrets never touch disk)
-envforge run --volatile --resolve -- ./my-agent.sh
-
-# Redact secrets from subprocess output
-envforge run --redact -- ./scripts/debug.sh
-
-# Combine env files with overrides
-envforge run --env-file .env.local --override DEBUG=true -- cargo test
-
-# Skip project config auto-detection
-envforge run --no-project -- npm start
-```
-
----
-
-## AI Safety
-
-### envforge fence
-
-Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), or check status.
-
-```
-Usage: envforge fence [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--status` | Check if all ignore rules are correctly installed |
-
-**Examples:**
-
-```bash
-# Create ignore rules for all AI tools
-envforge fence
-
-# Check if rules are active
-envforge fence --status
-
-# Preview what would be created
-envforge fence --dry-run
-```
-
----
-
-### envforge ai-hook install
-
-Install hooks for an AI coding tool.
-
-```
-Usage: envforge ai-hook install [OPTIONS] <TOOL>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<TOOL>` | Tool name: claude-code, cursor |
-
-**Examples:**
-
-```bash
-# Install hooks for Claude Code
-envforge ai-hook install claude-code
-
-# Install hooks for Cursor
-envforge ai-hook install cursor
-```
-
----
-
-### envforge ai-hook remove
-
-Remove hooks from an AI coding tool.
-
-```
-Usage: envforge ai-hook remove [OPTIONS] <TOOL>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<TOOL>` | Tool name: claude-code, cursor |
-
-**Examples:**
-
-```bash
-envforge ai-hook remove claude-code
-envforge ai-hook remove cursor
-```
-
----
-
-### envforge ai-hook status
-
-Check if AI tool hooks are installed.
-
-```
-Usage: envforge ai-hook status [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-# Show installation status for all supported tools
-envforge ai-hook status
-
-# Get status in JSON format
-envforge ai-hook status --json
-```
-
----
-
-### envforge ai-guard
-
-AI agent guard -- invoked by AI tool hooks (not for direct use).
-
-```
-Usage: envforge ai-guard [OPTIONS] <STAGE> <TOOL_NAME> [TOOL_INPUT]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<STAGE>` | Hook stage: pre-tool, post-tool |
-| `<TOOL_NAME>` | Tool name |
-| `[TOOL_INPUT]` | Tool input (JSON string or path) |
-
-**Examples:**
-
-```bash
-# Typically called by hooks, not directly
-envforge ai-guard pre-tool Write '{"file_path": ".env"}'
-envforge ai-guard post-tool Read '{"file_path": "config.json"}'
-```
-
----
-
-### envforge scan
-
-Scan files for leaked secrets.
-
-```
-Usage: envforge scan [OPTIONS] [PATH]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `[PATH]` | Path to scan (default: current directory) |
-
-| Flag | Description |
-|------|-------------|
-| `--staged` | Only scan git staged files |
-| `--install-hook` | Install git pre-commit hook that runs envforge scan --staged |
-| `--remove-hook` | Remove the envforge pre-commit hook |
-| `--mcp` | Scan MCP config files for hardcoded credentials (alias for envforge mcp status) |
-
-**Examples:**
-
-```bash
-# Scan current directory for leaked secrets
-envforge scan
-
-# Scan a specific path
-envforge scan ./src
-
-# Scan only staged git files
-envforge scan --staged
-
-# Install pre-commit hook
-envforge scan --install-hook
-
-# Scan MCP config files for hardcoded credentials
-envforge scan --mcp
-```
-
----
-
-### envforge mcp status
-
-Check if any MCP config files contain plaintext secrets.
-
-```
-Usage: envforge mcp status [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-# List all hardcoded secrets in MCP configs
-envforge mcp status
-
-# Output findings as JSON
-envforge mcp status --json
-```
-
----
-
-### envforge mcp harden
-
-Replace plaintext secrets with ${VAR} env var references (backs up originals).
-
-```
-Usage: envforge mcp harden [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-# Harden MCP config files
-envforge mcp harden
-
-# Preview changes
-envforge mcp harden --dry-run
-```
-
----
-
-### envforge sanitize
-
-Sanitize a file by replacing secret values with ${KEY} placeholders.
-
-```
-Usage: envforge sanitize [OPTIONS] <FILE>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<FILE>` | File to sanitize |
-
-| Flag | Description |
-|------|-------------|
-| `--output <OUTPUT>` | Output file (default: stdout) |
-
-**Examples:**
-
-```bash
-# Sanitize a file and print to stdout
-envforge sanitize config.json
-
-# Sanitize to a new file
-envforge sanitize docker-compose.yml --output docker-compose.sanitized.yml
-
-# Preview sanitization
-envforge sanitize .env --dry-run
-```
-
----
-
-### envforge proxy
-
-Start local credential proxy for AI agents.
-
-```
-Usage: envforge proxy [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--port <PORT>` | Port to listen on [default: 8100] |
-| `--keys <KEYS>` | Only serve these keys (comma-separated) |
-| `--profile <PROFILE>` | Profile to use |
-| `--allow-origins <ALLOW_ORIGINS>` | Allowed origins (comma-separated, default: localhost only) |
-| `--require-lease` | Require active lease for access |
-| `--require-approval` | Require human approval for each secret access |
-
-**Examples:**
-
-```bash
-# Start proxy on default port
-envforge proxy
-
-# Start proxy with restricted keys
-envforge proxy --keys API_KEY,DATABASE_URL --port 9000
-
-# Start proxy requiring leases and human approval
-envforge proxy --require-lease --require-approval
-
-# Start proxy with specific allowed origins
-envforge proxy --allow-origins "http://localhost:3000,http://localhost:8080"
-```
-
----
-
-### envforge lease create
-
-Create a new time-bounded secret access lease.
-
-```
-Usage: envforge lease create [OPTIONS] --ttl <TTL>
-```
-
-| Flag | Description |
-|------|-------------|
-| `--name <NAME>` | Lease name (default: auto-generated) |
-| `--ttl <TTL>` | Time-to-live (e.g., "1h", "30m", "8h", "24h", "7d") |
-| `--keys <KEYS>` | Restrict to specific keys (comma-separated) |
-
-**Examples:**
-
-```bash
-# Create a 1-hour lease
-envforge lease create --ttl 1h
-
-# Create a named lease for specific keys
-envforge lease create --name deploy-lease --ttl 30m --keys API_KEY,SECRET
-
-# Create a 7-day lease
-envforge lease create --ttl 7d
-```
-
----
-
-### envforge lease list
-
-List all leases.
-
-```
-Usage: envforge lease list [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge lease list
-envforge lease list --json
-```
-
----
-
-### envforge lease cleanup
-
-Clean up expired leases.
-
-```
-Usage: envforge lease cleanup [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge lease cleanup
-envforge lease cleanup --dry-run
-```
-
----
-
-### envforge session start
-
-Start a new AI tool session with scoped secret access.
-
-```
-Usage: envforge session start [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--tool <TOOL>` | AI tool type: claude-code, cursor, copilot (auto-detected if omitted) |
-| `--ttl <TTL>` | Session TTL (e.g., "1h", "30m", "8h", "1d") [default: 1h] |
-
-**Examples:**
-
-```bash
-# Start a session (auto-detects tool from environment)
-envforge session start
-
-# Start a session for a specific tool
-envforge session start --tool claude-code
-
-# Start a session with a 30-minute TTL
-envforge session start --tool cursor --ttl 30m
-
-# Start a session and capture the ID for later cleanup
-SESSION_ID=$(envforge session start --tool copilot --ttl 2h --json | jq -r '.id')
-```
-
----
-
-### envforge session stop
-
-Stop (expire) a session.
-
-```
-Usage: envforge session stop [OPTIONS] [ID]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `[ID]` | Session ID to stop (uses ENVFORGE_SESSION_ID if omitted) |
-
-**Examples:**
-
-```bash
-# Stop the current session (uses ENVFORGE_SESSION_ID)
-envforge session stop
-
-# Stop a specific session
-envforge session stop 246f86ae-8b41-48bb-b9f7-0da491594b23
-```
-
----
-
-### envforge session list
-
-List all active and expired sessions.
-
-```
-Usage: envforge session list [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-# List all sessions
-envforge session list
-
-# List as JSON
-envforge session list --json
-```
-
----
-
-### envforge session show
-
-Show details for a specific session.
-
-```
-Usage: envforge session show [OPTIONS] <ID>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<ID>` | Session ID |
-
-**Examples:**
-
-```bash
-# Show session details
-envforge session show 246f86ae-8b41-48bb-b9f7-0da491594b23
-
-# Show as JSON
-envforge session show 246f86ae-8b41-48bb-b9f7-0da491594b23 --json
-```
-
----
-
-### envforge session cleanup
-
-Clean up expired sessions.
-
-```
-Usage: envforge session cleanup [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-# Remove all expired sessions
-envforge session cleanup
-
-# Preview cleanup without removing
-envforge session cleanup --dry-run
-```
-
----
-
-### envforge revoke
-
-Emergency revoke all secret access.
-
-```
-Usage: envforge revoke [OPTIONS] [NAME]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `[NAME]` | Specific lease name to revoke |
-
-| Flag | Description |
-|------|-------------|
-| `--all` | Revoke all active leases (killswitch) |
-
-**Examples:**
-
-```bash
-# Revoke a specific lease
-envforge revoke deploy-lease
-
-# Emergency killswitch: revoke all leases
-envforge revoke --all
-
-# Preview revocation
-envforge revoke --all --dry-run
-```
-
----
-
-### envforge canary create
-
-Create a canary secret (honeypot credential for exfiltration detection).
-
-```
-Usage: envforge canary create [OPTIONS] <KEY>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<KEY>` | Key name (e.g., AWS_SECRET_KEY) |
-
-| Flag | Description |
-|------|-------------|
-| `--pattern <PATTERN>` | Pattern: aws_key, github_token, stripe_key, slack_token, gitlab_token, generic [default: generic] |
-
-**Examples:**
-
-```bash
-# Create a generic canary
-envforge canary create HONEYPOT_API_KEY
-
-# Create an AWS-style canary
-envforge canary create AWS_SECRET_ACCESS_KEY --pattern aws_key
-
-# Create a GitHub token canary
-envforge canary create GITHUB_TOKEN --pattern github_token
-```
-
----
-
-### envforge canary list
-
-List all canary secrets.
-
-```
-Usage: envforge canary list [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge canary list
-envforge canary list --json
-```
-
----
-
-### envforge canary check
-
-Check for triggered canaries.
-
-```
-Usage: envforge canary check [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge canary check
-envforge canary check --json
-```
-
----
-
-### envforge canary delete
-
-Delete a canary.
-
-```
-Usage: envforge canary delete [OPTIONS] <KEY>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<KEY>` | Canary key name |
-
-**Examples:**
-
-```bash
-envforge canary delete HONEYPOT_API_KEY
-envforge canary delete OLD_CANARY --dry-run
-```
-
----
-
-## Audit Trail
-
-Query, report, and verify the AI audit trail. Commands read from `~/.local/share/envforge/audit/` by default; use `--log-dir` to override.
-
-### envforge audit-trail query
-
-Query audit events with filters (event type, source, secret key, time range).
-
-```
-Usage: envforge audit-trail query [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--event-type` | Filter by event type (e.g. `SecretAccessed`, `SecretExposure`, `SessionStarted`) |
-| `--source` | Filter by source (`AiGuard`, `Proxy`, `Sync`, `Cli`, `Tui`, `Hook`) |
-| `--secret-key` | Filter by secret key name |
-| `--time` | Time range: `last_1h`, `last_24h`, `last_7d`, `last_30d`, `all` (default: `last_24h`) |
-| `--limit` | Max results (default: 50) |
-| `--log-dir` | Path to audit log directory |
-| `--json` | JSON output |
-
-**Examples:**
-```bash
-# Show recent events
-envforge audit-trail query
-
-# Show events for a specific secret
-envforge audit-trail query --secret-key DB_PASSWORD --time all
-
-# Show denied access events from AI Guard
-envforge audit-trail query --source AiGuard --event-type AccessDenied
-
-# JSON output for programmatic use
-envforge audit-trail query --limit 100 --json
-```
-
----
-
-### envforge audit-trail tail
-
-Show recent audit events (tail-like).
-
-```
-Usage: envforge audit-trail tail [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `-n` | Number of recent events (default: 20) |
-| `--source` | Filter by source |
-| `--log-dir` | Path to audit log directory |
-| `--json` | JSON output |
-
-**Examples:**
-```bash
-# Show last 20 events
-envforge audit-trail tail
-
-# Show last 50 events from proxy
-envforge audit-trail tail -n 50 --source Proxy
-```
-
----
-
-### envforge audit-trail report
-
-Generate a SOC2 compliance report.
-
-```
-Usage: envforge audit-trail report [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--report-type` | Report type: `summary`, `detail`, `trend`, `violation`, `compliance` (default: `summary`) |
-| `--group-by` | Group results by: `event_type`, `source`, `result`, `hour`, `day`, `week`, `month`, `secret_key`, `tool_type` |
-| `--time` | Time range: `last_1h`, `last_24h`, `last_7d`, `last_30d`, `all` (default: `last_24h`) |
-| `--format` | Output format: `json`, `csv`, `markdown` (default: `json`) |
-| `--output` | Write output to file (stdout if omitted) |
-| `--log-dir` | Path to audit log directory |
-
-**Examples:**
-```bash
-# Generate summary report with compliance score
-envforge audit-trail report
-
-# Group violations by source
-envforge audit-trail report --report-type violation --group-by source
-
-# Export as markdown
-envforge audit-trail report --format markdown --output report.md
-
-# Full compliance audit over last 7 days
-envforge audit-trail report --report-type compliance --time last_7d --format csv
-```
-
----
-
-### envforge audit-trail custody
-
-Trace chain of custody for a secret.
-
-```
-Usage: envforge audit-trail custody [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--secret-key` | Secret key to trace |
-| `--session` | Session ID to trace |
-| `--ownership` | Show ownership report (last custodian, sources, gaps) |
-| `--log-dir` | Path to audit log directory |
-| `--json` | JSON output |
-
-**Examples:**
-```bash
-# Trace lineage of a secret
-envforge audit-trail custody --secret-key API_KEY --time all
-
-# Show ownership report
-envforge audit-trail custody --secret-key DB_PASSWORD --ownership
-
-# Trace a specific session path
-envforge audit-trail custody --session session-uuid-1234
-```
-
----
-
-### envforge audit-trail integrity
-
-Verify tamper-evident integrity of audit logs.
-
-```
-Usage: envforge audit-trail integrity [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--category` | Log category: `ai-guard`, `proxy`, `sync`, `cli`, `tui`, `hook`, `general` (check all if omitted) |
-| `--log-dir` | Path to audit log directory |
-| `--json` | JSON output |
-
-**Examples:**
-```bash
-# Check all audit log files
-envforge audit-trail integrity
-
-# Check specific log
-envforge audit-trail integrity --category ai-guard
-
-# Machine-readable verification
-envforge audit-trail integrity --json
-```
-
----
-
-### envforge audit-trail stats
-
-Show audit event statistics.
-
-```
-Usage: envforge audit-trail stats [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--time` | Time range: `last_1h`, `last_24h`, `last_7d`, `last_30d`, `all` (default: `last_24h`) |
-| `--log-dir` | Path to audit log directory |
-| `--json` | JSON output |
-
-**Examples:**
-```bash
-# Show summary statistics
-envforge audit-trail stats
-
-# Weekly breakdown
-envforge audit-trail stats --time last_7d --json
-```
-
----
-
-### envforge audit-trail retention
-
-Manage audit log retention policy.
-
-```
-Usage: envforge audit-trail retention [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--policy` | Retention period: `1d`, `7d`, `30d`, `90d`, `365d` (default: `90d`) |
-| `--execute` | Actually perform cleanup (dry-run by default) |
-| `--log-dir` | Path to audit log directory |
-| `--json` | JSON output |
-
-**Examples:**
-```bash
-# Show what would be removed (dry-run)
-envforge audit-trail retention --policy 30d
-
-# Execute cleanup
-envforge audit-trail retention --policy 90d --execute
-```
-
----
-
-## Diagnostics
-
-### envforge check
-
-Run all checks: doctor + validate + scan + age + drift.
-
-```
-Usage: envforge check [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--only <ONLY>` | Only run specific categories (comma-separated: doctor,validate,scan,age,drift) |
-
-**Examples:**
-
-```bash
-# Run all checks
-envforge check
-
-# Run only validation and scanning
-envforge check --only validate,scan
-
-# Run checks with JSON output
-envforge check --json
-```
-
----
-
-### envforge doctor
-
-Run health checks on EnvForge setup.
-
-```
-Usage: envforge doctor [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--verbose` | Show detailed output for each check |
-
-**Examples:**
-
-```bash
-# Run health checks
-envforge doctor
-
-# Run with verbose output
-envforge doctor --verbose
-
-# Run with JSON output
-envforge doctor --json
-```
-
----
-
-### envforge audit
-
-View change audit trail from sync history.
-
-```
-Usage: envforge audit [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--key <KEY>` | Filter by key name |
-| `--since <SINCE>` | Filter changes since date (ISO 8601) |
-| `--machine <MACHINE>` | Filter by machine ID |
-| `-n, --n <N>` | Number of entries to show [default: 50] |
-| `--ai-leaks` | Scan git history for secrets leaked in AI-assisted commits |
-| `--access` | Show proxy access audit log |
-
-**Examples:**
-
-```bash
-# View full audit trail
-envforge audit
-
-# Filter by key
-envforge audit --key DATABASE_URL
-
-# Filter by date
-envforge audit --since 2025-01-01
-
-# Scan for AI-leaked secrets in git history
-envforge audit --ai-leaks
-
-# Show proxy access log
-envforge audit --access
-
-# Filter by machine
-envforge audit --machine macbook-work -n 20
-```
-
----
-
-### envforge log
-
-View change history.
-
-```
-Usage: envforge log [OPTIONS] [KEY]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `[KEY]` | Filter by key name |
-
-| Flag | Description |
-|------|-------------|
-| `-n, --n <N>` | Number of entries to show [default: 50] |
-
-**Examples:**
-
-```bash
-# View recent change history
-envforge log
-
-# View history for a specific key
-envforge log API_KEY
-
-# Show last 10 entries
-envforge log -n 10
-```
-
----
-
-### envforge config
-
-Show current configuration.
-
-```
-Usage: envforge config [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge config
-envforge config --json
-```
-
----
-
-## Snapshots
-
-### envforge snapshot create
-
-Create a snapshot of current environment variables.
-
-```
-Usage: envforge snapshot create [OPTIONS] [NAME]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `[NAME]` | Snapshot name (default: auto-generated timestamp) |
-
-**Examples:**
-
-```bash
-# Create a snapshot with auto-generated name
-envforge snapshot create
-
-# Create a named snapshot
-envforge snapshot create pre-deploy
-
-# Preview snapshot creation
-envforge snapshot create before-migration --dry-run
-```
-
----
-
-### envforge snapshot list
-
-List all snapshots.
-
-```
-Usage: envforge snapshot list [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge snapshot list
-envforge snapshot list --json
-```
-
----
-
-### envforge snapshot restore
-
-Restore environment variables from a snapshot.
-
-```
-Usage: envforge snapshot restore [OPTIONS] [NAME]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `[NAME]` | Snapshot name (substring match) |
-
-| Flag | Description |
-|------|-------------|
-| `--last` | Restore the most recent snapshot |
-
-**Examples:**
-
-```bash
-# Restore by name (substring match)
-envforge snapshot restore pre-deploy
-
-# Restore the most recent snapshot
-envforge snapshot restore --last
-
-# Preview restore
-envforge snapshot restore pre-deploy --dry-run
-```
-
----
-
-### envforge snapshot diff
-
-Show diff between a snapshot and current environment.
-
-```
-Usage: envforge snapshot diff [OPTIONS] [NAME]
-```
-
-| Argument | Description |
-|----------|-------------|
-| `[NAME]` | Snapshot name (substring match) |
-
-| Flag | Description |
-|------|-------------|
-| `--last` | Diff against the most recent snapshot |
-
-**Examples:**
-
-```bash
-# Diff a named snapshot
-envforge snapshot diff pre-deploy
-
-# Diff the most recent snapshot
-envforge snapshot diff --last
-```
-
----
-
-### envforge snapshot delete
-
-Delete a snapshot.
-
-```
-Usage: envforge snapshot delete [OPTIONS] <NAME>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<NAME>` | Snapshot name (substring match) |
-
-**Examples:**
-
-```bash
-envforge snapshot delete pre-deploy
-envforge snapshot delete old-snapshot --dry-run
-```
-
----
-
-## Sharing
-
-### envforge share create
-
-Create an encrypted share file.
-
-```
-Usage: envforge share create [OPTIONS] --recipient <RECIPIENT>
-```
-
-| Flag | Description |
-|------|-------------|
-| `--recipient <RECIPIENT>` | Recipient's age public key (age1...) |
-| `--keys <KEYS>` | Specific keys to share (comma-separated) |
-| `--all` | Share all keys |
-| `--filter <FILTER>` | Filter by pattern |
-| `--output <OUTPUT>` | Output file path [default: envforge-share.age] |
-| `--expire <EXPIRE>` | Expiry in hours |
-
-**Examples:**
-
-```bash
-# Share specific keys with a teammate
-envforge share create --recipient age1abc... --keys API_KEY,DB_URL
-
-# Share all keys with expiry
-envforge share create --recipient age1abc... --all --expire 24
-
-# Share filtered keys to a custom file
-envforge share create --recipient age1abc... --filter "PROD_*" --output prod-secrets.age
-```
-
----
-
-### envforge share receive
-
-Receive and import a share file.
-
-```
-Usage: envforge share receive [OPTIONS] <FILE>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<FILE>` | Path to share file |
-
-| Flag | Description |
-|------|-------------|
-| `--import` | Import keys into EnvForge config |
-
-**Examples:**
-
-```bash
-# View shared secrets
-envforge share receive envforge-share.age
-
-# Import shared secrets
-envforge share receive prod-secrets.age --import
-```
-
----
-
-## Git Integration
-
-### envforge git install-merge-driver
-
-Install EnvForge as a Git merge driver for .env files.
-
-```
-Usage: envforge git install-merge-driver [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge git install-merge-driver
-envforge git install-merge-driver --dry-run
-```
-
----
-
-### envforge git remove-merge-driver
-
-Remove the Git merge driver.
-
-```
-Usage: envforge git remove-merge-driver [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge git remove-merge-driver
-```
-
----
-
-## Backup
-
-### envforge backup list
-
-List available backups.
-
-```
-Usage: envforge backup list [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge backup list
-envforge backup list --json
-```
-
----
-
-### envforge backup restore
-
-Restore from a backup file.
-
-```
-Usage: envforge backup restore [OPTIONS] <FILE>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<FILE>` | Path to backup file |
-
-**Examples:**
-
-```bash
-envforge backup restore ~/.envforge/backups/2025-01-01.toml
-envforge backup restore backup.toml --dry-run
-```
-
----
-
-## Shell Integration
-
-### envforge completions
-
-Generate and install shell completion scripts.
-
-```
-Usage: envforge completions [OPTIONS] <SHELL>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<SHELL>` | Shell type: `zsh`, `bash`, `fish`, `kiro`, `fig` |
-
-| Flag | Description |
-|------|-------------|
-| `--install` | Install completion spec to the correct system path |
-
-**Examples:**
-
-```bash
-# Generate zsh completions to stdout
-envforge completions zsh > ~/.zsh/completions/_envforge
-
-# Install zsh completions to ~/.zfunc/_envforge
-envforge completions zsh --install
-
-# Install bash completions
-envforge completions bash --install
-
-# Install fish completions
-envforge completions fish --install
-
-# Install Kiro CLI autocomplete spec
-envforge completions kiro --install
-
-# Install Fig autocomplete spec
-envforge completions fig --install
-```
-
-#### Kiro CLI Setup
-
-Kiro CLI uses a graphical dropdown autocomplete powered by Fig-format specs. To enable EnvForge completions in Kiro:
-
-```bash
-envforge completions kiro --install
-```
-
-This does three things:
-1. Writes the Fig spec to `~/.kiro/specs/envforge.js`
-2. Configures `kiro-cli settings autocomplete.devCompletionsFolder` to point to `~/.kiro/specs`
-3. Also writes to `~/.fig/autocomplete/build/envforge.js` for backward compatibility
-
-After installation:
-- Enable developer mode: `kiro-cli settings autocomplete.developerMode true`
-- Restart Kiro: `kiro-cli restart`
-- Open a new terminal and type `envforge <TAB>`
-
-> **Note:** The spec file must use plain JavaScript syntax (not TypeScript). The `--install` flag handles this automatically.
-
----
-
-### envforge hook
-
-Generate shell hook for auto-loading.
-
-```
-Usage: envforge hook [OPTIONS] <SHELL>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<SHELL>` | Shell type (zsh, bash, fish) |
-
-**Examples:**
-
-```bash
-# Add to .zshrc
-eval "$(envforge hook zsh)"
-
-# Add to .bashrc
-eval "$(envforge hook bash)"
-
-# Add to fish config
-envforge hook fish | source
-```
-
----
-
-### envforge lsp
-
-Start the Language Server Protocol server for IDE integration.
-
-```
-Usage: envforge lsp
-```
-
-The LSP server communicates over stdio (stdin/stdout) and is launched automatically by IDE extensions.
-
-**Capabilities:**
-
-| Feature | Description |
-|---------|-------------|
-| Diagnostics | Missing required vars, type validation, secret leak warnings |
-| Hover | Type, description, default, example from `.env.schema` |
-| Completions | All envforge-managed vars, schema keys, value suggestions |
-| Go-to-definition | `.env` key → `.env.schema` section |
-
-**Supported files:** `.env`, `.env.*`, `*.env`, `.env.schema`
-
-**IDE Extensions:**
-
-- **VS Code** — Install from [Marketplace](https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager) or `ext install emreerinc.envforge-env-manager`
-- **IntelliJ IDEA** — Install from [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/31385-envforge) (requires LSP4IJ plugin)
-- **Neovim** — Configure via `nvim-lspconfig` (see `editors/README.md`)
-- **Helix** — Add to `languages.toml` (see `editors/README.md`)
-- **Sublime Text** — Configure via LSP package (see `editors/README.md`)
-
----
-
-### envforge env
-
-Output environment variables as shell export statements (for eval).
-
-```
-Usage: envforge env [OPTIONS]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--dir <DIR>` | Directory to load from (default: current) |
-
-**Examples:**
-
-```bash
-# Export all variables into current shell
-eval "$(envforge env)"
-
-# Export from a specific directory
-eval "$(envforge env --dir /path/to/project)"
-```

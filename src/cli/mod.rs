@@ -432,6 +432,12 @@ pub enum Commands {
         access: bool,
     },
 
+    /// Manage audit trail logs, compliance, and integrity
+    AuditTrail {
+        #[command(subcommand)]
+        action: AuditTrailAction,
+    },
+
     /// Search environment variables by fuzzy matching
     Search {
         /// Search query

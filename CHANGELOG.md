@@ -73,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Project config schema**: Added `[ai_guard]` section with `hardening` and `scanners` sub-sections
 - **Tokio features**: Added `process`, `time`, `io-util` for async scanner execution
 
+### Fixed
+
+- **Audit trail CLI routing**: Wired `AuditTrail` into `Commands` enum (`envforge audit-trail`). The 7 audit-trail subcommands (query, report, custody, integrity, stats, tail, retention) were fully implemented in `src/cli/audit_cmd.rs` but unreachable from the CLI. Added the missing enum variant and match arm.
+
 ### Dependencies
 
 - Added `hex = "0.4"` for encoding chain decode layer
