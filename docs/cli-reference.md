@@ -4151,6 +4151,214 @@ envforge canary delete OLD_CANARY --dry-run
 
 ---
 
+## Audit Trail
+
+Query, report, and verify the AI audit trail. Commands read from `~/.local/share/envforge/audit/` by default; use `--log-dir` to override.
+
+### envforge audit-trail query
+
+Query audit events with filters (event type, source, secret key, time range).
+
+```
+Usage: envforge audit-trail query [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--event-type` | Filter by event type (e.g. `SecretAccessed`, `SecretExposure`, `SessionStarted`) |
+| `--source` | Filter by source (`AiGuard`, `Proxy`, `Sync`, `Cli`, `Tui`, `Hook`) |
+| `--secret-key` | Filter by secret key name |
+| `--time` | Time range: `last_1h`, `last_24h`, `last_7d`, `last_30d`, `all` (default: `last_24h`) |
+| `--limit` | Max results (default: 50) |
+| `--log-dir` | Path to audit log directory |
+| `--json` | JSON output |
+
+**Examples:**
+```bash
+# Show recent events
+envforge audit-trail query
+
+# Show events for a specific secret
+envforge audit-trail query --secret-key DB_PASSWORD --time all
+
+# Show denied access events from AI Guard
+envforge audit-trail query --source AiGuard --event-type AccessDenied
+
+# JSON output for programmatic use
+envforge audit-trail query --limit 100 --json
+```
+
+---
+
+### envforge audit-trail tail
+
+Show recent audit events (tail-like).
+
+```
+Usage: envforge audit-trail tail [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-n` | Number of recent events (default: 20) |
+| `--source` | Filter by source |
+| `--log-dir` | Path to audit log directory |
+| `--json` | JSON output |
+
+**Examples:**
+```bash
+# Show last 20 events
+envforge audit-trail tail
+
+# Show last 50 events from proxy
+envforge audit-trail tail -n 50 --source Proxy
+```
+
+---
+
+### envforge audit-trail report
+
+Generate a SOC2 compliance report.
+
+```
+Usage: envforge audit-trail report [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--report-type` | Report type: `summary`, `detail`, `trend`, `violation`, `compliance` (default: `summary`) |
+| `--group-by` | Group results by: `event_type`, `source`, `result`, `hour`, `day`, `week`, `month`, `secret_key`, `tool_type` |
+| `--time` | Time range: `last_1h`, `last_24h`, `last_7d`, `last_30d`, `all` (default: `last_24h`) |
+| `--format` | Output format: `json`, `csv`, `markdown` (default: `json`) |
+| `--output` | Write output to file (stdout if omitted) |
+| `--log-dir` | Path to audit log directory |
+
+**Examples:**
+```bash
+# Generate summary report with compliance score
+envforge audit-trail report
+
+# Group violations by source
+envforge audit-trail report --report-type violation --group-by source
+
+# Export as markdown
+envforge audit-trail report --format markdown --output report.md
+
+# Full compliance audit over last 7 days
+envforge audit-trail report --report-type compliance --time last_7d --format csv
+```
+
+---
+
+### envforge audit-trail custody
+
+Trace chain of custody for a secret.
+
+```
+Usage: envforge audit-trail custody [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--secret-key` | Secret key to trace |
+| `--session` | Session ID to trace |
+| `--ownership` | Show ownership report (last custodian, sources, gaps) |
+| `--log-dir` | Path to audit log directory |
+| `--json` | JSON output |
+
+**Examples:**
+```bash
+# Trace lineage of a secret
+envforge audit-trail custody --secret-key API_KEY --time all
+
+# Show ownership report
+envforge audit-trail custody --secret-key DB_PASSWORD --ownership
+
+# Trace a specific session path
+envforge audit-trail custody --session session-uuid-1234
+```
+
+---
+
+### envforge audit-trail integrity
+
+Verify tamper-evident integrity of audit logs.
+
+```
+Usage: envforge audit-trail integrity [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--category` | Log category: `ai-guard`, `proxy`, `sync`, `cli`, `tui`, `hook`, `general` (check all if omitted) |
+| `--log-dir` | Path to audit log directory |
+| `--json` | JSON output |
+
+**Examples:**
+```bash
+# Check all audit log files
+envforge audit-trail integrity
+
+# Check specific log
+envforge audit-trail integrity --category ai-guard
+
+# Machine-readable verification
+envforge audit-trail integrity --json
+```
+
+---
+
+### envforge audit-trail stats
+
+Show audit event statistics.
+
+```
+Usage: envforge audit-trail stats [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--time` | Time range: `last_1h`, `last_24h`, `last_7d`, `last_30d`, `all` (default: `last_24h`) |
+| `--log-dir` | Path to audit log directory |
+| `--json` | JSON output |
+
+**Examples:**
+```bash
+# Show summary statistics
+envforge audit-trail stats
+
+# Weekly breakdown
+envforge audit-trail stats --time last_7d --json
+```
+
+---
+
+### envforge audit-trail retention
+
+Manage audit log retention policy.
+
+```
+Usage: envforge audit-trail retention [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--policy` | Retention period: `1d`, `7d`, `30d`, `90d`, `365d` (default: `90d`) |
+| `--execute` | Actually perform cleanup (dry-run by default) |
+| `--log-dir` | Path to audit log directory |
+| `--json` | JSON output |
+
+**Examples:**
+```bash
+# Show what would be removed (dry-run)
+envforge audit-trail retention --policy 30d
+
+# Execute cleanup
+envforge audit-trail retention --policy 90d --execute
+```
+
+---
+
 ## Diagnostics
 
 ### envforge check

@@ -64,13 +64,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Quality
 
-- **610 total tests** (up from 581), all passing
+- **786 total tests** (up from 610), all passing
   - 16 new hardening tests (control chars, Base64, split strings, encoding chains, composition)
   - 7 new external scanner tests (registry, concurrent execution, timeout, findings)
   - 6 new canary pattern tests (database_url, jwt, openai_key, pem, smtp, ftp)
+  - 176 new audit trail tests (core-data, emitter, tamper, query-engine, custody, report-generator, ai-guard-integration)
 - **cargo clippy**: 0 warnings
 - **cargo fmt**: Clean
 - No breaking changes — all existing AI Guard behavior preserved when new features disabled
+
+#### AI Audit Trail (`envforge audit-trail`)
+- **New module**: `src/ops/audit/` — comprehensive audit system with 8 submodules:
+  - **Core Data** (`types.rs`, `query_types.rs`, `report_types.rs`): AuditEvent, Query, Filter, TimeRange, Pagination, ReportConfig, ComplianceScore, Aggregation types
+  - **Event Emitter** (`emitter.rs`): JSONL log emitter with per-source separation, enrichment (hostname/PID/timestamp), atomic writes
+  - **Tamper-Evident Writer** (`tamper.rs`): SHA-256 hash chain for all log entries, persistent chain state, integrity verification with ChainBreak detection
+  - **Query Engine** (`query_engine.rs`): Execute queries with time/field filters, sort, pagination, aggregation (by EventType, Source, etc.)
+  - **Chain of Custody** (`custody.rs`): Secret lineage tracking, session paths, ownership verification, custody gap detection
+  - **Report Generator** (`report_generator.rs`): SOC2 compliance reports, violation detection (UnauthorizedAccess, CustodyGap, SecretExposure, AnomalousFrequency), compliance scoring, JSON/CSV/Markdown export
+  - **AI Guard Integration** (`ai_guard_integration.rs`): Pre/post-tool audit events, secret binding/exposure logging, session lifecycle tracking, input secret detection
+  - **CLI Commands** (`audit_cmd.rs`): `envforge audit-trail {query,report,custody,integrity,stats,tail,retention}` — 8 subcommands for full audit lifecycle
+- **176 total audit tests** — all passing, covering all 8 submodules
+- Full integration with existing `EventSource::AiGuard`, `EventType`, and emitter infrastructure
+- No breaking changes — all existing audit (git sync) functionality preserved
 
 ## [0.7.0] - 2026-05-02
 

@@ -1,3 +1,4 @@
+mod audit_cmd;
 mod commands;
 mod error;
 mod project_cmd;
@@ -7,6 +8,7 @@ mod wizard;
 
 use clap::{Parser, Subcommand};
 
+pub use audit_cmd::*;
 pub use commands::*;
 pub use error::{CliError, CliResult};
 pub use project_cmd::*;

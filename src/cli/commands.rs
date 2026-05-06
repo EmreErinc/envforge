@@ -4554,10 +4554,7 @@ fn cmd_scanner(action: &super::ScannerAction) -> Result<(), Box<dyn std::error::
                 println!("  args = [\"detect\", \"--no-git\"]");
                 return Ok(());
             }
-            println!(
-                "{:<20} {:<10} {:<30} TIMEOUT",
-                "NAME", "STATUS", "COMMAND"
-            );
+            println!("{:<20} {:<10} {:<30} TIMEOUT", "NAME", "STATUS", "COMMAND");
             println!("{}", "-".repeat(80));
             for (name, scanner) in &registry.scanners {
                 let status = if scanner.enabled {

@@ -863,6 +863,7 @@ dependencies = [
  "tokio",
  "toml 1.1.2+spec-1.1.0",
  "tower-lsp",
+ "uuid",
 ]
 
 [[package]]
@@ -3317,6 +3318,7 @@ dependencies = [
  "atomic",
  "getrandom 0.4.2",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 

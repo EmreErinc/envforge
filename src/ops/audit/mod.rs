@@ -1,3 +1,17 @@
+// ─── Submodules ─────────────────────────────────────────
+
+pub mod ai_guard_integration;
+pub mod custody;
+pub mod emitter;
+pub mod query_engine;
+pub mod query_types;
+pub mod report_generator;
+pub mod report_types;
+pub mod tamper;
+pub mod types;
+
+// ─── Existing audit trail (git sync) ─────────────────────
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
