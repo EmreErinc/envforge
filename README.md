@@ -93,7 +93,7 @@ envforge revoke --all
 | **Rotation** | `envforge rotate KEY --propagate` — guided rotation with multi-target push |
 | **Shell Hook** | direnv-style auto-load: `eval "$(envforge hook zsh)"` |
 | **Secure Share** | `envforge share` — age-encrypted secret sharing for team onboarding |
-| **Audit Trail** | `envforge audit` — who changed what, when, from which machine |
+| **Audit Trail** | `envforge audit` + `envforge audit-trail` — change history, SOC2 reports, chain of custody, tamper-evident integrity |
 | **CI/CD** | GitHub Action with 5 modes: validate, secrets-pull, export, run, drift |
 | **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
 | **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
@@ -435,8 +435,19 @@ envforge share receive FILE [--import]   # Decrypt and import
 # Audit
 envforge audit [--key K] [--since DATE]  # Change audit trail from sync
   --machine ID                           # Filter by machine
-envforge secrets cache list              # Show cached secrets
-envforge secrets cache clear             # Clear cache
+  --ai-leaks                             # Scan git for AI-assisted secret leaks
+  --access                               # View proxy access audit log
+envforge audit-trail query               # Query audit events (filter by type, source, key, time)
+  --event-type TYPE --source SRC         # Filter events
+  --secret-key KEY --time last_7d        # Scope by key and time
+envforge audit-trail report              # Generate SOC2 compliance reports
+  --report-type compliance --format md   # Export as markdown report
+envforge audit-trail custody             # Trace chain of custody for a secret
+  --secret-key KEY --ownership           # Ownership lineage report
+envforge audit-trail integrity           # Verify tamper-evident log integrity
+envforge audit-trail stats               # Aggregate audit statistics
+envforge audit-trail tail                # Tail recent audit events
+envforge audit-trail retention           # Manage log retention policy
 
 # Analysis
 envforge duplicates                      # Find duplicate keys
@@ -962,6 +973,8 @@ envforge audit --ai-leaks
 
 Detects commits co-authored by Claude, Copilot, Cursor. Scans diffs for API keys, connection strings, tokens.
 
+Pair with `envforge audit-trail query --event-type SECRET_EXPOSURE` for real-time exposure monitoring.
+
 ### Pre-Commit Hook
 
 Auto-install a git pre-commit hook to catch leaked secrets before they reach your repo:
@@ -1058,6 +1071,44 @@ TIMESTAMP                 MACHINE      ACTION   KEY          COMMIT
 ```
 
 Reads from sync git history — no separate audit store needed.
+
+### AI Audit Trail (Compliance & Forensics)
+
+Tamper-evident audit logs with SOC2-compliant reporting:
+
+```bash
+# Query all audit events
+envforge audit-trail query --time last_24h
+
+# Filter by event type and source
+envforge audit-trail query --event-type SECRET_ACCESS --source proxy
+
+# Generate SOC2 compliance report
+envforge audit-trail report --report-type compliance --format markdown
+
+# Show trend report grouped by day
+envforge audit-trail report --report-type trend --group-by day --time last_7d
+
+# Trace chain of custody for a specific secret
+envforge audit-trail custody --secret-key API_KEY --ownership
+
+# Trace all events in a session
+envforge audit-trail custody --session 246f86ae-8b41
+
+# Verify tamper-evident integrity
+envforge audit-trail integrity
+
+# Show aggregate statistics
+envforge audit-trail stats --time last_30d
+
+# Tail recent events (live view)
+envforge audit-trail tail --n 50 --source proxy
+
+# Manage retention policy
+envforge audit-trail retention --policy 30d --execute
+```
+
+Audit logs are stored in `~/.local/share/envforge/audit/`. Each log is tamper-evident with cryptographic chain hashing. Covers: AI Guard events, Proxy access, Sync operations, CLI commands, TUI sessions, and Hook invocations.
 
 ### Token TTL (Credential Expiry)
 
