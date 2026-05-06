@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct OnePasswordProvider;
@@ -69,10 +70,15 @@ impl SecretProvider for OnePasswordProvider {
         let env_refs = env_refs_from_env(&env_vars);
 
         for (key, value) in secrets {
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
             let assignment = format!("{}={}", key, value);
-            run_cli(
+            // 1Password CLI supports --template (file-based) for bulk edits.
+            // For single key updates, use stdin piped through `op item edit`.
+            run_cli_with_tempfile(
                 "op",
-                &["item", "edit", path, &assignment],
+                &["item", "edit", path, "__TEMP__"],
+                &assignment,
                 &env_refs,
                 "1password",
             )?;

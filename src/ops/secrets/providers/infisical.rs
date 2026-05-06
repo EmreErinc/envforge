@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile_batch, sort_secret_pairs, SecretProvider,
+    SecretsError,
 };
 
 pub struct InfisicalProvider;
@@ -77,16 +78,8 @@ impl SecretProvider for InfisicalProvider {
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
-        // Infisical supports multiple KEY=VALUE pairs in a single set call
-        let assignments: Vec<String> = secrets
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-
-        let mut args: Vec<&str> = vec!["secrets", "set"];
-        for a in &assignments {
-            args.push(a);
-        }
+        // Infisical supports --file flag for batch secret upload
+        let mut args: Vec<&str> = vec!["secrets", "set", "--file", "__TEMP__"];
 
         let env_str;
         if let Some(environment) = credentials.get("environment") {
@@ -100,7 +93,7 @@ impl SecretProvider for InfisicalProvider {
             args.extend_from_slice(&["--projectId", &project_str]);
         }
 
-        run_cli("infisical", &args, &env_refs, "infisical")?;
+        run_cli_with_tempfile_batch("infisical", &args, secrets, &env_refs, "infisical")?;
         Ok(secrets.len())
     }
 

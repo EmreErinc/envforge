@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 // ─── Error Types ─────────────────────────────────────────────
 
@@ -413,6 +414,230 @@ pub fn run_cli(
             })
         }
     }
+}
+
+// ─── Secure CLI Runners (No /proc Leakage) ───────────────────
+
+/// Run an external CLI with secret data piped via stdin.
+/// Prevents /proc/PID/cmdline leakage of secret values by avoiding CLI arguments.
+/// Same error handling as `run_cli()`: binary validation, auth-failed detection,
+/// and credential sanitization in stderr.
+pub fn run_cli_with_stdin(
+    binary: &str,
+    args: &[&str],
+    stdin_data: &[u8],
+    env_vars: &[(&str, &str)],
+    provider_name: &str,
+) -> Result<String, SecretsError> {
+    if binary.contains('\0') || binary.contains('/') || binary.contains('\\') {
+        return Err(SecretsError::ProviderError {
+            provider: provider_name.to_string(),
+            message: format!("invalid binary name: '{}'", binary),
+        });
+    }
+
+    let mut cmd = Command::new(binary);
+    cmd.args(args);
+    for (k, v) in env_vars {
+        cmd.env(k, v);
+    }
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            SecretsError::BinaryNotFound {
+                binary: binary.to_string(),
+                install_hint: String::new(),
+            }
+        } else {
+            SecretsError::ProviderError {
+                provider: provider_name.to_string(),
+                message: e.to_string(),
+            }
+        }
+    })?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(stdin_data)
+            .map_err(|e| SecretsError::ProviderError {
+                provider: provider_name.to_string(),
+                message: format!("failed to write to stdin: {}", e),
+            })?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| SecretsError::ProviderError {
+            provider: provider_name.to_string(),
+            message: e.to_string(),
+        })?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = sanitize_error_output(&String::from_utf8_lossy(&output.stderr));
+        if stderr.contains("permission")
+            || stderr.contains("denied")
+            || stderr.contains("unauthorized")
+            || stderr.contains("403")
+            || stderr.contains("401")
+        {
+            Err(SecretsError::AuthFailed {
+                provider: provider_name.to_string(),
+                message: stderr,
+            })
+        } else {
+            Err(SecretsError::ProviderError {
+                provider: provider_name.to_string(),
+                message: stderr,
+            })
+        }
+    }
+}
+
+/// Run an external CLI with a secret value written to a temporary file.
+/// Prevents /proc/PID/cmdline leakage by replacing secret values in CLI args
+/// with a path to a 0600 tempfile. The caller uses `__TEMP__` as a placeholder
+/// in the args array; this function replaces it with the actual tempfile path.
+/// Tempfile is auto-deleted on drop (NamedTempFile behavior).
+pub fn run_cli_with_tempfile(
+    binary: &str,
+    args: &[&str],
+    secret_value: &str,
+    env_vars: &[(&str, &str)],
+    provider_name: &str,
+) -> Result<String, SecretsError> {
+    if binary.contains('\0') || binary.contains('/') || binary.contains('\\') {
+        return Err(SecretsError::ProviderError {
+            provider: provider_name.to_string(),
+            message: format!("invalid binary name: '{}'", binary),
+        });
+    }
+
+    #[allow(unused_mut)]
+    let mut temp = tempfile::NamedTempFile::new().map_err(|e| SecretsError::IoError {
+        path: PathBuf::from("/tmp"),
+        source: e,
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| SecretsError::IoError {
+                path: temp.path().to_path_buf(),
+                source: e,
+            })?;
+    }
+
+    temp.write_all(secret_value.as_bytes())
+        .map_err(|e| SecretsError::IoError {
+            path: temp.path().to_path_buf(),
+            source: e,
+        })?;
+    temp.flush().map_err(|e| SecretsError::IoError {
+        path: temp.path().to_path_buf(),
+        source: e,
+    })?;
+
+    let temp_path = temp.path().to_string_lossy().to_string();
+    let final_args: Vec<String> = args
+        .iter()
+        .map(|a| {
+            if *a == "__TEMP__" {
+                temp_path.clone()
+            } else {
+                (*a).to_string()
+            }
+        })
+        .collect();
+    let final_refs: Vec<&str> = final_args.iter().map(|s| s.as_str()).collect();
+
+    let result = run_cli(binary, &final_refs, env_vars, provider_name);
+
+    // Explicit cleanup (NamedTempFile does this on drop, but we ensure it here)
+    let _ = std::fs::remove_file(temp.path());
+
+    result
+}
+
+/// Write a batch of KEY=VALUE pairs to a 0600 tempfile, then call CLI.
+/// Content format: one "KEY=VALUE" per line. Used by providers that batch
+/// multiple secrets in a single CLI call (doppler, infisical).
+/// Each key and value is validated before writing.
+pub fn run_cli_with_tempfile_batch(
+    binary: &str,
+    args: &[&str],
+    secrets: &[(String, String)],
+    env_vars: &[(&str, &str)],
+    provider_name: &str,
+) -> Result<String, SecretsError> {
+    if binary.contains('\0') || binary.contains('/') || binary.contains('\\') {
+        return Err(SecretsError::ProviderError {
+            provider: provider_name.to_string(),
+            message: format!("invalid binary name: '{}'", binary),
+        });
+    }
+
+    for (key, value) in secrets {
+        validate_secret_name(key)?;
+        validate_secret_value(value)?;
+    }
+
+    let mut content = String::new();
+    for (key, value) in secrets {
+        content.push_str(&format!("{}={}\n", key, value));
+    }
+
+    #[allow(unused_mut)]
+    let mut temp = tempfile::NamedTempFile::new().map_err(|e| SecretsError::IoError {
+        path: PathBuf::from("/tmp"),
+        source: e,
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| SecretsError::IoError {
+                path: temp.path().to_path_buf(),
+                source: e,
+            })?;
+    }
+
+    temp.write_all(content.as_bytes())
+        .map_err(|e| SecretsError::IoError {
+            path: temp.path().to_path_buf(),
+            source: e,
+        })?;
+    temp.flush().map_err(|e| SecretsError::IoError {
+        path: temp.path().to_path_buf(),
+        source: e,
+    })?;
+
+    let temp_path = temp.path().to_string_lossy().to_string();
+    let final_args: Vec<String> = args
+        .iter()
+        .map(|a| {
+            if *a == "__TEMP__" {
+                temp_path.clone()
+            } else {
+                (*a).to_string()
+            }
+        })
+        .collect();
+    let final_refs: Vec<&str> = final_args.iter().map(|s| s.as_str()).collect();
+
+    let result = run_cli(binary, &final_refs, env_vars, provider_name);
+
+    let _ = std::fs::remove_file(temp.path());
+
+    result
 }
 
 // ─── Provider Helper Utilities ───────────────────────────────
