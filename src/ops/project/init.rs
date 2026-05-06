@@ -54,6 +54,7 @@ pub fn init_project(opts: &InitOptions) -> Result<InitResult, ProjectError> {
             env_file: opts.env_file_path.clone(),
             description: Some("Default environment".to_string()),
         }],
+        ai_guard: crate::ops::project::config::AiGuardConfig::default(),
     };
 
     // Write config file

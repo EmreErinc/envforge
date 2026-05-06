@@ -63,8 +63,24 @@ pub fn run_guard(
     tool_name: &str,
     tool_input: Option<&str>,
     known_secrets: &[(String, String)],
+    hardening: Option<&crate::ops::hardening::HardeningConfig>,
+    scanner_findings: Option<&[crate::ops::external_scanner::ScannerFinding]>,
 ) -> GuardResult {
     let mut warnings = Vec::new();
+
+    // Build the list of strings to scan for secrets
+    let mut scan_strings: Vec<String> = Vec::new();
+    if let Some(input) = tool_input {
+        scan_strings.push(input.to_string());
+
+        // Hardening: derive additional strings from adversarial input
+        if let Some(config) = hardening {
+            let hardener = crate::ops::hardening::HardenInput::new(config.clone());
+            for derived in hardener.harden(input) {
+                scan_strings.push(derived.text);
+            }
+        }
+    }
 
     match stage {
         GuardStage::PreTool => {
@@ -82,14 +98,19 @@ pub fn run_guard(
                 }
             }
 
-            // 2. Secret value in Bash command input
+            // 2. Secret value in Bash command input (scan original + hardened inputs)
             if tool_name == "Bash" {
-                if let Some(input) = tool_input {
+                for scan_input in &scan_strings {
                     for (key, value) in known_secrets {
-                        if value.len() >= 8 && input.contains(value.as_str()) {
+                        if value.len() >= 8 && scan_input.contains(value.as_str()) {
+                            let source = if scan_input == tool_input.unwrap_or("") {
+                                "command input"
+                            } else {
+                                "decoded input"
+                            };
                             warnings.push(format!(
-                                "\u{26a0} EnvForge: Secret value detected in command input (key: {})",
-                                key
+                                "\u{26a0} EnvForge: Secret value detected in {} (key: {})",
+                                source, key
                             ));
                             break; // one warning is enough
                         }
@@ -98,19 +119,26 @@ pub fn run_guard(
             }
         }
         GuardStage::PostTool => {
-            // 1. Secret value in tool output
-            if let Some(input) = tool_input {
+            // 1. Secret value in tool output (scan original + hardened inputs)
+            for scan_input in &scan_strings {
                 for (key, value) in known_secrets {
-                    if value.len() >= 8 && input.contains(value.as_str()) {
+                    if value.len() >= 8 && scan_input.contains(value.as_str()) {
+                        let source = if scan_input == tool_input.unwrap_or("") {
+                            "tool output"
+                        } else {
+                            "decoded output"
+                        };
                         warnings.push(format!(
-                            "\u{26a0} EnvForge: Secret value detected in tool output (key: {})",
-                            key
+                            "\u{26a0} EnvForge: Secret value detected in {} (key: {})",
+                            source, key
                         ));
                         break;
                     }
                 }
+            }
 
-                // 2. Canary value detection in tool output
+            // 2. Canary value detection in tool output
+            if let Some(input) = tool_input {
                 if let Ok(canaries) = super::canary::load_canaries() {
                     for (canary_key, canary) in &canaries.canaries {
                         if input.contains(canary.fake_value.as_str()) {
@@ -131,11 +159,25 @@ pub fn run_guard(
         }
     }
 
-    // External scanner integration
-    if let Some(input) = tool_input {
-        if let Some(findings) = run_external_scanner(input) {
-            for finding in findings {
-                warnings.push(format!("\u{26a0} EnvForge: External scanner: {}", finding));
+    // External scanner findings (from new scanner pipeline)
+    if let Some(findings) = scanner_findings {
+        for finding in findings {
+            for line in &finding.findings {
+                warnings.push(format!(
+                    "\u{26a0} EnvForge: Scanner '{}' finding: {}",
+                    finding.scanner_name, line
+                ));
+            }
+        }
+    }
+
+    // Legacy external scanner integration (deprecated, env var based)
+    if scanner_findings.is_none() {
+        if let Some(input) = tool_input {
+            if let Some(findings) = run_external_scanner(input) {
+                for finding in findings {
+                    warnings.push(format!("\u{26a0} EnvForge: External scanner: {}", finding));
+                }
             }
         }
     }
@@ -279,6 +321,8 @@ mod tests {
             "Read",
             Some("/home/user/.env"),
             &secrets,
+            None,
+            None,
         );
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("sensitive file"));
@@ -289,7 +333,14 @@ mod tests {
     fn test_pre_tool_catches_sensitive_file_read_json_input() {
         let secrets = vec![];
         let input = r#"{"file_path": "/home/user/.ssh/id_rsa"}"#;
-        let result = run_guard(GuardStage::PreTool, "Read", Some(input), &secrets);
+        let result = run_guard(
+            GuardStage::PreTool,
+            "Read",
+            Some(input),
+            &secrets,
+            None,
+            None,
+        );
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("sensitive file"));
         assert!(result.warnings[0].contains(".ssh/id_rsa"));
@@ -298,7 +349,14 @@ mod tests {
     #[test]
     fn test_pre_tool_no_warning_for_normal_read() {
         let secrets = vec![];
-        let result = run_guard(GuardStage::PreTool, "Read", Some("src/main.rs"), &secrets);
+        let result = run_guard(
+            GuardStage::PreTool,
+            "Read",
+            Some("src/main.rs"),
+            &secrets,
+            None,
+            None,
+        );
         assert!(result.warnings.is_empty());
     }
 
@@ -313,6 +371,8 @@ mod tests {
             "Bash",
             Some("curl -H 'Authorization: Bearer super-secret-api-key-12345' https://api.example.com"),
             &secrets,
+            None,
+            None,
         );
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("Secret value detected in command input"));
@@ -324,7 +384,14 @@ mod tests {
             "API_KEY".to_string(),
             "super-secret-api-key-12345".to_string(),
         )];
-        let result = run_guard(GuardStage::PreTool, "Bash", Some("ls -la"), &secrets);
+        let result = run_guard(
+            GuardStage::PreTool,
+            "Bash",
+            Some("ls -la"),
+            &secrets,
+            None,
+            None,
+        );
         assert!(result.warnings.is_empty());
     }
 
@@ -341,6 +408,8 @@ mod tests {
             "Bash",
             Some("Connection string: postgres://user:my-database-password-xyz@localhost"),
             &secrets,
+            None,
+            None,
         );
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("Secret value detected in tool output"));
@@ -354,6 +423,8 @@ mod tests {
             "Bash",
             Some("Command completed successfully"),
             &secrets,
+            None,
+            None,
         );
         assert!(result.warnings.is_empty());
     }
@@ -365,14 +436,28 @@ mod tests {
         // Values < 8 chars should be filtered out before calling run_guard,
         // but even if passed, the guard checks length >= 8
         let secrets = vec![("SHORT".to_string(), "abc".to_string())];
-        let result = run_guard(GuardStage::PreTool, "Bash", Some("echo abc"), &secrets);
+        let result = run_guard(
+            GuardStage::PreTool,
+            "Bash",
+            Some("echo abc"),
+            &secrets,
+            None,
+            None,
+        );
         assert!(result.warnings.is_empty());
     }
 
     #[test]
     fn test_guard_catches_exactly_8_char_secret() {
         let secrets = vec![("TOKEN".to_string(), "12345678".to_string())];
-        let result = run_guard(GuardStage::PreTool, "Bash", Some("echo 12345678"), &secrets);
+        let result = run_guard(
+            GuardStage::PreTool,
+            "Bash",
+            Some("echo 12345678"),
+            &secrets,
+            None,
+            None,
+        );
         assert_eq!(result.warnings.len(), 1);
     }
 

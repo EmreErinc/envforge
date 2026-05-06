@@ -834,7 +834,7 @@ checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "env-forge-tui"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "age",
  "base64 0.22.1",
@@ -847,6 +847,7 @@ dependencies = [
  "dashmap",
  "dirs",
  "fuzzy-matcher",
+ "hex",
  "hostname",
  "insta",
  "log",
@@ -3018,8 +3019,13 @@ version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
+ "bytes",
+ "libc",
+ "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "tokio-macros",
+ "windows-sys",
 ]
 
 [[package]]

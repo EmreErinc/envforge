@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-05-06
+
+### Added — AI Safety Hardening Suite
+
+#### Adversarial Input Hardening (`envforge hardening`)
+- **New module**: `src/ops/hardening.rs` — 4-layer adversarial input detection pipeline
+  - **Control character strip**: Removes null bytes, BIDI override marks, zero-width characters, normalizes Cyrillic homoglyphs (`а`→`a`, `е`→`e`, `о`→`o`)
+  - **Base64 decode**: Finds and decodes Base64/URL-safe Base64 substrings >20 chars, re-scans decoded content for secrets
+  - **Split string detection**: Detects `"sec" + "ret"` concatenation, `${VAR}` template expansion, `['a','b'].join('')` array joins
+  - **Encoding chain decode**: Recursive decode up to depth 3 (Base64 → hex → Base64), re-scans at each level
+- **Config**: `[ai_guard.hardening]` section in `.envforge.project.toml` with per-layer toggles
+  - `control_chars`, `base64_decode` (min_length), `split_strings`, `encoding_chain` (max_depth)
+- **CLI**: `envforge hardening show` — display current config; `envforge hardening enable/disable <layer>` — toggle layers
+- **AI Guard integration**: `run_guard()` PreTool/PostTool stages now scan hardened (derived) strings alongside original input
+  - Warnings include source layer: `"Secret value detected in decoded input (key: API_KEY)"`
+
+#### External Scanner Interface (`envforge scanner`)
+- **New module**: `src/ops/external_scanner.rs` — first-class multi-scanner pipeline
+  - Replaces legacy `ENVFORGE_EXTERNAL_SCANNER` env var (deprecated but still supported with warning)
+  - `[scanners.NAME]` section in `.envforge.project.toml` with `command`, `args`, `timeout_ms`, `enabled`
+  - Concurrent execution via Tokio — all enabled scanners run in parallel
+  - Per-scanner timeout (default 5s) — never blocks tool execution
+  - Exit code 0 = clean, non-zero = stdout/stderr lines become findings
+- **CLI**: `envforge scanner list` — show configured scanners; `envforge scanner test <name>` — test with sample content; `envforge scanner run <name> <content>` — ad-hoc scan; `envforge scanner enable/disable <name>` — toggle
+- **AI Guard integration**: Scanner pipeline runs automatically in PreTool and PostTool stages when scanners configured
+
+#### Canary Coverage Expansion (`envforge canary`)
+- **6 new pattern types** (12 total):
+  - `database_url` — `postgres://canary_user:...@canary-host:5432/canary_db`
+  - `jwt_token` — Valid 3-part JWT structure with fake claims
+  - `openai_key` — `sk-canary-...` format
+  - `private_key_pem` — Plausible PEM block with BEGIN/END markers
+  - `smtp_credential` — `smtp://canary_user:...@smtp.canary.local:587`
+  - `ftp_credential` — `ftp://canary_user:...@ftp.canary.local:21`
+- **Auto-rotation**: `rotate_after_days` field (default 14) per canary
+  - `envforge canary rotate --all` — rotate all eligible canaries
+  - `envforge canary rotate --key <KEY>` — rotate specific canary
+  - `--dry-run` shows what would be rotated without changes
+  - Rotation resets `triggered` and `trigger_count` state
+- **Placement**: `envforge canary place <KEY> <FILE> [--position top|middle|bottom|random]`
+  - Injects `# envforge canary: KEY=VALUE` line at specified position
+  - Detects and skips duplicates
+
+### Deprecated
+
+- **Intent 032 (Prompt Injection Detection)**: Deprecated in specsmd memory bank. Advisory-only prompt injection detection adds noise without security value. Replaced by the three features above which stay on envforge's core competency (secret/env-var protection).
+
+### Changed
+
+- **AI Guard `run_guard()` signature**: Added `hardening` and `scanner_findings` parameters for integration with new safety layers
+- **Project config schema**: Added `[ai_guard]` section with `hardening` and `scanners` sub-sections
+- **Tokio features**: Added `process`, `time`, `io-util` for async scanner execution
+
+### Dependencies
+
+- Added `hex = "0.4"` for encoding chain decode layer
+
+### Quality
+
+- **610 total tests** (up from 581), all passing
+  - 16 new hardening tests (control chars, Base64, split strings, encoding chains, composition)
+  - 7 new external scanner tests (registry, concurrent execution, timeout, findings)
+  - 6 new canary pattern tests (database_url, jwt, openai_key, pem, smtp, ftp)
+- **cargo clippy**: 0 warnings
+- **cargo fmt**: Clean
+- No breaking changes — all existing AI Guard behavior preserved when new features disabled
+
 ## [0.7.0] - 2026-05-02
 
 ### Added — Editor CLI API Gaps (for Plugin Support v0.1.2)

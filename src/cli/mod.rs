@@ -506,6 +506,18 @@ pub enum Commands {
         action: CanaryAction,
     },
 
+    /// Manage adversarial input hardening layers
+    Hardening {
+        #[command(subcommand)]
+        action: HardeningAction,
+    },
+
+    /// Manage external security scanners
+    Scanner {
+        #[command(subcommand)]
+        action: ScannerAction,
+    },
+
     /// Emergency revoke all secret access
     Revoke {
         /// Revoke all active leases (killswitch)
@@ -768,4 +780,70 @@ pub enum CanaryAction {
     Check,
     /// Delete a canary
     Delete { key: String },
+    /// Rotate canary values (regenerate fake values)
+    Rotate {
+        /// Rotate all eligible canaries
+        #[arg(long)]
+        all: bool,
+        /// Rotate a specific canary by key
+        #[arg(long)]
+        key: Option<String>,
+        /// Show what would be rotated without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Place a canary line into a file
+    Place {
+        /// Canary key
+        key: String,
+        /// Target file path
+        file: String,
+        /// Position: top, middle, bottom, random
+        #[arg(long, default_value = "bottom")]
+        position: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum HardeningAction {
+    /// Show current hardening configuration
+    Show,
+    /// Enable a hardening layer
+    Enable {
+        /// Layer name: control_chars, base64_decode, split_strings, encoding_chain
+        layer: String,
+    },
+    /// Disable a hardening layer
+    Disable {
+        /// Layer name: control_chars, base64_decode, split_strings, encoding_chain
+        layer: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ScannerAction {
+    /// List configured external scanners
+    List,
+    /// Test a scanner with sample content
+    Test {
+        /// Scanner name
+        name: String,
+    },
+    /// Run a scanner against arbitrary content
+    Run {
+        /// Scanner name
+        name: String,
+        /// Content to scan
+        content: String,
+    },
+    /// Enable a scanner
+    Enable {
+        /// Scanner name
+        name: String,
+    },
+    /// Disable a scanner
+    Disable {
+        /// Scanner name
+        name: String,
+    },
 }

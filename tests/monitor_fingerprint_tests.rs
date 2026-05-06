@@ -181,7 +181,9 @@ fn test_verify_mismatch() {
     let baseline_events = make_events_with_ops(&tool, 50, "read");
     let verify_events = make_events_with_ops(&tool, 50, "write");
 
-    sys.generator.generate_and_store(&tool, &baseline_events).unwrap();
+    sys.generator
+        .generate_and_store(&tool, &baseline_events)
+        .unwrap();
 
     let result = sys.verifier.verify(&tool, &verify_events).unwrap();
     assert!(
@@ -201,13 +203,24 @@ fn test_verify_impersonation() {
     let events_b = make_events_with_ops(&tool_b, 50, "write");
 
     // Establish baselines for both tools
-    sys.generator.generate_and_store(&tool_a, &events_a).unwrap();
-    sys.generator.generate_and_store(&tool_b, &events_b).unwrap();
+    sys.generator
+        .generate_and_store(&tool_a, &events_a)
+        .unwrap();
+    sys.generator
+        .generate_and_store(&tool_b, &events_b)
+        .unwrap();
 
     // Verify tool_b claiming to be tool_a (using tool_b's events)
     let result = sys.verifier.verify(&tool_a, &events_b).unwrap();
-    if let VerificationResult::Mismatch { confidence, divergence } = result {
-        assert!(confidence > 0.5, "Expected high confidence for impersonation");
+    if let VerificationResult::Mismatch {
+        confidence,
+        divergence,
+    } = result
+    {
+        assert!(
+            confidence > 0.5,
+            "Expected high confidence for impersonation"
+        );
         assert!(
             divergence.contains("impersonation suspected"),
             "Expected impersonation message, got: {}",
@@ -247,7 +260,9 @@ fn test_trust_positive_verification() {
     let tm = TrustManager::new(TrustConfig::default());
     let tool = ToolType::ClaudeCode;
 
-    let score = tm.update_trust(&tool, TrustEvent::PositiveVerification).unwrap();
+    let score = tm
+        .update_trust(&tool, TrustEvent::PositiveVerification)
+        .unwrap();
     assert!((score.score - 0.6).abs() < f64::EPSILON); // 0.5 + 0.1
     assert_eq!(score.sample_size, 1);
 }
@@ -257,7 +272,9 @@ fn test_trust_negative_verification() {
     let tm = TrustManager::new(TrustConfig::default());
     let tool = ToolType::ClaudeCode;
 
-    let score = tm.update_trust(&tool, TrustEvent::NegativeVerification).unwrap();
+    let score = tm
+        .update_trust(&tool, TrustEvent::NegativeVerification)
+        .unwrap();
     assert!((score.score - 0.3).abs() < f64::EPSILON); // 0.5 - 0.2
 }
 
@@ -266,7 +283,9 @@ fn test_trust_suspicious_behavior() {
     let tm = TrustManager::new(TrustConfig::default());
     let tool = ToolType::ClaudeCode;
 
-    let score = tm.update_trust(&tool, TrustEvent::SuspiciousBehavior).unwrap();
+    let score = tm
+        .update_trust(&tool, TrustEvent::SuspiciousBehavior)
+        .unwrap();
     assert!((score.score - 0.2).abs() < f64::EPSILON); // 0.5 - 0.3
 }
 
@@ -286,7 +305,8 @@ fn test_trust_clamping() {
 
     // Clamp to 1.0
     for _ in 0..10 {
-        tm.update_trust(&tool, TrustEvent::PositiveVerification).unwrap();
+        tm.update_trust(&tool, TrustEvent::PositiveVerification)
+            .unwrap();
     }
     let score = tm.get_trust_score(&tool).unwrap();
     assert_eq!(score.score, 1.0);
@@ -294,7 +314,8 @@ fn test_trust_clamping() {
     // Reset and clamp to 0.0
     tm.reset_score(&tool);
     for _ in 0..10 {
-        tm.update_trust(&tool, TrustEvent::SuspiciousBehavior).unwrap();
+        tm.update_trust(&tool, TrustEvent::SuspiciousBehavior)
+            .unwrap();
     }
     let score = tm.get_trust_score(&tool).unwrap();
     assert_eq!(score.score, 0.0);
@@ -324,7 +345,8 @@ fn test_trust_get_all_scores() {
     let tool1 = ToolType::ClaudeCode;
     let tool2 = ToolType::Cursor;
 
-    tm.update_trust(&tool1, TrustEvent::PositiveVerification).unwrap();
+    tm.update_trust(&tool1, TrustEvent::PositiveVerification)
+        .unwrap();
     tm.update_trust(&tool2, TrustEvent::NormalBehavior).unwrap();
 
     let all = tm.get_all_scores();
@@ -336,7 +358,8 @@ fn test_trust_reset_score() {
     let tm = TrustManager::new(TrustConfig::default());
     let tool = ToolType::ClaudeCode;
 
-    tm.update_trust(&tool, TrustEvent::PositiveVerification).unwrap();
+    tm.update_trust(&tool, TrustEvent::PositiveVerification)
+        .unwrap();
     let before = tm.get_trust_score(&tool).unwrap();
     assert!(before.score > 0.5);
 
@@ -353,7 +376,8 @@ fn test_trust_decay() {
 
     // Set a high score
     for _ in 0..10 {
-        tm.update_trust(&tool, TrustEvent::PositiveVerification).unwrap();
+        tm.update_trust(&tool, TrustEvent::PositiveVerification)
+            .unwrap();
     }
     let before = tm.get_trust_score(&tool).unwrap();
     assert_eq!(before.score, 1.0);
@@ -439,7 +463,10 @@ fn test_fingerprinter_system_default() {
     assert_eq!(result, VerificationResult::Match);
 
     // Trust manager works
-    let score = sys.trust_manager.update_trust(&tool, TrustEvent::NormalBehavior).unwrap();
+    let score = sys
+        .trust_manager
+        .update_trust(&tool, TrustEvent::NormalBehavior)
+        .unwrap();
     assert_eq!(score.sample_size, 1);
 }
 

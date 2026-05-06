@@ -56,6 +56,17 @@ pub struct ProjectConfig {
     #[serde(default)]
     pub wizard: WizardState,
     pub environments: Vec<ProjectEnvironment>,
+    #[serde(default)]
+    pub ai_guard: AiGuardConfig,
+}
+
+/// AI Guard configuration section.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AiGuardConfig {
+    #[serde(default)]
+    pub hardening: crate::ops::hardening::HardeningConfig,
+    #[serde(default)]
+    pub scanners: crate::ops::external_scanner::ScannerRegistry,
 }
 
 /// Project metadata section.

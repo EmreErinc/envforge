@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -15,6 +16,12 @@ pub struct CanarySecret {
     pub pattern: String, // "aws_key", "api_token", "generic"
     pub triggered: bool,
     pub trigger_count: usize,
+    #[serde(default = "default_rotate_after_days")]
+    pub rotate_after_days: u32,
+}
+
+fn default_rotate_after_days() -> u32 {
+    14
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +54,30 @@ pub fn generate_fake_value(pattern: &str) -> String {
         "stripe_key" => format!("sk_live_{}", &suffix),
         "slack_token" => format!("xoxb-0000-0000-{}", &suffix),
         "gitlab_token" => format!("glpat-{}", &suffix),
+        "database_url" => format!(
+            "postgres://canary_user:{}@canary-host:5432/canary_db",
+            &suffix[..12]
+        ),
+        "jwt_token" => {
+            let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(r#"{"alg":"HS256","typ":"JWT"}"#);
+            let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(
+                r#"{{"sub":"canary","exp":9999999999,"key":"{}"}}"#,
+                &suffix[..12]
+            ));
+            let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&suffix[..16]);
+            format!("{}.{}.{}", header, payload, signature)
+        }
+        "openai_key" => format!("sk-canary-{}", &suffix),
+        "private_key_pem" => {
+            let body = base64::engine::general_purpose::STANDARD.encode(suffix.repeat(8));
+            format!(
+                "-----BEGIN RSA PRIVATE KEY-----\n{}\n-----END RSA PRIVATE KEY-----",
+                body
+            )
+        }
+        "smtp_credential" => format!("smtp://canary_user:{}@smtp.canary.local:587", &suffix[..12]),
+        "ftp_credential" => format!("ftp://canary_user:{}@ftp.canary.local:21", &suffix[..12]),
         _ => format!("CANARY_{}", &suffix),
     }
 }
@@ -97,6 +128,7 @@ pub fn create_canary(key: &str, pattern: &str) -> Result<CanarySecret, OpError> 
         pattern: pattern.to_string(),
         triggered: false,
         trigger_count: 0,
+        rotate_after_days: 14,
     };
 
     store.canaries.insert(key.to_string(), canary.clone());
@@ -196,6 +228,102 @@ pub fn is_canary_value(value: &str) -> Option<String> {
     None
 }
 
+// ─── Rotation ──────────────────────────────────────────────
+
+/// Check if a canary is eligible for rotation (age > rotate_after_days).
+pub fn is_eligible_for_rotation(canary: &CanarySecret) -> bool {
+    if canary.rotate_after_days == 0 {
+        return false;
+    }
+    let created = chrono::DateTime::parse_from_rfc3339(&canary.created_at);
+    match created {
+        Ok(dt) => {
+            let age = chrono::Utc::now().signed_duration_since(dt);
+            age.num_days() >= i64::from(canary.rotate_after_days)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Rotate a single canary: generate new fake value, reset trigger state.
+pub fn rotate_canary(key: &str) -> Result<Option<CanarySecret>, OpError> {
+    let mut store = load_canaries()?;
+    if let Some(canary) = store.canaries.get_mut(key) {
+        let new_value = generate_fake_value(&canary.pattern);
+        canary.fake_value = new_value;
+        canary.created_at = chrono::Utc::now().to_rfc3339();
+        canary.triggered = false;
+        canary.trigger_count = 0;
+        let cloned = canary.clone();
+        save_canaries(&store)?;
+        Ok(Some(cloned))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Rotate all eligible canaries. Returns count of rotated canaries.
+pub fn rotate_all_canaries() -> Result<usize, OpError> {
+    let mut store = load_canaries()?;
+    let mut rotated = 0;
+    for canary in store.canaries.values_mut() {
+        if is_eligible_for_rotation(canary) {
+            canary.fake_value = generate_fake_value(&canary.pattern);
+            canary.created_at = chrono::Utc::now().to_rfc3339();
+            canary.triggered = false;
+            canary.trigger_count = 0;
+            rotated += 1;
+        }
+    }
+    if rotated > 0 {
+        save_canaries(&store)?;
+    }
+    Ok(rotated)
+}
+
+// ─── Placement ─────────────────────────────────────────────
+
+/// Place a canary line into a file. Returns true if placed, false if already exists.
+pub fn place_canary_in_file(
+    key: &str,
+    file_path: &std::path::Path,
+    position: &str,
+) -> Result<bool, OpError> {
+    let store = load_canaries()?;
+    let canary = store.canaries.get(key).ok_or("Canary not found")?;
+
+    let marker = format!("# envforge canary: {}={}", key, canary.fake_value);
+
+    let content = if file_path.exists() {
+        std::fs::read_to_string(file_path)?
+    } else {
+        String::new()
+    };
+
+    // Check if already placed
+    if content.contains(&marker) {
+        return Ok(false);
+    }
+
+    let mut lines: Vec<&str> = content.lines().collect();
+    let insert_idx = match position {
+        "top" => 0,
+        "bottom" => lines.len(),
+        "random" if !lines.is_empty() => {
+            // Deterministic "random" based on key hash
+            let hash: usize = key.bytes().map(|b| b as usize).sum();
+            hash % lines.len()
+        }
+        _ => lines.len() / 2,
+    };
+
+    lines.insert(insert_idx, &marker);
+    let new_content = lines.join("\n");
+    std::fs::write(file_path, new_content)?;
+
+    Ok(true)
+}
+
 // ─── Tests ─────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -251,6 +379,47 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_fake_value_database_url() {
+        let val = generate_fake_value("database_url");
+        assert!(val.starts_with("postgres://canary_user:"));
+        assert!(val.contains("@canary-host:5432/canary_db"));
+    }
+
+    #[test]
+    fn test_generate_fake_value_jwt_token() {
+        let val = generate_fake_value("jwt_token");
+        let parts: Vec<&str> = val.split('.').collect();
+        assert_eq!(parts.len(), 3);
+    }
+
+    #[test]
+    fn test_generate_fake_value_openai_key() {
+        let val = generate_fake_value("openai_key");
+        assert!(val.starts_with("sk-canary-"));
+    }
+
+    #[test]
+    fn test_generate_fake_value_private_key_pem() {
+        let val = generate_fake_value("private_key_pem");
+        assert!(val.starts_with("-----BEGIN RSA PRIVATE KEY-----"));
+        assert!(val.contains("-----END RSA PRIVATE KEY-----"));
+    }
+
+    #[test]
+    fn test_generate_fake_value_smtp_credential() {
+        let val = generate_fake_value("smtp_credential");
+        assert!(val.starts_with("smtp://canary_user:"));
+        assert!(val.contains("@smtp.canary.local:587"));
+    }
+
+    #[test]
+    fn test_generate_fake_value_ftp_credential() {
+        let val = generate_fake_value("ftp_credential");
+        assert!(val.starts_with("ftp://canary_user:"));
+        assert!(val.contains("@ftp.canary.local:21"));
+    }
+
+    #[test]
     fn test_create_and_load_canary_roundtrip() {
         // Use a temp dir to avoid polluting real config
         let tmp = tempfile::tempdir().unwrap();
@@ -267,6 +436,7 @@ mod tests {
             pattern: "generic".to_string(),
             triggered: false,
             trigger_count: 0,
+            rotate_after_days: 14,
         };
         store.canaries.insert("TEST_KEY".to_string(), canary);
         std::fs::write(&store_path, toml::to_string_pretty(&store).unwrap()).unwrap();
@@ -296,6 +466,7 @@ mod tests {
                     pattern: "generic".to_string(),
                     triggered: false,
                     trigger_count: 0,
+                    rotate_after_days: 14,
                 },
             )]),
         };
@@ -336,6 +507,7 @@ mod tests {
                 pattern: "generic".to_string(),
                 triggered: false,
                 trigger_count: 0,
+                rotate_after_days: 14,
             },
         );
         std::fs::write(&store_path, toml::to_string_pretty(&store).unwrap()).unwrap();
@@ -396,6 +568,7 @@ mod tests {
                         pattern: "generic".to_string(),
                         triggered: false,
                         trigger_count: 0,
+                        rotate_after_days: 14,
                     },
                 ),
                 (
@@ -407,6 +580,7 @@ mod tests {
                         pattern: "generic".to_string(),
                         triggered: true,
                         trigger_count: 3,
+                        rotate_after_days: 14,
                     },
                 ),
                 (
@@ -418,6 +592,7 @@ mod tests {
                         pattern: "aws_key".to_string(),
                         triggered: false,
                         trigger_count: 0,
+                        rotate_after_days: 14,
                     },
                 ),
             ]),

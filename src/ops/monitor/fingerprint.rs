@@ -39,7 +39,10 @@ fn extract_features(events: &[MonitorEvent]) -> String {
     // Temporal pattern: standard deviation of inter-event intervals (seconds).
     let temporal_pattern = if events.len() >= 2 {
         let timestamps: Vec<i64> = events.iter().map(|e| e.timestamp.timestamp()).collect();
-        let diffs: Vec<f64> = timestamps.windows(2).map(|w| (w[1] - w[0]) as f64).collect();
+        let diffs: Vec<f64> = timestamps
+            .windows(2)
+            .map(|w| (w[1] - w[0]) as f64)
+            .collect();
         if diffs.is_empty() {
             "0".to_string()
         } else {
@@ -207,7 +210,10 @@ impl IdentityVerifier {
             format!("behavioral_signature mismatch for '{}'", claimed_tool)
         };
 
-        Ok(VerificationResult::Mismatch { confidence, divergence })
+        Ok(VerificationResult::Mismatch {
+            confidence,
+            divergence,
+        })
     }
 }
 

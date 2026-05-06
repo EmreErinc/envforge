@@ -213,6 +213,8 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         ),
         Commands::Lease { action } => cmd_lease(action, json),
         Commands::Canary { action } => cmd_canary(action, json),
+        Commands::Hardening { action } => cmd_hardening(action),
+        Commands::Scanner { action } => cmd_scanner(action),
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref(), json),
         Commands::Deps { key, source } => cmd_deps(key, *source, json),
         Commands::Undo { list } => cmd_undo(*list, json),
@@ -3970,7 +3972,53 @@ fn cmd_ai_guard(
     let stage_str = stage;
 
     let secrets = load_sensitive_secrets();
-    let result = run_guard(stage_enum, tool_name, tool_input, &secrets);
+
+    // Load AI Guard config from project config if available
+    let (hardening_config, scanner_registry) = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| {
+            crate::ops::project::config::detect_project_config(&cwd).and_then(|detected| {
+                std::fs::read_to_string(&detected.config_path)
+                    .ok()
+                    .and_then(|content| match detected.format {
+                        crate::ops::project::config::ConfigFormat::Toml => {
+                            toml::from_str::<crate::ops::project::config::ProjectConfig>(&content)
+                                .ok()
+                        }
+                        _ => None,
+                    })
+                    .map(|config| (config.ai_guard.hardening, config.ai_guard.scanners))
+            })
+        })
+        .unwrap_or_default();
+
+    // Run external scanners if configured
+    let scanner_findings = if let Some(input) = tool_input {
+        if !scanner_registry.is_empty() {
+            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+            rt.block_on(crate::ops::external_scanner::run_scanners(
+                &scanner_registry,
+                input,
+            ))
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let result = run_guard(
+        stage_enum,
+        tool_name,
+        tool_input,
+        &secrets,
+        Some(&hardening_config),
+        if scanner_findings.is_empty() {
+            None
+        } else {
+            Some(&scanner_findings)
+        },
+    );
 
     if json {
         println!(
@@ -4251,8 +4299,378 @@ fn cmd_canary(action: &super::CanaryAction, json: bool) -> Result<(), Box<dyn st
                 println!("Canary not found: {}", key);
             }
         }
+        super::CanaryAction::Rotate { all, key, dry_run } => {
+            if *all {
+                let rotated = if *dry_run {
+                    let canaries = canary::list_canaries()?;
+                    let eligible: Vec<_> = canaries
+                        .iter()
+                        .filter(|c| canary::is_eligible_for_rotation(c))
+                        .collect();
+                    println!("Would rotate {} canaries:", eligible.len());
+                    for c in &eligible {
+                        println!("  - {} (age > {} days)", c.key, c.rotate_after_days);
+                    }
+                    eligible.len()
+                } else {
+                    canary::rotate_all_canaries()?
+                };
+                if !dry_run {
+                    println!("Rotated {} canaries.", rotated);
+                }
+            } else if let Some(key) = key {
+                if *dry_run {
+                    let canaries = canary::list_canaries()?;
+                    if let Some(c) = canaries.iter().find(|c| c.key == *key) {
+                        if canary::is_eligible_for_rotation(c) {
+                            println!("Would rotate {} (age > {} days)", key, c.rotate_after_days);
+                        } else {
+                            println!("Canary {} is not yet eligible for rotation.", key);
+                        }
+                    } else {
+                        println!("Canary not found: {}", key);
+                    }
+                } else {
+                    match canary::rotate_canary(key)? {
+                        Some(rotated) => {
+                            println!("Rotated canary: {}", rotated.key);
+                            println!("New value: {}", rotated.fake_value);
+                        }
+                        None => {
+                            println!("Canary not found: {}", key);
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Usage: envforge canary rotate --all or --key <KEY>");
+            }
+        }
+        super::CanaryAction::Place {
+            key,
+            file,
+            position,
+        } => {
+            let path = std::path::Path::new(file);
+            match canary::place_canary_in_file(key, path, position)? {
+                true => println!("Placed canary {} in {} at '{}'", key, file, position),
+                false => println!("Canary {} already placed in {}", key, file),
+            }
+        }
     }
 
+    Ok(())
+}
+
+fn cmd_hardening(action: &super::HardeningAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::hardening::HardeningConfig;
+    use crate::ops::project::config::{detect_project_config, ConfigFormat, ProjectConfig};
+
+    // Try to load project config for hardening settings
+    let mut config = HardeningConfig::default();
+    let mut config_path: Option<std::path::PathBuf> = None;
+    let mut config_format: Option<ConfigFormat> = None;
+
+    if let Some(detected) = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| detect_project_config(&cwd))
+    {
+        if let Ok(content) = std::fs::read_to_string(&detected.config_path) {
+            let parsed: Option<ProjectConfig> = match detected.format {
+                ConfigFormat::Toml => toml::from_str(&content).ok(),
+                ConfigFormat::Json => serde_json::from_str(&content).ok(),
+                ConfigFormat::Yaml => None, // serde_yaml not in dependencies
+            };
+            if let Some(project_config) = parsed {
+                config = project_config.ai_guard.hardening;
+                config_path = Some(detected.config_path);
+                config_format = Some(detected.format);
+            }
+        }
+    }
+
+    match action {
+        super::HardeningAction::Show => {
+            println!("Adversarial Input Hardening Configuration");
+            println!("{}", "=".repeat(50));
+            println!(
+                "  control_chars      : {}",
+                if config.control_chars {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            );
+            println!(
+                "  base64_decode      : {} (min_length: {})",
+                if config.base64_decode {
+                    "enabled"
+                } else {
+                    "disabled"
+                },
+                config.base64_min_length
+            );
+            println!(
+                "  split_strings      : {}",
+                if config.split_strings {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            );
+            println!(
+                "  encoding_chain     : {} (max_depth: {})",
+                if config.encoding_chain {
+                    "enabled"
+                } else {
+                    "disabled"
+                },
+                config.encoding_chain_max_depth
+            );
+            if config_path.is_none() {
+                println!("\nNo project config found. Using defaults.");
+                println!("Run 'envforge project init' to create a config file.");
+            }
+        }
+        super::HardeningAction::Enable { layer } => {
+            match layer.as_str() {
+                "control_chars" => config.control_chars = true,
+                "base64_decode" => config.base64_decode = true,
+                "split_strings" => config.split_strings = true,
+                "encoding_chain" => config.encoding_chain = true,
+                _ => {
+                    eprintln!("Unknown layer: {}", layer);
+                    eprintln!(
+                        "Valid layers: control_chars, base64_decode, split_strings, encoding_chain"
+                    );
+                    return Ok(());
+                }
+            }
+            if let Some(path) = config_path {
+                if let Some(format) = config_format {
+                    // Read existing config, update hardening section, write back
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let parsed: Option<ProjectConfig> = match format {
+                            ConfigFormat::Toml => toml::from_str(&content).ok(),
+                            ConfigFormat::Json => serde_json::from_str(&content).ok(),
+                            ConfigFormat::Yaml => None,
+                        };
+                        if let Some(mut project_config) = parsed {
+                            project_config.ai_guard.hardening = config;
+                            let updated = match format {
+                                ConfigFormat::Toml => toml::to_string_pretty(&project_config)?,
+                                ConfigFormat::Json => {
+                                    serde_json::to_string_pretty(&project_config)?
+                                }
+                                ConfigFormat::Yaml => String::new(),
+                            };
+                            std::fs::write(&path, updated)?;
+                            println!("Enabled hardening layer: {}", layer);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            eprintln!("No project config found. Run 'envforge project init' first.");
+        }
+        super::HardeningAction::Disable { layer } => {
+            match layer.as_str() {
+                "control_chars" => config.control_chars = false,
+                "base64_decode" => config.base64_decode = false,
+                "split_strings" => config.split_strings = false,
+                "encoding_chain" => config.encoding_chain = false,
+                _ => {
+                    eprintln!("Unknown layer: {}", layer);
+                    eprintln!(
+                        "Valid layers: control_chars, base64_decode, split_strings, encoding_chain"
+                    );
+                    return Ok(());
+                }
+            }
+            if let Some(path) = config_path {
+                if let Some(format) = config_format {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let parsed: Option<ProjectConfig> = match format {
+                            ConfigFormat::Toml => toml::from_str(&content).ok(),
+                            ConfigFormat::Json => serde_json::from_str(&content).ok(),
+                            ConfigFormat::Yaml => None,
+                        };
+                        if let Some(mut project_config) = parsed {
+                            project_config.ai_guard.hardening = config;
+                            let updated = match format {
+                                ConfigFormat::Toml => toml::to_string_pretty(&project_config)?,
+                                ConfigFormat::Json => {
+                                    serde_json::to_string_pretty(&project_config)?
+                                }
+                                ConfigFormat::Yaml => String::new(),
+                            };
+                            std::fs::write(&path, updated)?;
+                            println!("Disabled hardening layer: {}", layer);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            eprintln!("No project config found. Run 'envforge project init' first.");
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_scanner(action: &super::ScannerAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::external_scanner::{run_single_scanner, ScannerRegistry};
+    use crate::ops::project::config::{detect_project_config, ConfigFormat, ProjectConfig};
+
+    // Load project config for scanner registry
+    let mut registry = ScannerRegistry::default();
+    let mut config_path: Option<std::path::PathBuf> = None;
+    let mut config_format: Option<ConfigFormat> = None;
+
+    if let Some(detected) = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| detect_project_config(&cwd))
+    {
+        if let Ok(content) = std::fs::read_to_string(&detected.config_path) {
+            let parsed: Option<ProjectConfig> = match detected.format {
+                ConfigFormat::Toml => toml::from_str(&content).ok(),
+                ConfigFormat::Json => serde_json::from_str(&content).ok(),
+                ConfigFormat::Yaml => None,
+            };
+            if let Some(project_config) = parsed {
+                registry = project_config.ai_guard.scanners;
+                config_path = Some(detected.config_path);
+                config_format = Some(detected.format);
+            }
+        }
+    }
+
+    match action {
+        super::ScannerAction::List => {
+            if registry.is_empty() {
+                println!("No external scanners configured.");
+                println!("Add to .envforge.project.toml:");
+                println!("  [scanners.myscanner]");
+                println!("  command = \"gitleaks\"");
+                println!("  args = [\"detect\", \"--no-git\"]");
+                return Ok(());
+            }
+            println!(
+                "{:<20} {:<10} {:<30} TIMEOUT",
+                "NAME", "STATUS", "COMMAND"
+            );
+            println!("{}", "-".repeat(80));
+            for (name, scanner) in &registry.scanners {
+                let status = if scanner.enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
+                let cmd = format!("{} {}", scanner.command, scanner.args.join(" "));
+                println!(
+                    "{:<20} {:<10} {:<30} {}ms",
+                    name, status, cmd, scanner.timeout_ms
+                );
+            }
+        }
+        super::ScannerAction::Test { name } => {
+            let scanner = registry.get(name);
+            if scanner.is_none() {
+                eprintln!("Scanner not found or disabled: {}", name);
+                return Ok(());
+            }
+            let config = scanner.unwrap().clone();
+            let sample = "This is sample content for testing the scanner.";
+            println!("Testing scanner: {}", name);
+            println!("Command: {} {}", config.command, config.args.join(" "));
+            println!("Sample content: {}", sample);
+            println!();
+
+            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+            let result = rt.block_on(run_single_scanner(name, &config, sample));
+            match result {
+                Some(finding) => {
+                    println!("Findings ({}):", finding.findings.len());
+                    for line in &finding.findings {
+                        println!("  - {}", line);
+                    }
+                }
+                None => {
+                    println!("No findings (scanner exited clean).");
+                }
+            }
+        }
+        super::ScannerAction::Run { name, content } => {
+            let scanner = registry.get(name);
+            if scanner.is_none() {
+                eprintln!("Scanner not found or disabled: {}", name);
+                return Ok(());
+            }
+            let config = scanner.unwrap().clone();
+            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+            let result = rt.block_on(run_single_scanner(name, &config, content));
+            match result {
+                Some(finding) => {
+                    for line in &finding.findings {
+                        println!("{}", line);
+                    }
+                }
+                None => {
+                    println!("No findings.");
+                }
+            }
+        }
+        super::ScannerAction::Enable { name } => {
+            if let Some(scanner) = registry.scanners.get_mut(name) {
+                scanner.enabled = true;
+            } else {
+                eprintln!("Scanner not found: {}", name);
+                return Ok(());
+            }
+            save_scanner_registry(&registry, config_path, config_format)?;
+            println!("Enabled scanner: {}", name);
+        }
+        super::ScannerAction::Disable { name } => {
+            if let Some(scanner) = registry.scanners.get_mut(name) {
+                scanner.enabled = false;
+            } else {
+                eprintln!("Scanner not found: {}", name);
+                return Ok(());
+            }
+            save_scanner_registry(&registry, config_path, config_format)?;
+            println!("Disabled scanner: {}", name);
+        }
+    }
+
+    Ok(())
+}
+
+fn save_scanner_registry(
+    registry: &crate::ops::external_scanner::ScannerRegistry,
+    config_path: Option<std::path::PathBuf>,
+    config_format: Option<crate::ops::project::config::ConfigFormat>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::project::config::{ConfigFormat, ProjectConfig};
+
+    if let Some(path) = config_path {
+        if let Some(format) = config_format {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let parsed: Option<ProjectConfig> = match format {
+                    ConfigFormat::Toml => toml::from_str(&content).ok(),
+                    ConfigFormat::Json => serde_json::from_str(&content).ok(),
+                    ConfigFormat::Yaml => None,
+                };
+                if let Some(mut project_config) = parsed {
+                    project_config.ai_guard.scanners = registry.clone();
+                    let updated = match format {
+                        ConfigFormat::Toml => toml::to_string_pretty(&project_config)?,
+                        ConfigFormat::Json => serde_json::to_string_pretty(&project_config)?,
+                        ConfigFormat::Yaml => String::new(),
+                    };
+                    std::fs::write(&path, updated)?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
