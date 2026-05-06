@@ -367,9 +367,21 @@ pub fn execute_custody_query(
     }
 }
 
+/// Find the current owner of a secret (the session that last accessed it).
+pub fn find_current_owner(events: &[AuditEvent], secret_key: &str) -> Option<SessionId> {
+    let time_range = TimeRange::all();
+    let report = verify_ownership(events, secret_key, &time_range);
+    report.current_owner.and_then(|link| link.session_id)
+}
+
+/// Find all unique secret keys in a set of events.
+pub fn find_all_secrets(events: &[AuditEvent]) -> Vec<String> {
+    find_matching_secrets(events, "*")
+}
+
 /// Find secret keys matching a glob-like pattern.
 /// Supports `*` as wildcard and exact match.
-fn find_matching_secrets(events: &[AuditEvent], pattern: &str) -> Vec<String> {
+pub fn find_matching_secrets(events: &[AuditEvent], pattern: &str) -> Vec<String> {
     let mut keys: Vec<String> = events.iter().filter_map(|e| e.secret_key.clone()).collect();
     keys.sort();
     keys.dedup();
