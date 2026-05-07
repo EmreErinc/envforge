@@ -1,7 +1,7 @@
 use chrono::Utc;
 use envforge::model::{
     EvaluationContext, LifecycleAction, LifecycleCondition, LifecycleRule, LifecycleTrigger,
-    LogicalOp, RotationStrategy,
+    LogicalOp,
 };
 use envforge::ops::lifecycle::trigger_engine;
 use std::path::PathBuf;
@@ -11,15 +11,6 @@ fn make_ctx() -> EvaluationContext {
         project_dir: Some(PathBuf::from("/tmp/test-project")),
         current_time: Utc::now(),
         last_check: None,
-    }
-}
-
-fn make_context_with_last(minutes_ago: i64) -> EvaluationContext {
-    let now = Utc::now();
-    EvaluationContext {
-        project_dir: Some(PathBuf::from("/tmp/test-project")),
-        current_time: now,
-        last_check: Some(now - chrono::Duration::minutes(minutes_ago)),
     }
 }
 
@@ -98,9 +89,7 @@ fn test_composite_all_both_true() {
         "composite-all".into(),
         LifecycleTrigger::Composite {
             triggers: vec![
-                LifecycleTrigger::Cron {
-                    expression: expr.clone(),
-                },
+                LifecycleTrigger::Cron { expression: expr },
                 LifecycleTrigger::AgeExceeded { max_days: 9999 },
             ],
             operator: LogicalOp::All,
@@ -134,9 +123,7 @@ fn test_composite_any_one_true() {
         "composite-any".into(),
         LifecycleTrigger::Composite {
             triggers: vec![
-                LifecycleTrigger::Cron {
-                    expression: expr.clone(),
-                },
+                LifecycleTrigger::Cron { expression: expr },
                 LifecycleTrigger::AgeExceeded { max_days: 1 },
             ],
             operator: LogicalOp::Any,
@@ -153,8 +140,9 @@ fn test_composite_any_one_true() {
     };
 
     let events = trigger_engine::evaluate(&[rule], &context).expect("evaluate");
-    // At least cron should fire
-    assert!(events.len() >= 0);
+    // Cron timing is best-effort — may not fire if seconds have passed
+    // the scheduled minute by the time we evaluate. Just verify no error.
+    let _ = events;
 }
 
 // ─── Disabled Rules ─────────────────────────────────────
@@ -170,9 +158,7 @@ fn test_disabled_rules_are_skipped() {
 
     let mut rule = LifecycleRule::new(
         "disabled".into(),
-        LifecycleTrigger::Cron {
-            expression: expr.clone(),
-        },
+        LifecycleTrigger::Cron { expression: expr },
         LifecycleAction::Notify {
             message: "skip".into(),
         },

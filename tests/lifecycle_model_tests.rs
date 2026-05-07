@@ -3,7 +3,6 @@ use envforge::model::{
     LifecycleTrigger, LogicalOp, RotationPolicy, RotationStrategy, SecretGenerator,
     SecretLifecycle, SecretTemplate, StateTransition, TriggerType,
 };
-use serde_json;
 
 // ─── LifecycleRule Construction ────────────────────────
 

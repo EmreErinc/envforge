@@ -89,8 +89,7 @@ fn test_list_enabled_rules_filters_disabled() {
     let all = rule_manager::list_rules_in(&base).expect("list all");
     assert_eq!(all.len(), 1);
 
-    let enabled_only: Vec<_> = all.into_iter().filter(|r| r.enabled).collect();
-    assert!(enabled_only.is_empty());
+    assert!(!all.into_iter().any(|r| r.enabled));
 }
 
 // ─── Enable / Disable ────────────────────────────────────

@@ -130,8 +130,7 @@ fn test_save_and_load_roundtrip() {
     let loaded = storage::load_events().unwrap();
 
     // Check that saved events appear in loaded
-    let test_events: Vec<_> = loaded.iter().filter(|e| e.provider == run_id).collect();
-    assert_eq!(test_events.len(), 5);
+    assert_eq!(loaded.iter().filter(|e| e.provider == run_id).count(), 5);
 }
 
 #[test]

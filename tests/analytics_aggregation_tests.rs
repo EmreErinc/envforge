@@ -47,8 +47,7 @@ fn test_aggregate_daily_groups_correctly() {
     assert!(buckets.len() >= 2);
 
     // Find KEY_A buckets
-    let key_a_buckets: Vec<_> = buckets.iter().filter(|b| b.key.contains("KEY_A")).collect();
-    assert!(!key_a_buckets.is_empty());
+    assert!(buckets.iter().any(|b| b.key.contains("KEY_A")));
 }
 
 #[test]

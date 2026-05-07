@@ -5,21 +5,27 @@ use std::collections::HashMap;
 fn make_schema() -> EnvSchema {
     let mut vars = HashMap::new();
 
-    let mut with_ttl = SchemaVariable::default();
-    with_ttl.ttl_days = Some(30);
-    with_ttl.auto_rotate = Some(true);
-    with_ttl.rotation_strategy = Some("dual_write".into());
-    with_ttl.var_type = VarType::String;
+    let with_ttl = SchemaVariable {
+        ttl_days: Some(30),
+        auto_rotate: Some(true),
+        rotation_strategy: Some("dual_write".into()),
+        var_type: VarType::String,
+        ..SchemaVariable::default()
+    };
     vars.insert("API_KEY".into(), with_ttl);
 
-    let mut without_ttl = SchemaVariable::default();
-    without_ttl.var_type = VarType::String;
+    let without_ttl = SchemaVariable {
+        var_type: VarType::String,
+        ..SchemaVariable::default()
+    };
     vars.insert("PLAIN_KEY".into(), without_ttl);
 
-    let mut with_notify = SchemaVariable::default();
-    with_notify.ttl_days = Some(90);
-    with_notify.notify_days_before_expiry = Some(7);
-    with_notify.var_type = VarType::String;
+    let with_notify = SchemaVariable {
+        ttl_days: Some(90),
+        notify_days_before_expiry: Some(7),
+        var_type: VarType::String,
+        ..SchemaVariable::default()
+    };
     vars.insert("DB_PASSWORD".into(), with_notify);
 
     EnvSchema { variables: vars }
@@ -60,9 +66,11 @@ fn test_empty_schema_produces_no_rules() {
 #[test]
 fn test_ttl_without_action_skipped() {
     let mut vars = HashMap::new();
-    let mut var = SchemaVariable::default();
-    var.ttl_days = Some(60);
-    var.var_type = VarType::String;
+    let var = SchemaVariable {
+        ttl_days: Some(60),
+        var_type: VarType::String,
+        ..SchemaVariable::default()
+    };
     // No auto_rotate, no notify → no action, skipped
     vars.insert("NO_ACTION_KEY".into(), var);
     let schema = EnvSchema { variables: vars };
