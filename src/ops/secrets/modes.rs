@@ -1,7 +1,12 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
+
+use zeroize::Zeroize;
 
 use super::cache::{is_reference, resolve_reference, SecretRef};
-use super::credentials::read_all_credentials;
+use super::credentials::{clear_all_credentials, read_all_credentials};
 use super::provider::{ProviderRegistry, SecretsError};
 
 /// Result of a pull operation.
@@ -183,6 +188,106 @@ fn glob_match_inner(pattern: &[char], text: &[char]) -> bool {
         (Some(p), Some(t)) if p == t => glob_match_inner(&pattern[1..], &text[1..]),
         _ => false,
     }
+}
+
+// ─── Volatile Mode ───────────────────────────────────────────
+
+/// Configuration for volatile (auto-expiring) credential mode.
+#[derive(Debug, Clone)]
+pub struct VolatileConfig {
+    /// TTL in seconds after which credentials auto-expire from memory.
+    pub ttl_seconds: u64,
+    /// Whether volatile mode is enabled.
+    pub enabled: bool,
+}
+
+impl Default for VolatileConfig {
+    fn default() -> Self {
+        Self {
+            ttl_seconds: 300, // 5 minutes
+            enabled: false,
+        }
+    }
+}
+
+/// Track when credentials were last loaded into memory.
+static LAST_LOAD: Mutex<Option<SystemTime>> = Mutex::new(None);
+
+/// Track whether volatile expiry has occurred.
+static VOLATILE_EXPIRED: AtomicBool = AtomicBool::new(false);
+
+/// Mark credentials as loaded into memory (called before credential operations).
+pub fn mark_credentials_loaded() {
+    if let Ok(mut last) = LAST_LOAD.lock() {
+        *last = Some(SystemTime::now());
+        VOLATILE_EXPIRED.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Check if credentials have expired per volatile mode TTL.
+/// Returns true if TTL has elapsed and credentials should be cleared.
+pub fn check_volatile_expiry(config: &VolatileConfig) -> bool {
+    if !config.enabled {
+        return false;
+    }
+    if VOLATILE_EXPIRED.load(Ordering::SeqCst) {
+        return true;
+    }
+    if let Ok(last) = LAST_LOAD.lock() {
+        if let Some(ts) = *last {
+            if let Ok(elapsed) = ts.elapsed() {
+                if elapsed >= Duration::from_secs(config.ttl_seconds) {
+                    VOLATILE_EXPIRED.store(true, Ordering::SeqCst);
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Clear all in-memory credentials and mark session as expired.
+/// Called when volatile TTL elapses or user requests explicit clear.
+pub fn expire_volatile_session() {
+    clear_all_credentials();
+    VOLATILE_EXPIRED.store(true, Ordering::SeqCst);
+}
+
+/// Clear the entire session: zeroize credentials from memory.
+/// Safe to call at any time. No credentials survive this call in memory.
+pub fn clear_session() {
+    clear_all_credentials();
+    if let Ok(mut last) = LAST_LOAD.lock() {
+        *last = None;
+    }
+    VOLATILE_EXPIRED.store(false, Ordering::SeqCst);
+}
+
+/// Execute a credential operation with volatile expiry guard.
+/// If volatile mode is active and TTL has elapsed, returns AuthExpired error.
+/// Otherwise, marks load time and executes the operation.
+pub fn with_volatile_guard<T>(
+    config: &VolatileConfig,
+    provider_name: &str,
+    f: impl FnOnce() -> Result<T, SecretsError>,
+) -> Result<T, SecretsError> {
+    if check_volatile_expiry(config) {
+        return Err(SecretsError::AuthFailed {
+            provider: provider_name.to_string(),
+            message: "Volatile TTL expired. Re-authenticate to continue.".to_string(),
+        });
+    }
+    mark_credentials_loaded();
+    f()
+}
+
+/// Zeroize all strings in a mutable secrets vector, then clear it.
+pub fn zeroize_secrets(secrets: &mut Vec<(String, String)>) {
+    for (key, value) in secrets.iter_mut() {
+        key.zeroize();
+        value.zeroize();
+    }
+    secrets.clear();
 }
 
 #[cfg(test)]

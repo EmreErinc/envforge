@@ -91,11 +91,23 @@ impl SecretProvider for GcpSecretManagerProvider {
                 "gcp",
             );
 
-            // Add version — use temp file since piping is complex with Command
+            // Add version — use temp file with restrictive permissions
             let temp = tempfile::NamedTempFile::new().map_err(|e| SecretsError::IoError {
                 path: std::path::PathBuf::from("/tmp"),
                 source: e,
             })?;
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                temp.as_file()
+                    .set_permissions(std::fs::Permissions::from_mode(0o600))
+                    .map_err(|e| SecretsError::IoError {
+                        path: temp.path().to_path_buf(),
+                        source: e,
+                    })?;
+            }
+
             std::fs::write(temp.path(), value).map_err(|e| SecretsError::IoError {
                 path: temp.path().to_path_buf(),
                 source: e,
