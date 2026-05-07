@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2026-05-07
+
+### Added — Secret Lifecycle Automation
+
+#### Lifecycle Engine (`envforge lifecycle`)
+- **New module**: `src/ops/lifecycle/` — automated secret lifecycle with 6 submodules:
+  - **Orchestrator** (`orchestrator.rs`): Create/rotate/decommission workflows with result types (CreateResult, RotateResult, DecommissionResult)
+  - **Rule Manager** (`rule_manager.rs`): CRUD for `LifecycleRule` entries, enable/disable toggles, serialization to TOML
+  - **Trigger Engine** (`trigger_engine.rs`): Evaluate `LifecycleTrigger` variants — Cron (minute/hour precision), AgeExceeded, FileChange, PolicyViolation, and Composite (All/Any/Not operators) with `EvaluationContext`
+  - **State Machine** (`state_machine.rs`): 7-state lifecycle (Creating → Active → Rotating → PendingDeprecation → Deprecated → Decommissioned → Failed) with `StateTransition` history
+  - **Rollback** (`rollback.rs`): Snapshot-based rollback with `SnapshotMeta`/`Snapshot` tracking, UUID-keyed storage
+  - **Schema Lifecycle** (`schema_lifecycle.rs`): Auto-generate lifecycle rules from `.env.schema` TTL/auto_rotate fields
+- **Model types**: `LifecycleRule`, `LifecycleTrigger`, `LifecycleAction`, `RotationStrategy`, `LifecycleState`, `SecretLifecycle`, `TriggerEvent`, `EvaluationContext`, `SecretTemplate`, `RotationPolicy`, `LifecycleOperation`, `Snapshot`, `StateEvent`, `DecommissionPlan`, `RollbackResult`, `RecoveryResult`
+- **CLI**: `envforge lifecycle check` — evaluate all rules; `envforge lifecycle rule list|rotate-secret` — manage rules; `envforge lifecycle state <KEY>` — show lifecycle state; `envforge lifecycle snapshot list|delete` — manage snapshots
+- **Config**: `[lifecycle]` section in `.envforge.project.toml` — `default_stale_threshold_days`, `default_grace_period_days`, `default_rotation_strategy`, `snapshot_retention_days`
+
+### Added — Secret Usage Analytics
+
+#### Analytics Engine (`envforge analytics`)
+- **New module**: `src/ops/analytics.rs` — track and analyze secret usage patterns:
+  - **Unused Detection** (`unused`): Detect dormant secrets with no access in N days, confidence scoring
+  - **Low Usage** (`unused`): Flag secrets with access count below threshold in time window
+  - **Deprecation** (`unused`): Generate phased deprecation timelines (review → deprecate → remove) with dependent count
+  - **Aggregation** (`aggregation`): Daily bucketing by key+date, accessor counts, type breakdowns
+  - **Event Storage** (`storage`): JSONL log in `~/.local/share/envforge/analytics/`, enrichment pipeline
+  - **Collection** (`collector`): Hook into proxy/CLI/sync access, auto-enrich with provider/environment/risk level
+- **Model types**: `AnalyticsConfig`, `RawAccessEvent`, `EnrichedAccessEvent`, `AccessorInfo`, `AccessType`, `AccessSource`, `RiskLevel`, `AnalyticsError`
+- **CLI**: `envforge analytics unused [--threshold N]` — dormant secrets; `envforge analytics low-usage [--max-accesses N] [--days N]` — low activity; `envforge analytics deprecation` — deprecation timelines; `envforge analytics summary [--days N]` — event/secret counts; `envforge analytics recompute` — recalculate aggregates; `envforge analytics retention show|set --days N` — retention policy; `envforge analytics prune [--before DATE]` — remove old events
+- **Config**: `[analytics]` section — `enabled`, `retention_days`, `max_events`, `auto_aggregate`, `store_path`
+
+### Added — Real-Time Monitoring
+
+#### Health Monitor (`envforge monitor`)
+- **New module**: `src/ops/monitor/` — real-time infrastructure health probes:
+  - **Health checks** (`health.rs`): Provider availability (registry count, binary reachability), canary integrity, encryption key accessibility, fence status — all non-blocking with latency tracking
+  - **Event fingerprinting** (`fingerprint.rs`): Unique event identity for deduplication and audit
+- **CLI**: `envforge monitor status` — run all health probes (text/JSON output); `envforge monitor stream` — live event stream (JSON Lines to stdout)
+
+### Added — Documentation
+
+- **API Reference** (`docs/api-reference.md`): Full library reference covering `envforge::parser` (5 pub fns), `envforge::model` (LineNode, ShellFile, Shell, session/lifecycle/analytics types), `envforge::config` (AppConfig, backup, atomic_write), `envforge::ops` (OpError + re-exports), `envforge::lsp` (start_lsp_server). Includes 5 How-to code recipes.
+- **CLI Reference** (`docs/cli-reference.md`): Updated to v0.7.4. Added Quick Recipes table (14 workflows), lifecycle (6 subcommands), analytics (8 subcommands), monitor (2 subcommands) sections.
+- **README**: Architecture tree updated to 50+ ops modules, feature counts updated (25 AI safety tools, 90+ commands), new Lifecycle/Analytics/Monitoring feature rows.
+
+### Changed
+
+- **Cargo.toml**: bumped version to 0.7.4
+- **CLI**: Added `--k8s-name`, `--k8s-namespace` flags to `export` for Kubernetes Secret name/namespace customization
+
+### Fixed
+
+- **Test quality**: Removed dead code (`make_context_with_last`), fixed redundant clones, resolved `field_reassign_with_default` clippy lints, fixed `needless_collect` patterns across 5 test files
+- **Cron trigger test**: Fixed spurious `>= 0` assertion (always true) in composite trigger test — replaced with no-panic verification
+
 ## [0.7.2] - 2026-05-06
 
 ### Added — AI Safety Hardening Suite
