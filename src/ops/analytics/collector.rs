@@ -5,8 +5,8 @@ use crate::model::{
     AccessContext, AccessSource, AccessType, AccessorInfo, AccessorType, AnalyticsError,
     EnrichedAccessEvent, RawAccessEvent, RiskLevel, TimeWindow,
 };
-use crate::ops::{changelog, proxy};
 use crate::ops::secrets::age;
+use crate::ops::{changelog, proxy};
 
 /// Collect normalized access events from all sources, filtered by time window.
 pub fn collect_events(window: &TimeWindow) -> Result<Vec<EnrichedAccessEvent>, AnalyticsError> {
@@ -204,8 +204,11 @@ fn classify_proxy_accessor(client_addr: &str, user_agent: Option<&str>) -> Acces
     }
 
     let ua_lower = user_agent.unwrap_or("").to_lowercase();
-    if ua_lower.contains("ci") || ua_lower.contains("jenkins") || ua_lower.contains("github")
-        || ua_lower.contains("gitlab") || ua_lower.contains("circleci")
+    if ua_lower.contains("ci")
+        || ua_lower.contains("jenkins")
+        || ua_lower.contains("github")
+        || ua_lower.contains("gitlab")
+        || ua_lower.contains("circleci")
         || ua_lower.contains("buildkite")
     {
         return AccessorType::CiCdPipeline;

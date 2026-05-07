@@ -70,9 +70,7 @@ pub fn rollback(snapshot_id: &Uuid) -> Result<RollbackResult, OpError> {
     let path = dir.join(format!("{snapshot_id}.jsonl"));
 
     if !path.exists() {
-        return Err(OpError::Other(format!(
-            "snapshot not found: {snapshot_id}"
-        )));
+        return Err(OpError::Other(format!("snapshot not found: {snapshot_id}")));
     }
 
     let content = fs::read_to_string(&path)?;

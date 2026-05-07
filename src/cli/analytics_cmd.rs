@@ -64,13 +64,16 @@ pub enum RetentionAction {
     },
 }
 
-pub fn execute_analytics(action: &AnalyticsAction, json: bool, _dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn execute_analytics(
+    action: &AnalyticsAction,
+    json: bool,
+    _dry_run: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         AnalyticsAction::Unused { threshold } => cmd_unused(*threshold, json),
-        AnalyticsAction::LowUsage {
-            max_accesses,
-            days,
-        } => cmd_low_usage(*max_accesses, *days, json),
+        AnalyticsAction::LowUsage { max_accesses, days } => {
+            cmd_low_usage(*max_accesses, *days, json)
+        }
         AnalyticsAction::Deprecation => cmd_deprecation(json),
         AnalyticsAction::Summary { days: _ } => cmd_summary(json),
         AnalyticsAction::Recompute => cmd_recompute(json),
@@ -89,7 +92,10 @@ fn cmd_unused(threshold: u32, json: bool) -> Result<(), Box<dyn std::error::Erro
     if json {
         println!("{}", serde_json::to_string_pretty(&dormant)?);
     } else if dormant.is_empty() {
-        println!("No unused secrets detected (threshold: {} days).", threshold);
+        println!(
+            "No unused secrets detected (threshold: {} days).",
+            threshold
+        );
     } else {
         println!("Unused secrets (no access in {} days):\n", threshold);
         for secret in &dormant {
@@ -104,7 +110,11 @@ fn cmd_unused(threshold: u32, json: bool) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-fn cmd_low_usage(max_accesses: u64, days: u32, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_low_usage(
+    max_accesses: u64,
+    days: u32,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let events = load_events()?;
     let low = unused::detect_low_usage(&events, max_accesses, days);
 
@@ -143,10 +153,7 @@ fn cmd_deprecation(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("Deprecation recommendations:\n");
         for rec in &recs {
-            println!(
-                "  {} — {}",
-                rec.secret_name, rec.reason
-            );
+            println!("  {} — {}", rec.secret_name, rec.reason);
             println!(
                 "    Review by: {}, Deprecate by: {}, Remove by: {}",
                 rec.timeline.review_by.format("%Y-%m-%d"),
@@ -260,12 +267,7 @@ fn cmd_prune(before: Option<String>, json: bool) -> Result<(), Box<dyn std::erro
         let cutoff = chrono::DateTime::parse_from_rfc3339(date_str)
             .or_else(|_| {
                 chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-                    .map(|d| {
-                        d.and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_utc()
-                            .into()
-                    })
+                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().into())
             })
             .map_err(|e| crate::model::AnalyticsError::InvalidTimeWindow {
                 description: format!("Invalid date '{}': {}", date_str, e),

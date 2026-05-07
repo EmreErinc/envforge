@@ -221,9 +221,7 @@ fn parse_variable(name: &str, table: &toml::Table) -> Result<SchemaVariable, Sch
             .get("rotation_strategy")
             .and_then(|v| v.as_str())
             .map(String::from),
-        auto_rotate: table
-            .get("auto_rotate")
-            .and_then(|v| v.as_bool()),
+        auto_rotate: table.get("auto_rotate").and_then(|v| v.as_bool()),
         notify_days_before_expiry: table
             .get("notify_days_before_expiry")
             .and_then(|v| v.as_integer())

@@ -71,21 +71,18 @@ pub fn save_events(
     let mut writer = std::io::BufWriter::new(file);
 
     for event in events {
-        let json = serde_json::to_string(event).map_err(|e| AnalyticsError::EventParseError {
-            source: e,
-        })?;
+        let json = serde_json::to_string(event)
+            .map_err(|e| AnalyticsError::EventParseError { source: e })?;
         writeln!(writer, "{}", json).map_err(|e| AnalyticsError::StorageError {
             path: path.clone(),
             source: e,
         })?;
     }
 
-    writer
-        .flush()
-        .map_err(|e| AnalyticsError::StorageError {
-            path: path.clone(),
-            source: e,
-        })?;
+    writer.flush().map_err(|e| AnalyticsError::StorageError {
+        path: path.clone(),
+        source: e,
+    })?;
 
     // Auto-rotate if needed
     rotate_events_file(&path, config.max_events)?;
@@ -139,12 +136,11 @@ fn rotate_events_file(path: &PathBuf, max_entries: usize) -> Result<(), Analytic
 
     // Atomic write via tempfile + rename
     let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(|e| {
-        AnalyticsError::StorageError {
+    let mut tmp =
+        tempfile::NamedTempFile::new_in(parent).map_err(|e| AnalyticsError::StorageError {
             path: path.clone(),
             source: e,
-        }
-    })?;
+        })?;
 
     Write::write_all(&mut tmp, new_contents.as_bytes()).map_err(|e| {
         AnalyticsError::StorageError {
@@ -153,10 +149,11 @@ fn rotate_events_file(path: &PathBuf, max_entries: usize) -> Result<(), Analytic
         }
     })?;
 
-    tmp.persist(path).map_err(|e| AnalyticsError::StorageError {
-        path: path.clone(),
-        source: e.error,
-    })?;
+    tmp.persist(path)
+        .map_err(|e| AnalyticsError::StorageError {
+            path: path.clone(),
+            source: e.error,
+        })?;
 
     Ok(())
 }

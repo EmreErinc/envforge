@@ -46,7 +46,8 @@ fn write_atomic(path: &std::path::Path, content: &str) -> Result<(), OpError> {
         .ok_or_else(|| OpError::Other("invalid rule path".into()))?;
     let mut tmp = NamedTempFile::new_in(parent)?;
     tmp.write_all(content.as_bytes())?;
-    tmp.persist(path).map_err(|e| OpError::Other(e.to_string()))?;
+    tmp.persist(path)
+        .map_err(|e| OpError::Other(e.to_string()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -65,10 +66,7 @@ pub fn create_rule(rule: LifecycleRule) -> Result<LifecycleRule, OpError> {
 
 fn create_rule_at(rule: LifecycleRule, path: &std::path::Path) -> Result<LifecycleRule, OpError> {
     if path.exists() {
-        return Err(OpError::Other(format!(
-            "rule already exists: {}",
-            rule.id
-        )));
+        return Err(OpError::Other(format!("rule already exists: {}", rule.id)));
     }
 
     let content = toml::to_string_pretty(&rule).map_err(OpError::TomlSerialize)?;
@@ -96,10 +94,7 @@ pub fn update_rule(rule: &LifecycleRule) -> Result<(), OpError> {
 
 fn update_rule_at(rule: &LifecycleRule, path: &std::path::Path) -> Result<(), OpError> {
     if !path.exists() {
-        return Err(OpError::Other(format!(
-            "rule not found: {}",
-            rule.id
-        )));
+        return Err(OpError::Other(format!("rule not found: {}", rule.id)));
     }
 
     let mut updated = rule.clone();
@@ -127,7 +122,10 @@ fn delete_rule_at(rule_id: &RuleId, path: &std::path::Path) -> Result<(), OpErro
 // ─── Test helpers ───────────────────────────────────────
 
 /// Create a rule in a test directory.
-pub fn create_rule_in(rule: LifecycleRule, base: &std::path::Path) -> Result<LifecycleRule, OpError> {
+pub fn create_rule_in(
+    rule: LifecycleRule,
+    base: &std::path::Path,
+) -> Result<LifecycleRule, OpError> {
     let path = rule_path_at(base, &rule.id);
     create_rule_at(rule, &path)
 }
@@ -217,14 +215,13 @@ fn list_rules_in_dir(dir: &std::path::Path) -> Result<Vec<LifecycleRule>, OpErro
 
 /// List only enabled rules.
 pub fn list_enabled_rules() -> Result<Vec<LifecycleRule>, OpError> {
-    Ok(list_rules()?
-        .into_iter()
-        .filter(|r| r.enabled)
-        .collect())
+    Ok(list_rules()?.into_iter().filter(|r| r.enabled).collect())
 }
 
 /// Get rules that match a specific trigger type.
-pub fn get_rules_by_trigger_type(trigger_type: &TriggerType) -> Result<Vec<LifecycleRule>, OpError> {
+pub fn get_rules_by_trigger_type(
+    trigger_type: &TriggerType,
+) -> Result<Vec<LifecycleRule>, OpError> {
     // Match on trigger_type tag in serialized form
     let target = trigger_type.to_string();
     Ok(list_rules()?

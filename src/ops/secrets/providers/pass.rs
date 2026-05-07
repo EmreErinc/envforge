@@ -17,11 +17,13 @@ impl PassProvider {
                 return "pass";
             }
         }
-        // Auto-detect: check gopass first
-        if std::process::Command::new("which")
-            .arg("gopass")
-            .output()
-            .map(|o| o.status.success())
+        // Auto-detect: try gopass first, fall back to pass
+        if std::process::Command::new("gopass")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
             .unwrap_or(false)
         {
             "gopass"

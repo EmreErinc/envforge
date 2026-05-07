@@ -3,7 +3,9 @@ use std::io::Write;
 
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 
-use crate::model::{AggregateBucket, AggregatePeriod, AnalyticsConfig, AnalyticsError, AnalyticsSummary};
+use crate::model::{
+    AggregateBucket, AggregatePeriod, AnalyticsConfig, AnalyticsError, AnalyticsSummary,
+};
 
 /// Aggregate events into time buckets by key and period.
 pub fn aggregate(
@@ -16,9 +18,7 @@ pub fn aggregate(
         let period_start = truncate_to_period(event.enriched_at, period);
         let key = bucket_key(&event.raw.secret_name, &period_start, period);
 
-        let entry = buckets.entry(key).or_insert_with(|| {
-            (0, HashSet::new())
-        });
+        let entry = buckets.entry(key).or_insert_with(|| (0, HashSet::new()));
         entry.0 += 1;
         entry.1.insert(event.raw.accessor.id.clone());
     }
@@ -108,27 +108,26 @@ pub fn save_aggregates(buckets: &[AggregateBucket]) -> Result<(), AnalyticsError
 
     // Atomic write via tempfile + rename
     let parent = analytics_dir;
-    let mut tmp = tempfile::NamedTempFile::new_in(&parent).map_err(|e| {
-        AnalyticsError::StorageError {
+    let mut tmp =
+        tempfile::NamedTempFile::new_in(&parent).map_err(|e| AnalyticsError::StorageError {
             path: path.clone(),
             source: e,
-        }
-    })?;
+        })?;
 
     for bucket in buckets {
-        let json = serde_json::to_string(bucket).map_err(|e| AnalyticsError::EventParseError {
-            source: e,
-        })?;
+        let json = serde_json::to_string(bucket)
+            .map_err(|e| AnalyticsError::EventParseError { source: e })?;
         writeln!(tmp, "{}", json).map_err(|e| AnalyticsError::StorageError {
             path: path.clone(),
             source: e,
         })?;
     }
 
-    tmp.persist(&path).map_err(|e| AnalyticsError::StorageError {
-        path: path.clone(),
-        source: e.error,
-    })?;
+    tmp.persist(&path)
+        .map_err(|e| AnalyticsError::StorageError {
+            path: path.clone(),
+            source: e.error,
+        })?;
 
     #[cfg(unix)]
     {
@@ -157,7 +156,11 @@ fn compute_summary(events: &[crate::model::EnrichedAccessEvent]) -> AnalyticsSum
 }
 
 /// Generate a bucket key from secret name, period start, and period type.
-pub fn bucket_key(secret_name: &str, period_start: &DateTime<Utc>, period: &AggregatePeriod) -> String {
+pub fn bucket_key(
+    secret_name: &str,
+    period_start: &DateTime<Utc>,
+    period: &AggregatePeriod,
+) -> String {
     format!("{}:{}:{:?}", secret_name, period_start.to_rfc3339(), period)
 }
 
@@ -185,10 +188,8 @@ fn truncate_to_period(dt: DateTime<Utc>, period: &AggregatePeriod) -> DateTime<U
             let weekday = naive.date().weekday();
             let days_from_mon = weekday.num_days_from_monday();
             let monday = naive.date() - Duration::days(i64::from(days_from_mon));
-            let truncated = NaiveDateTime::new(
-                monday,
-                chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-            );
+            let truncated =
+                NaiveDateTime::new(monday, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
             DateTime::from_naive_utc_and_offset(truncated, Utc)
         }
         AggregatePeriod::Monthly => {

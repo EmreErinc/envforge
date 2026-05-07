@@ -109,8 +109,14 @@ pub async fn run_scanners(registry: &ScannerRegistry, content: &str) -> Vec<Scan
 
             let content = content.to_string();
             let handle = tokio::spawn(async move {
-                let mut cmd = tokio::process::Command::new("sh");
-                cmd.args(["-c", &legacy_cmd]);
+                let mut parts = legacy_cmd.split_whitespace();
+                let program = match parts.next() {
+                    Some(p) => p,
+                    None => return None,
+                };
+                let args: Vec<&str> = parts.collect();
+                let mut cmd = tokio::process::Command::new(program);
+                cmd.args(&args);
                 run_scanner_cmd("legacy", cmd, &content, 5000).await
             });
             handles.push(("legacy".to_string(), handle));

@@ -3,12 +3,17 @@ use cron::Schedule;
 use std::collections::HashSet;
 use std::str::FromStr;
 
-use crate::model::{EvaluationContext, LifecycleRule, LifecycleTrigger, LogicalOp, TriggerEvent, TriggerType};
+use crate::model::{
+    EvaluationContext, LifecycleRule, LifecycleTrigger, LogicalOp, TriggerEvent, TriggerType,
+};
 use crate::ops::OpError;
 
 /// Evaluate all enabled rules and return triggered events.
 /// Each rule is evaluated against the provided context.
-pub fn evaluate(rules: &[LifecycleRule], context: &EvaluationContext) -> Result<Vec<TriggerEvent>, OpError> {
+pub fn evaluate(
+    rules: &[LifecycleRule],
+    context: &EvaluationContext,
+) -> Result<Vec<TriggerEvent>, OpError> {
     let mut events = Vec::new();
 
     for rule in rules {
@@ -38,7 +43,10 @@ pub fn evaluate(rules: &[LifecycleRule], context: &EvaluationContext) -> Result<
 }
 
 /// Evaluate a single trigger against the context.
-pub fn evaluate_trigger(trigger: &LifecycleTrigger, context: &EvaluationContext) -> Result<bool, OpError> {
+pub fn evaluate_trigger(
+    trigger: &LifecycleTrigger,
+    context: &EvaluationContext,
+) -> Result<bool, OpError> {
     match trigger {
         LifecycleTrigger::Cron { expression } => evaluate_cron(expression, context),
         LifecycleTrigger::AgeExceeded { max_days } => evaluate_age(*max_days, context),
@@ -142,8 +150,8 @@ fn evaluate_condition_expr(
             !pattern.is_empty()
         }
         crate::model::ConditionExpr::HealthBelow { .. } => true, // placeholder
-        crate::model::ConditionExpr::UnusedFor { .. } => true,   // placeholder — needs deps.rs integration
-        crate::model::ConditionExpr::TagMatches { .. } => true,  // placeholder
+        crate::model::ConditionExpr::UnusedFor { .. } => true, // placeholder — needs deps.rs integration
+        crate::model::ConditionExpr::TagMatches { .. } => true, // placeholder
     }
 }
 

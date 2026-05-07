@@ -44,11 +44,22 @@ impl LifecycleRule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "config")]
 pub enum LifecycleTrigger {
-    Cron { expression: String },
-    AgeExceeded { max_days: u32 },
-    FileChange { paths: Vec<PathBuf> },
-    PolicyViolation { policy: String },
-    Composite { triggers: Vec<LifecycleTrigger>, operator: LogicalOp },
+    Cron {
+        expression: String,
+    },
+    AgeExceeded {
+        max_days: u32,
+    },
+    FileChange {
+        paths: Vec<PathBuf>,
+    },
+    PolicyViolation {
+        policy: String,
+    },
+    Composite {
+        triggers: Vec<LifecycleTrigger>,
+        operator: LogicalOp,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

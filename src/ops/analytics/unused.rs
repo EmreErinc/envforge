@@ -3,15 +3,11 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Duration, Utc};
 
 use crate::model::{
-    DeprecationRecommendation, EnrichedAccessEvent, LowUsageSecret,
-    SuggestedTimeline, UnusedSecret,
+    DeprecationRecommendation, EnrichedAccessEvent, LowUsageSecret, SuggestedTimeline, UnusedSecret,
 };
 
 /// Detect dormant secrets: those with no access events in the last N days.
-pub fn detect_dormant(
-    events: &[EnrichedAccessEvent],
-    threshold_days: u32,
-) -> Vec<UnusedSecret> {
+pub fn detect_dormant(events: &[EnrichedAccessEvent], threshold_days: u32) -> Vec<UnusedSecret> {
     let cutoff = Utc::now() - Duration::days(i64::from(threshold_days));
 
     // Group events by secret_name, find latest timestamp per secret
@@ -59,10 +55,7 @@ pub fn detect_zero_access(
     known_keys: &[String],
     events: &[EnrichedAccessEvent],
 ) -> Vec<UnusedSecret> {
-    let accessed: HashSet<&str> = events
-        .iter()
-        .map(|e| e.raw.secret_name.as_str())
-        .collect();
+    let accessed: HashSet<&str> = events.iter().map(|e| e.raw.secret_name.as_str()).collect();
 
     let mut unused: Vec<UnusedSecret> = known_keys
         .iter()
@@ -182,11 +175,7 @@ pub fn generate_recommendations(
 }
 
 /// Check if a specific secret is dormant (no access in threshold_days).
-pub fn is_dormant(
-    events: &[EnrichedAccessEvent],
-    secret_name: &str,
-    threshold_days: u32,
-) -> bool {
+pub fn is_dormant(events: &[EnrichedAccessEvent], secret_name: &str, threshold_days: u32) -> bool {
     let cutoff = Utc::now() - Duration::days(i64::from(threshold_days));
     let has_recent = events
         .iter()
@@ -314,7 +303,10 @@ mod tests {
         let recs = generate_recommendations(&dormant, &low_usage);
         assert_eq!(recs.len(), 2);
         // Dormant recommendation should have shorter timeline
-        let dormant_rec = recs.iter().find(|r| r.secret_name == "DORMANT_KEY").unwrap();
+        let dormant_rec = recs
+            .iter()
+            .find(|r| r.secret_name == "DORMANT_KEY")
+            .unwrap();
         let low_rec = recs.iter().find(|r| r.secret_name == "LOW_KEY").unwrap();
         assert!(dormant_rec.timeline.remove_by < low_rec.timeline.remove_by);
     }

@@ -13,7 +13,8 @@ fn test_create_snapshot_succeeds() {
     let key = random_key();
     let op = OperationType::Rotate;
 
-    let meta = rollback::create_snapshot(&key, &op, Some("test-value-12345")).expect("create snapshot");
+    let meta =
+        rollback::create_snapshot(&key, &op, Some("test-value-12345")).expect("create snapshot");
 
     assert_eq!(meta.key, key);
     assert_eq!(meta.operation_type, op);
@@ -60,8 +61,8 @@ fn test_list_snapshots_filter_by_key() {
 #[test]
 fn test_delete_snapshot() {
     let key = random_key();
-    let meta = rollback::create_snapshot(&key, &OperationType::Rotate, Some("val"))
-        .expect("create");
+    let meta =
+        rollback::create_snapshot(&key, &OperationType::Rotate, Some("val")).expect("create");
     let id = meta.id;
 
     rollback::delete_snapshot(&id).expect("delete");

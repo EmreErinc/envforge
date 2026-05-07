@@ -201,7 +201,10 @@ fn test_analytics_config_json_roundtrip() {
     assert_eq!(parsed.retention_days, 30);
     assert_eq!(parsed.max_events, 5000);
     assert!(!parsed.auto_aggregate);
-    assert_eq!(parsed.pricing_file, Some("/path/to/pricing.toml".to_string()));
+    assert_eq!(
+        parsed.pricing_file,
+        Some("/path/to/pricing.toml".to_string())
+    );
 }
 
 // ─── Backward Compatibility Tests ─────────────────────

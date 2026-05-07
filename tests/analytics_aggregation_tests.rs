@@ -37,7 +37,7 @@ fn test_aggregate_daily_groups_correctly() {
     let events = vec![
         make_test_event("KEY_A", 1, "user1"),
         make_test_event("KEY_A", 3, "user1"),
-        make_test_event("KEY_A", 25, "user2"),  // different day
+        make_test_event("KEY_A", 25, "user2"), // different day
         make_test_event("KEY_B", 2, "user1"),
     ];
 
@@ -159,5 +159,8 @@ fn test_recompute_returns_summary() {
     assert!(result.is_ok());
     let summary = result.unwrap();
     // Summary should have valid fields
-    assert!(summary.total_secrets <= summary.active_count + summary.dormant_count + summary.unused_count + 10);
+    assert!(
+        summary.total_secrets
+            <= summary.active_count + summary.dormant_count + summary.unused_count + 10
+    );
 }

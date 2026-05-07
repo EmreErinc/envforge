@@ -20,7 +20,8 @@ fn test_window_cutoff_last_hour() {
         assert!(
             event.enriched_at >= hour_ago,
             "Event timestamp {} is older than 1 hour cutoff {}",
-            event.enriched_at, hour_ago
+            event.enriched_at,
+            hour_ago
         );
     }
 }
@@ -129,10 +130,7 @@ fn test_save_and_load_roundtrip() {
     let loaded = storage::load_events().unwrap();
 
     // Check that saved events appear in loaded
-    let test_events: Vec<_> = loaded
-        .iter()
-        .filter(|e| e.provider == run_id)
-        .collect();
+    let test_events: Vec<_> = loaded.iter().filter(|e| e.provider == run_id).collect();
     assert_eq!(test_events.len(), 5);
 }
 

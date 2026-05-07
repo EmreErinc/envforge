@@ -107,8 +107,7 @@ fn test_lifecycle_trigger_serde_tagged_enum() {
 
 #[test]
 fn test_lifecycle_action_serde_tagged_enum() {
-    let json =
-        r#"{"type":"Rotate","config":{"strategy":"DualWrite"}}"#;
+    let json = r#"{"type":"Rotate","config":{"strategy":"DualWrite"}}"#;
     let action: LifecycleAction = serde_json::from_str(json).expect("deserialize rotate");
     assert!(matches!(
         action,

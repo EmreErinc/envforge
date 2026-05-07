@@ -216,15 +216,21 @@ pub fn run_external_scanner(content: &str) -> Option<Vec<String>> {
 }
 
 /// Run a specific scanner command on the given content.
-/// Note: passes the temp file path to the scanner command via a shell.
-/// The scanner command is user-configured via ENVFORGE_EXTERNAL_SCANNER env var.
-/// The temp file path is system-generated and contains only safe characters.
+///
+/// Content is written to a temp file whose path is passed as the final
+/// argument to the scanner command.  The scanner command string is split on
+/// whitespace into program + args — no shell interpretation is performed.
 fn run_external_scanner_with_cmd(scanner_cmd: &str, content: &str) -> Option<Vec<String>> {
+    let mut parts = scanner_cmd.split_whitespace();
+    let program = parts.next()?;
+    let args: Vec<&str> = parts.collect();
+
     let tmp = tempfile::NamedTempFile::new().ok()?;
     std::fs::write(tmp.path(), content).ok()?;
 
-    let output = std::process::Command::new("sh")
-        .args(["-c", &format!("{} {}", scanner_cmd, tmp.path().display())])
+    let output = std::process::Command::new(program)
+        .args(&args)
+        .arg(tmp.path().as_os_str().to_str()?)
         .output()
         .ok()?;
 
@@ -509,14 +515,15 @@ mod tests {
 
     #[test]
     fn test_external_scanner_with_echo_command() {
-        // A scanner that always "finds" something (exit 1 + output)
-        let cmd = "sh -c 'echo \"found secret in\" && exit 1' #";
+        // cat on a nonexistent file triggers exit 1 with stderr output.
+        // The temp file (appended as final arg) exists; the first file doesn't.
+        let cmd = "cat /nonexistent_file_for_testing";
         let result = run_external_scanner_with_cmd(cmd, "test content");
 
         assert!(result.is_some());
         let findings = result.unwrap();
         assert!(!findings.is_empty());
-        assert!(findings[0].contains("found secret in"));
+        assert!(findings.iter().any(|f| f.contains("No such file")));
     }
 
     #[test]
@@ -528,13 +535,13 @@ mod tests {
 
     #[test]
     fn test_external_scanner_findings_collected() {
-        // Scanner that outputs multiple lines on failure
-        let cmd = "sh -c 'echo line1 && echo line2 && exit 1' #";
+        // cat on two nonexistent files produces 2+ error lines (stderr).
+        // The temp file content appears on stdout and is also captured.
+        let cmd = "cat /nonexistent1 /nonexistent2";
         let result = run_external_scanner_with_cmd(cmd, "content");
         assert!(result.is_some());
         let findings = result.unwrap();
-        assert_eq!(findings.len(), 2);
-        assert_eq!(findings[0], "line1");
-        assert_eq!(findings[1], "line2");
+        // At least 2 stderr lines + possibly stdout content lines
+        assert!(findings.len() >= 2);
     }
 }

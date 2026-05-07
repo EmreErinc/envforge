@@ -6,36 +6,28 @@ use envforge::ops::lifecycle::state_machine;
 
 #[test]
 fn test_transition_creating_to_active() {
-    let result =
-        state_machine::transition(&LifecycleState::Creating, &StateEvent::CreateComplete);
+    let result = state_machine::transition(&LifecycleState::Creating, &StateEvent::CreateComplete);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), LifecycleState::Active);
 }
 
 #[test]
 fn test_transition_active_to_rotating() {
-    let result = state_machine::transition(
-        &LifecycleState::Active,
-        &StateEvent::RotationRequested,
-    );
+    let result = state_machine::transition(&LifecycleState::Active, &StateEvent::RotationRequested);
     assert_eq!(result.unwrap(), LifecycleState::Rotating);
 }
 
 #[test]
 fn test_transition_active_to_pending_deprecation() {
-    let result = state_machine::transition(
-        &LifecycleState::Active,
-        &StateEvent::DeprecationRequested,
-    );
+    let result =
+        state_machine::transition(&LifecycleState::Active, &StateEvent::DeprecationRequested);
     assert_eq!(result.unwrap(), LifecycleState::PendingDeprecation);
 }
 
 #[test]
 fn test_transition_rotating_to_active() {
-    let result = state_machine::transition(
-        &LifecycleState::Rotating,
-        &StateEvent::RotationComplete,
-    );
+    let result =
+        state_machine::transition(&LifecycleState::Rotating, &StateEvent::RotationComplete);
     assert_eq!(result.unwrap(), LifecycleState::Active);
 }
 
@@ -70,8 +62,7 @@ fn test_transition_deprecated_to_decommissioned() {
 
 #[test]
 fn test_transition_failed_to_active_recovery() {
-    let result =
-        state_machine::transition(&LifecycleState::Failed, &StateEvent::Recovery);
+    let result = state_machine::transition(&LifecycleState::Failed, &StateEvent::Recovery);
     assert_eq!(result.unwrap(), LifecycleState::Active);
 }
 
@@ -111,20 +102,15 @@ fn test_transition_decommissioned_no_valid_transitions() {
 #[test]
 fn test_transition_invalid_for_state() {
     // Can't complete rotation from Active state
-    let result = state_machine::transition(
-        &LifecycleState::Active,
-        &StateEvent::RotationComplete,
-    );
+    let result = state_machine::transition(&LifecycleState::Active, &StateEvent::RotationComplete);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_transition_creating_invalid_event() {
     // Can't deprecate a key that hasn't been created yet
-    let result = state_machine::transition(
-        &LifecycleState::Creating,
-        &StateEvent::DeprecationRequested,
-    );
+    let result =
+        state_machine::transition(&LifecycleState::Creating, &StateEvent::DeprecationRequested);
     assert!(result.is_err());
 }
 

@@ -568,9 +568,7 @@ impl App {
                         Ok(state) => {
                             self.lifecycle_info = format!(
                                 "{}: {:?} | rotations: {} | age: unknown",
-                                entry.key,
-                                state,
-                                "n/a"
+                                entry.key, state, "n/a"
                             );
                             self.notify(&self.lifecycle_info.clone(), NotificationLevel::Success);
                         }

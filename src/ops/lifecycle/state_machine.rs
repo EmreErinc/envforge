@@ -4,9 +4,17 @@ use crate::model::{LifecycleError, LifecycleState, StateEvent, StateTransition};
 
 /// Transition from one lifecycle state to another given an event.
 /// Returns the new state on success, or `LifecycleError::InvalidTransition` if the transition is not allowed.
-pub fn transition(current: &LifecycleState, event: &StateEvent) -> Result<LifecycleState, LifecycleError> {
-    use LifecycleState::{Active, Creating, Decommissioned, Deprecated, Failed, PendingDeprecation, Rotating};
-    use StateEvent::{CreateComplete, DecommissionComplete, DeprecationRequested, Failure, GracePeriodExpired, Recovery, RotationComplete, RotationRequested};
+pub fn transition(
+    current: &LifecycleState,
+    event: &StateEvent,
+) -> Result<LifecycleState, LifecycleError> {
+    use LifecycleState::{
+        Active, Creating, Decommissioned, Deprecated, Failed, PendingDeprecation, Rotating,
+    };
+    use StateEvent::{
+        CreateComplete, DecommissionComplete, DeprecationRequested, Failure, GracePeriodExpired,
+        Recovery, RotationComplete, RotationRequested,
+    };
 
     match (current, event) {
         (Creating, CreateComplete) => Ok(Active),
@@ -19,10 +27,11 @@ pub fn transition(current: &LifecycleState, event: &StateEvent) -> Result<Lifecy
         (Failed, Recovery) => Ok(Active),
 
         // Any state can transition to Failed on failure
-        (Active, Failure { .. }) | (Creating, Failure { .. }) | (PendingDeprecation, Failure { .. })
-        | (Deprecated, Failure { .. }) | (Decommissioned, Failure { .. }) => {
-            Ok(Failed)
-        }
+        (Active, Failure { .. })
+        | (Creating, Failure { .. })
+        | (PendingDeprecation, Failure { .. })
+        | (Deprecated, Failure { .. })
+        | (Decommissioned, Failure { .. }) => Ok(Failed),
 
         _ => Err(LifecycleError::InvalidTransition {
             key: String::new(),
@@ -38,20 +47,42 @@ pub fn valid_transitions(state: &LifecycleState) -> Vec<StateEvent> {
         Active, Creating, Decommissioned, Deprecated, Failed, PendingDeprecation, Rotating,
     };
     use StateEvent::{
-        CreateComplete, DecommissionComplete, DeprecationRequested, Failure,
-        GracePeriodExpired, Recovery, RotationComplete, RotationRequested,
+        CreateComplete, DecommissionComplete, DeprecationRequested, Failure, GracePeriodExpired,
+        Recovery, RotationComplete, RotationRequested,
     };
 
     match state {
-        Creating => vec![CreateComplete, Failure { reason: String::new() }],
+        Creating => vec![
+            CreateComplete,
+            Failure {
+                reason: String::new(),
+            },
+        ],
         Active => vec![
             RotationRequested,
             DeprecationRequested,
-            Failure { reason: String::new() },
+            Failure {
+                reason: String::new(),
+            },
         ],
-        Rotating => vec![RotationComplete, Failure { reason: String::new() }],
-        PendingDeprecation => vec![GracePeriodExpired, Failure { reason: String::new() }],
-        Deprecated => vec![DecommissionComplete, Failure { reason: String::new() }],
+        Rotating => vec![
+            RotationComplete,
+            Failure {
+                reason: String::new(),
+            },
+        ],
+        PendingDeprecation => vec![
+            GracePeriodExpired,
+            Failure {
+                reason: String::new(),
+            },
+        ],
+        Deprecated => vec![
+            DecommissionComplete,
+            Failure {
+                reason: String::new(),
+            },
+        ],
         Decommissioned => vec![],
         Failed => vec![Recovery],
     }
@@ -80,10 +111,12 @@ pub fn create_transition(
 
 /// Guess the target state for an event (used in error messages).
 fn target_state(event: &StateEvent) -> LifecycleState {
-    use LifecycleState::{Active, Decommissioned, Deprecated, Failed, PendingDeprecation, Rotating};
+    use LifecycleState::{
+        Active, Decommissioned, Deprecated, Failed, PendingDeprecation, Rotating,
+    };
     use StateEvent::{
-        CreateComplete, DecommissionComplete, DeprecationRequested, Failure,
-        GracePeriodExpired, Recovery, RotationComplete, RotationRequested,
+        CreateComplete, DecommissionComplete, DeprecationRequested, Failure, GracePeriodExpired,
+        Recovery, RotationComplete, RotationRequested,
     };
 
     match event {

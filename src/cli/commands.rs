@@ -132,7 +132,9 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         }
         Commands::Sync { action } => super::sync_cmd::execute_sync(action, json, dry_run),
         Commands::Secrets { action } => super::secrets_cmd::execute_secrets(action, json, dry_run),
-        Commands::Analytics { action } => super::analytics_cmd::execute_analytics(action, json, dry_run),
+        Commands::Analytics { action } => {
+            super::analytics_cmd::execute_analytics(action, json, dry_run)
+        }
         Commands::Docs { schema, output } => cmd_docs(schema.as_deref(), output.as_deref()),
         Commands::Drift {
             schema,

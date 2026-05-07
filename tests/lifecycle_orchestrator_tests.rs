@@ -2,7 +2,11 @@ use envforge::model::{DecommissionPlan, LifecycleState, RotationStrategy};
 use envforge::ops::lifecycle::orchestrator;
 
 fn random_key(prefix: &str) -> String {
-    format!("{}_{}", prefix, uuid::Uuid::new_v4().to_string().replace('-', "_"))
+    format!(
+        "{}_{}",
+        prefix,
+        uuid::Uuid::new_v4().to_string().replace('-', "_")
+    )
 }
 
 // ─── State Management ───────────────────────────────────

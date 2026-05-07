@@ -90,11 +90,21 @@ pub struct LifecycleConfig {
     pub snapshot_retention_days: u32,
 }
 
-fn default_stale_threshold() -> u32 { 90 }
-fn default_grace_period() -> u32 { 7 }
-fn default_rotation_strategy() -> String { "replace".into() }
-fn default_true() -> bool { true }
-fn default_snapshot_retention() -> u32 { 30 }
+fn default_stale_threshold() -> u32 {
+    90
+}
+fn default_grace_period() -> u32 {
+    7
+}
+fn default_rotation_strategy() -> String {
+    "replace".into()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_snapshot_retention() -> u32 {
+    30
+}
 
 impl Default for LifecycleConfig {
     fn default() -> Self {

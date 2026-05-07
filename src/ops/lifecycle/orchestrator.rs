@@ -35,10 +35,7 @@ pub fn create_secret(template: &SecretTemplate) -> Result<CreateResult, OpError>
         }
     };
 
-    let key = template
-        .name
-        .to_uppercase()
-        .replace([' ', '-'], "_");
+    let key = template.name.to_uppercase().replace([' ', '-'], "_");
 
     // Write to primary shell file
     let config = crate::config::load_or_create_default()?;
@@ -84,16 +81,15 @@ pub fn rotate_secret(key: &str, strategy: &RotationStrategy) -> Result<RotateRes
     );
 
     let plan = crate::ops::rotate::plan_rotation(key)?;
-    crate::ops::rotate::apply_rotation(key, &new_value, &plan)
-        .map_err(|e| {
-            let _ = apply_state_transition(
-                key,
-                &StateEvent::Failure {
-                    reason: e.to_string(),
-                },
-            );
-            OpError::Other(format!("rotation failed: {e}"))
-        })?;
+    crate::ops::rotate::apply_rotation(key, &new_value, &plan).map_err(|e| {
+        let _ = apply_state_transition(
+            key,
+            &StateEvent::Failure {
+                reason: e.to_string(),
+            },
+        );
+        OpError::Other(format!("rotation failed: {e}"))
+    })?;
 
     crate::ops::secrets::age::record_set(key, "rotation", "orchestrator")
         .map_err(|e| OpError::Other(e.to_string()))?;
@@ -163,8 +159,8 @@ fn apply_state_transition(key: &str, event: &StateEvent) -> Result<LifecycleStat
     use std::io::Write;
 
     let current = get_state(key)?;
-    let next = state_machine::transition(&current, event)
-        .map_err(|e| OpError::Other(e.to_string()))?;
+    let next =
+        state_machine::transition(&current, event).map_err(|e| OpError::Other(e.to_string()))?;
 
     let transition =
         state_machine::create_transition(current, next.clone(), &format!("{event:?}"), None);
