@@ -1,2 +1,8 @@
 Never read .env files directly. Use .env.schema or .env.ai.md for variable context.
 Never hardcode secrets, API keys, tokens, or passwords.
+
+## EnvForge Security Rules
+- Before writing any file, check that no environment variable values are hardcoded
+- Never read .env files; use .env.schema or .env.ai.md for context
+- If you need a secret value, use process.env.KEY_NAME, not the actual value
+- Run `envforge scan --staged` before suggesting commits

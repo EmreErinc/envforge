@@ -145,6 +145,13 @@ pub fn list_canaries() -> Result<Vec<CanarySecret>, OpError> {
 
 /// Record a canary trigger (value was accessed/used).
 pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), OpError> {
+    // Emit monitor event
+    crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+        source: crate::ops::monitor::EventSource::Canary,
+        key: Some(key.to_string()),
+        message: format!("Canary '{}' triggered by {}: {}", key, source, details),
+        timestamp: chrono::Utc::now(),
+    });
     // Update store
     let mut store = load_canaries()?;
     if let Some(canary) = store.canaries.get_mut(key) {

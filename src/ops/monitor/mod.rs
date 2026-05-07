@@ -1,16 +1,21 @@
 //! Monitor subsystem for real-time secret monitoring.
 //!
-//! Provides data types, error types, and the fingerprinting subsystem
+//! Provides data types, error types, event bus for streaming secret access events,
+//! health probes for infrastructure verification, and the fingerprinting subsystem
 //! for AI tool behavioral analysis and trust management.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use thiserror::Error;
+use tokio::sync::broadcast;
 
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub mod fingerprint;
+pub mod health;
 
 pub use fingerprint::{FingerprintGenerator, IdentityVerifier, TrustManager};
 
@@ -92,6 +97,97 @@ pub struct MonitorEvent {
     pub secret_key: String,
     pub operation: String,
     pub timestamp: DateTime<Utc>,
+}
+
+// ─── Event Source ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventSource {
+    Proxy,
+    AiGuard,
+    Fence,
+    Canary,
+    Scanner,
+    Provider,
+    Manual,
+}
+
+impl fmt::Display for EventSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Proxy => write!(f, "proxy"),
+            Self::AiGuard => write!(f, "ai-guard"),
+            Self::Fence => write!(f, "fence"),
+            Self::Canary => write!(f, "canary"),
+            Self::Scanner => write!(f, "scanner"),
+            Self::Provider => write!(f, "provider"),
+            Self::Manual => write!(f, "manual"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeEvent {
+    pub source: EventSource,
+    pub key: Option<String>,
+    pub message: String,
+    pub timestamp: DateTime<Utc>,
+}
+
+// ─── Health Check ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HealthStatus {
+    Healthy,
+    Degraded,
+    Failed,
+}
+
+impl fmt::Display for HealthStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Healthy => write!(f, "healthy"),
+            Self::Degraded => write!(f, "degraded"),
+            Self::Failed => write!(f, "failed"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthResult {
+    pub name: String,
+    pub category: String,
+    pub status: HealthStatus,
+    pub message: String,
+    pub latency_ms: Option<u64>,
+}
+
+// ─── Event Bus ────────────────────────────────────────────────────────────────
+
+static EVENT_BUS: OnceLock<broadcast::Sender<RuntimeEvent>> = OnceLock::new();
+static BUS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn init_event_bus(capacity: usize) {
+    let (tx, _) = broadcast::channel(capacity.max(64));
+    let _ = EVENT_BUS.set(tx);
+    BUS_ENABLED.store(true, Ordering::SeqCst);
+}
+
+pub fn emit_event(event: RuntimeEvent) {
+    if !BUS_ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
+    if let Some(tx) = EVENT_BUS.get() {
+        let _ = tx.send(event);
+    }
+}
+
+pub fn subscribe_events() -> Option<broadcast::Receiver<RuntimeEvent>> {
+    EVENT_BUS.get().map(|tx| tx.subscribe())
+}
+
+pub fn is_bus_enabled() -> bool {
+    BUS_ENABLED.load(Ordering::SeqCst)
 }
 
 // ─── Fingerprint ─────────────────────────────────────────────────────────────

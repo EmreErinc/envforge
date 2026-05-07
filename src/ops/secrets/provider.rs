@@ -231,6 +231,16 @@ impl ProviderRegistry {
         }
     }
 
+    /// Number of registered providers.
+    pub fn len(&self) -> usize {
+        self.providers.len()
+    }
+
+    /// Whether the registry is empty.
+    pub fn is_empty(&self) -> bool {
+        self.providers.is_empty()
+    }
+
     /// Register a provider.
     pub fn register(&mut self, provider: Box<dyn SecretProvider>) {
         let name = provider.name().to_string();

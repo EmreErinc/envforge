@@ -182,6 +182,21 @@ pub fn run_guard(
         }
     }
 
+    // Emit monitor event if warnings were generated
+    if !warnings.is_empty() {
+        crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+            source: crate::ops::monitor::EventSource::AiGuard,
+            key: None,
+            message: format!(
+                "AI Guard {:?}: {} warning(s) from {}",
+                stage,
+                warnings.len(),
+                tool_name
+            ),
+            timestamp: chrono::Utc::now(),
+        });
+    }
+
     GuardResult {
         blocked: false, // advisory only
         warnings,

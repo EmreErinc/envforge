@@ -217,6 +217,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Canary { action } => cmd_canary(action, json),
         Commands::Hardening { action } => cmd_hardening(action),
         Commands::Scanner { action } => cmd_scanner(action),
+        Commands::Monitor { action } => cmd_monitor(action),
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref(), json),
         Commands::Deps { key, source } => cmd_deps(key, *source, json),
         Commands::Undo { list } => cmd_undo(*list, json),
@@ -4671,6 +4672,95 @@ fn save_scanner_registry(
             }
         }
     }
+    Ok(())
+}
+
+fn cmd_monitor(action: &super::MonitorAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::monitor::health::run_all_checks;
+    use crate::ops::monitor::{init_event_bus, subscribe_events, EventSource};
+    use std::io::{self, Write};
+
+    match action {
+        super::MonitorAction::Status => {
+            println!("Running health checks...\n");
+            let results = run_all_checks();
+
+            let mut healthy = 0;
+            let mut degraded = 0;
+            let mut failed = 0;
+
+            for r in &results {
+                let icon = match r.status {
+                    crate::ops::monitor::HealthStatus::Healthy => {
+                        healthy += 1;
+                        "\u{2705}"
+                    }
+                    crate::ops::monitor::HealthStatus::Degraded => {
+                        degraded += 1;
+                        "\u{26a0}\u{fe0f}"
+                    }
+                    crate::ops::monitor::HealthStatus::Failed => {
+                        failed += 1;
+                        "\u{274c}"
+                    }
+                };
+                let latency = r
+                    .latency_ms
+                    .map(|l| format!(" ({}ms)", l))
+                    .unwrap_or_default();
+                println!(
+                    "{} [{:<10}] {}{} — {}",
+                    icon, r.category, r.name, latency, r.message
+                );
+            }
+
+            println!();
+            let total = healthy + degraded + failed;
+            println!(
+                "{} checks: {} ok, {} warning(s), {} error(s)",
+                total, healthy, degraded, failed
+            );
+        }
+        super::MonitorAction::Stream => {
+            init_event_bus(256);
+            println!("Streaming events... (Ctrl+C to stop)\n");
+
+            let mut rx = subscribe_events().ok_or("Event bus not initialized")?;
+
+            // Show initial marker
+            println!(
+                "[{}] Monitoring started — waiting for events...",
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
+            );
+
+            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+            loop {
+                match rt.block_on(rx.recv()) {
+                    Ok(event) => {
+                        let icon = match event.source {
+                            EventSource::Canary | EventSource::Fence => "\u{1f6a8}",
+                            EventSource::AiGuard => "\u{26a0}",
+                            _ => "\u{2139}",
+                        };
+                        println!(
+                            "{} [{}] {}: {}",
+                            icon,
+                            event.timestamp.format("%H:%M:%S"),
+                            event.source,
+                            event.message
+                        );
+                        io::stdout().flush().ok();
+                    }
+                    Err(_) => {
+                        // Channel closed
+                        println!("Event stream ended.");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

@@ -526,6 +526,12 @@ pub enum Commands {
         action: ScannerAction,
     },
 
+    /// Real-time monitoring: health checks, event stream
+    Monitor {
+        #[command(subcommand)]
+        action: MonitorAction,
+    },
+
     /// Emergency revoke all secret access
     Revoke {
         /// Revoke all active leases (killswitch)
@@ -860,6 +866,14 @@ pub enum ScannerAction {
         /// Scanner name
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum MonitorAction {
+    /// Run health checks on secret infrastructure
+    Status,
+    /// Stream real-time secret access events
+    Stream,
 }
 
 #[derive(Subcommand)]

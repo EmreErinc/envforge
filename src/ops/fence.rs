@@ -70,6 +70,17 @@ const FENCE_MARKER: &str = "# EnvForge secret fence";
 
 /// Generate and write AI tool ignore rules for all supported tools.
 pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, OpError> {
+    // Emit monitor event
+    crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+        source: crate::ops::monitor::EventSource::Fence,
+        key: None,
+        message: format!(
+            "Fence {} in {}",
+            if dry_run { "dry-run" } else { "created" },
+            project_dir.display()
+        ),
+        timestamp: chrono::Utc::now(),
+    });
     let mut result = FenceResult {
         files_created: Vec::new(),
         files_updated: Vec::new(),
