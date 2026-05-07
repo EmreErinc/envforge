@@ -388,8 +388,7 @@ mod tests {
     #[test]
     fn test_generate_fake_value_jwt_token() {
         let val = generate_fake_value("jwt_token");
-        let parts: Vec<&str> = val.split('.').collect();
-        assert_eq!(parts.len(), 3);
+        assert_eq!(val.split('.').count(), 3);
     }
 
     #[test]

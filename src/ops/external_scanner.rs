@@ -232,8 +232,7 @@ mod tests {
             },
         );
 
-        let enabled: Vec<_> = registry.enabled().collect();
-        assert!(enabled.is_empty());
+        assert!(registry.enabled().next().is_none());
     }
 
     #[test]

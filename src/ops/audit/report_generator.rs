@@ -505,11 +505,10 @@ mod tests {
             ),
         ];
         let violations = detect_violations(&events);
-        let serious: Vec<_> = violations
+        assert!(violations
             .iter()
-            .filter(|v| v.severity >= ViolationSeverity::High)
-            .collect();
-        assert!(serious.is_empty());
+            .find(|v| v.severity >= ViolationSeverity::High)
+            .is_none());
     }
 
     #[test]
