@@ -321,7 +321,7 @@ mod tests {
     #[test]
     fn test_compliance_score_new() {
         let cs = ComplianceScore::new(0.85, 0);
-        assert_eq!(cs.score, 0.85);
+        assert!((cs.score - 0.85).abs() < f64::EPSILON);
         assert_eq!(cs.level, ComplianceLevel::Green);
         assert_eq!(cs.violations, 0);
     }

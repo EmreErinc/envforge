@@ -746,7 +746,7 @@ mod tests {
         let mut state = crate::ops::audit::tamper::ChainState::new();
 
         let events = test_events();
-        for event in events.clone() {
+        for event in events {
             crate::ops::audit::tamper::write_tamper_evident(event, &config, &mut state).unwrap();
         }
 

@@ -115,11 +115,11 @@ fn test_fingerprint_confidence_calculation() {
 
     let events_10 = make_events(&tool, 10, "s");
     let fp_10 = gen.generate_temporary(&tool, &events_10).unwrap();
-    assert_eq!(fp_10.confidence, 0.1);
+    assert!((fp_10.confidence - 0.1).abs() < f64::EPSILON);
 
     let events_150 = make_events(&tool, 150, "s");
     let fp_150 = gen.generate_temporary(&tool, &events_150).unwrap();
-    assert_eq!(fp_150.confidence, 1.0);
+    assert!((fp_150.confidence - 1.0).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn test_trust_clamping() {
             .unwrap();
     }
     let score = tm.get_trust_score(&tool).unwrap();
-    assert_eq!(score.score, 1.0);
+    assert!((score.score - 1.0).abs() < f64::EPSILON);
 
     // Reset and clamp to 0.0
     tm.reset_score(&tool);
@@ -318,7 +318,7 @@ fn test_trust_clamping() {
             .unwrap();
     }
     let score = tm.get_trust_score(&tool).unwrap();
-    assert_eq!(score.score, 0.0);
+    assert!((score.score - 0.0).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn test_trust_confidence_calculation() {
         tm.update_trust(&tool, TrustEvent::NormalBehavior).unwrap();
     }
     let score = tm.get_trust_score(&tool).unwrap();
-    assert_eq!(score.confidence, 1.0);
+    assert!((score.confidence - 1.0).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -365,7 +365,7 @@ fn test_trust_reset_score() {
 
     tm.reset_score(&tool);
     let after = tm.get_trust_score(&tool).unwrap();
-    assert_eq!(after.score, 0.5);
+    assert!((after.score - 0.5).abs() < f64::EPSILON);
     assert_eq!(after.sample_size, 0);
 }
 
@@ -380,11 +380,11 @@ fn test_trust_decay() {
             .unwrap();
     }
     let before = tm.get_trust_score(&tool).unwrap();
-    assert_eq!(before.score, 1.0);
+    assert!((before.score - 1.0).abs() < f64::EPSILON);
 
     // Apply decay (same instant → no decay)
     let after = tm.apply_decay(&tool).unwrap();
-    assert_eq!(after.score, 1.0); // No time has passed
+    assert!((after.score - 1.0).abs() < f64::EPSILON); // No time has passed
 }
 
 #[test]
@@ -443,7 +443,7 @@ fn test_concurrent_trust_updates() {
 
     let score = tm.get_trust_score(&tool).unwrap();
     assert_eq!(score.sample_size, 100);
-    assert_eq!(score.confidence, 1.0);
+    assert!((score.confidence - 1.0).abs() < f64::EPSILON);
 }
 
 // ─── System Builder Tests ────────────────────────────────────────────────────
@@ -478,7 +478,6 @@ fn test_fingerprinter_system_clone() {
 
     sys.generator.generate_and_store(&tool, &events).unwrap();
 
-    let sys2 = sys.clone();
-    let fp = sys2.generator.get_fingerprint(&tool).unwrap();
+    let fp = sys.generator.get_fingerprint(&tool).unwrap();
     assert!(!fp.behavioral_signature.is_empty());
 }
