@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_stdin, sort_secret_pairs, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct ConjurProvider;
@@ -180,9 +181,13 @@ impl SecretProvider for ConjurProvider {
 
         let mut count = 0;
         for (key, value) in secrets {
-            run_cli(
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
+            // Use stdin pipe to pass value instead of -v flag to avoid /proc leakage
+            run_cli_with_stdin(
                 "conjur",
-                &["variable", "set", "-i", key, "-v", value],
+                &["variable", "set", "-i", key],
+                value.as_bytes(),
                 &env_refs,
                 "conjur",
             )?;

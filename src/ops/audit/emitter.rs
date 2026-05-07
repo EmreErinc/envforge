@@ -18,7 +18,7 @@
 //!     EventSource::AiGuard,
 //!     EventResult::Success,
 //! );
-//! let result = emit(event, &config)?;
+//! let result = emit(event, &config).expect("emit failed");
 //! println!("Wrote event to {} at line {}", result.path.display(), result.line_number);
 //! ```
 

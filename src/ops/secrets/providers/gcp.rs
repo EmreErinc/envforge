@@ -91,11 +91,23 @@ impl SecretProvider for GcpSecretManagerProvider {
                 "gcp",
             );
 
-            // Add version — use temp file since piping is complex with Command
+            // Add version — use temp file with restrictive permissions
             let temp = tempfile::NamedTempFile::new().map_err(|e| SecretsError::IoError {
                 path: std::path::PathBuf::from("/tmp"),
                 source: e,
             })?;
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                temp.as_file()
+                    .set_permissions(std::fs::Permissions::from_mode(0o600))
+                    .map_err(|e| SecretsError::IoError {
+                        path: temp.path().to_path_buf(),
+                        source: e,
+                    })?;
+            }
+
             std::fs::write(temp.path(), value).map_err(|e| SecretsError::IoError {
                 path: temp.path().to_path_buf(),
                 source: e,
@@ -115,8 +127,16 @@ impl SecretProvider for GcpSecretManagerProvider {
                 "gcp",
             )?;
 
-            // Suppress create error (secret may already exist)
-            let _ = create_result;
+            // Check create error: only suppress "already exists", propagate others
+            match create_result {
+                Ok(_) => {}
+                Err(e) => {
+                    let msg = e.to_string().to_lowercase();
+                    if !msg.contains("already exists") && !msg.contains("alreadyexist") {
+                        return Err(e);
+                    }
+                }
+            }
         }
 
         Ok(secrets.len())

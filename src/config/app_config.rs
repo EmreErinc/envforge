@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub profiles: ProfilesConfig,
     #[serde(default)]
     pub validation: HashMap<String, String>,
+    #[serde(default)]
+    pub clipboard: ClipboardConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +45,25 @@ pub struct OffsetsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtectedBlocksConfig {
     pub markers: Vec<String>,
+}
+
+/// Security-related clipboard configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClipboardConfig {
+    /// Whether clipboard operations are allowed for secret values.
+    /// When false, copying sensitive values to clipboard is blocked.
+    pub enabled: bool,
+    /// Whether to show a warning when copying sensitive values.
+    pub warn_on_secret: bool,
+}
+
+impl Default for ClipboardConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            warn_on_secret: true,
+        }
+    }
 }
 
 /// Profile configuration.
@@ -118,6 +139,7 @@ impl Default for AppConfig {
             groups: HashMap::new(),
             profiles: ProfilesConfig::default(),
             validation: HashMap::new(),
+            clipboard: ClipboardConfig::default(),
         }
     }
 }

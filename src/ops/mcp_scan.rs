@@ -198,20 +198,6 @@ fn detect_known_prefix(value: &str) -> Option<String> {
         }
     }
 
-    // AWS secret key pattern: 40 chars base64
-    if value.len() == 40
-        && value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
-    {
-        // Check the path for AWS context
-        let path_lower = value.to_lowercase();
-        if !path_lower.contains("sha") {
-            // Could be AWS secret key — but only flag if key name is suggestive
-            // (handled by key-name-based detection below)
-        }
-    }
-
     None
 }
 
@@ -431,6 +417,13 @@ pub fn harden_mcp_config(
     // Backup original
     let backup = file_path.with_extension("json.bak");
     std::fs::copy(file_path, &backup)?;
+
+    // Set restrictive permissions on backup (0600 on Unix) — it contains plaintext secrets
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o600));
+    }
 
     // Write hardened config
     let hardened = serde_json::to_string_pretty(&json)?;

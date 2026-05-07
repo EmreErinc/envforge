@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, parse_json_secrets, run_cli, SecretProvider, SecretsError,
+    env_refs_from_env, parse_json_secrets, run_cli, run_cli_with_stdin, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct VaultProvider;
@@ -157,16 +158,18 @@ impl SecretProvider for VaultProvider {
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
-        let kv_args: Vec<String> = secrets
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-
-        let mut args = vec!["kv", "put", path];
-        let kv_strs: Vec<&str> = kv_args.iter().map(|s| s.as_str()).collect();
-        args.extend(kv_strs);
-
-        run_cli("vault", &args, &env_refs, "vault")?;
+        for (key, value) in secrets {
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
+            // Vault KV put supports reading value from stdin when key ends with "=-"
+            run_cli_with_stdin(
+                "vault",
+                &["kv", "put", path, &format!("{}=-", key)],
+                value.as_bytes(),
+                &env_refs,
+                "vault",
+            )?;
+        }
         Ok(secrets.len())
     }
 

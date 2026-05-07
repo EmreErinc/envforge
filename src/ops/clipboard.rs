@@ -1,10 +1,33 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use super::dotenv::is_sensitive_key;
 use super::listing::EnvEntry;
+
+/// Global toggle to disable clipboard for sensitive values.
+static CLIPBOARD_DISABLED: AtomicBool = AtomicBool::new(false);
+
+/// Disable clipboard operations for sensitive values.
+pub fn disable_clipboard() {
+    CLIPBOARD_DISABLED.store(true, Ordering::SeqCst);
+}
+
+/// Enable clipboard operations.
+pub fn enable_clipboard() {
+    CLIPBOARD_DISABLED.store(false, Ordering::SeqCst);
+}
+
+/// Check whether clipboard is globally enabled.
+pub fn is_clipboard_enabled() -> bool {
+    !CLIPBOARD_DISABLED.load(Ordering::SeqCst)
+}
 
 /// Errors that can occur during clipboard operations.
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardError {
     #[error("clipboard unavailable: {0}")]
     Unavailable(String),
+    #[error("clipboard disabled for sensitive values")]
+    SensitiveValueBlocked,
 }
 
 /// Copy text to the system clipboard.
@@ -28,7 +51,11 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), ClipboardError> {
 }
 
 /// Copy just the value of an ENV entry to the clipboard.
+/// Blocks copying if the key looks sensitive and clipboard is disabled.
 pub fn copy_value(entry: &EnvEntry) -> Result<(), ClipboardError> {
+    if !is_clipboard_enabled() && is_sensitive_key(&entry.key) {
+        return Err(ClipboardError::SensitiveValueBlocked);
+    }
     copy_to_clipboard(&entry.value)
 }
 

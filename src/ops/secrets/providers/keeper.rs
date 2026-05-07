@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct KeeperProvider;
@@ -90,7 +91,6 @@ impl SecretProvider for KeeperProvider {
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
-        // First list existing to find UIDs by title
         let mut list_args = vec!["secret", "list", "--json"];
         let profile_str;
         if let Some(profile) = credentials.get("profile") {
@@ -107,9 +107,11 @@ impl SecretProvider for KeeperProvider {
 
         let mut count = 0;
         for (key, value) in secrets {
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
             if let Some(uid) = title_to_uid.get(key.as_str()) {
-                let field_arg = format!("password={}", value);
-                let mut update_args = vec!["secret", "update", "--uid", uid, "--field", &field_arg];
+                let field_value = format!("password={}", value);
+                let mut update_args = vec!["secret", "update", "--uid", uid, "--field", "__TEMP__"];
 
                 let prof_str;
                 if let Some(profile) = credentials.get("profile") {
@@ -117,7 +119,7 @@ impl SecretProvider for KeeperProvider {
                     update_args.extend_from_slice(&["--profile", &prof_str]);
                 }
 
-                run_cli("ksm", &update_args, &env_refs, "keeper")?;
+                run_cli_with_tempfile("ksm", &update_args, &field_value, &env_refs, "keeper")?;
                 count += 1;
             } else {
                 return Err(SecretsError::ProviderError {

@@ -1,6 +1,9 @@
 use envforge::ops::secrets::provider::SecretsError;
 use envforge::ops::secrets::providers;
-use envforge::ops::secrets::SecretProvider;
+use envforge::ops::secrets::{
+    run_cli_with_stdin, run_cli_with_tempfile, run_cli_with_tempfile_batch, sanitize_error_output,
+    validate_secret_name, validate_secret_value, SecretProvider,
+};
 use std::collections::HashMap;
 
 // ─── AWS SSM Tests ──────────────────────────────────────────
@@ -1964,4 +1967,155 @@ fn test_all_providers_name_matches_registry_key() {
             name
         );
     }
+}
+
+// ─── Secure CLI Runner Tests ─────────────────────────────────
+
+#[test]
+fn test_run_cli_with_stdin_pipes_data() {
+    let output = run_cli_with_stdin("cat", &[], b"hello from stdin", &[], "test").unwrap();
+    assert_eq!(output, "hello from stdin");
+}
+
+#[test]
+fn test_run_cli_with_stdin_binary_not_found() {
+    let result = run_cli_with_stdin("nonexistent_binary_xyz", &[], b"data", &[], "test");
+    assert!(result.is_err());
+    match result {
+        Err(SecretsError::BinaryNotFound { .. }) => {}
+        other => panic!("expected BinaryNotFound, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_run_cli_with_stdin_invalid_binary() {
+    let result = run_cli_with_stdin("/bin/sh", &[], b"data", &[], "test");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_run_cli_with_stdin_rejects_null_byte() {
+    let result = run_cli_with_stdin("echo\0bad", &[], b"data", &[], "test");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_run_cli_with_tempfile_uses_file() {
+    // Use cat to read back the tempfile content
+    let output =
+        run_cli_with_tempfile("cat", &["__TEMP__"], "secret via tempfile", &[], "test").unwrap();
+    assert_eq!(output, "secret via tempfile");
+}
+
+#[test]
+fn test_run_cli_with_tempfile_replaces_placeholder() {
+    let output =
+        run_cli_with_tempfile("cat", &["__TEMP__"], "value with = and spaces", &[], "test")
+            .unwrap();
+    assert_eq!(output, "value with = and spaces");
+}
+
+#[test]
+fn test_run_cli_with_tempfile_cleanup() {
+    // Tempfile should be removed after use — we verify by checking
+    // that a subsequent call with same placeholder semantics works fine
+    let output1 = run_cli_with_tempfile("cat", &["__TEMP__"], "first", &[], "test").unwrap();
+    let output2 = run_cli_with_tempfile("cat", &["__TEMP__"], "second", &[], "test").unwrap();
+    assert_eq!(output1, "first");
+    assert_eq!(output2, "second");
+}
+
+#[test]
+fn test_run_cli_with_tempfile_batch_writes_pairs() {
+    let secrets = vec![
+        ("KEY_A".to_string(), "val_a".to_string()),
+        ("KEY_B".to_string(), "val_b".to_string()),
+    ];
+    // cat reads back the tempfile content (KEY=VALUE per line)
+    let output = run_cli_with_tempfile_batch("cat", &["__TEMP__"], &secrets, &[], "test").unwrap();
+    assert_eq!(output, "KEY_A=val_a\nKEY_B=val_b\n");
+}
+
+#[test]
+fn test_run_cli_with_tempfile_batch_validates_names() {
+    let secrets = vec![("KEY\nbad".to_string(), "val".to_string())];
+    let result = run_cli_with_tempfile_batch("cat", &["__TEMP__"], &secrets, &[], "test");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_run_cli_with_tempfile_batch_validates_values() {
+    let secrets = vec![("KEY".to_string(), "val\0bad".to_string())];
+    let result = run_cli_with_tempfile_batch("cat", &["__TEMP__"], &secrets, &[], "test");
+    assert!(result.is_err());
+}
+
+// ─── Secure CLI Runner Validation Tests ──────────────────────
+
+#[test]
+fn test_validate_secret_name_rejects_empty() {
+    assert!(validate_secret_name("").is_err());
+}
+
+#[test]
+fn test_validate_secret_name_rejects_null_byte() {
+    assert!(validate_secret_name("KEY\0bad").is_err());
+}
+
+#[test]
+fn test_validate_secret_name_rejects_newline() {
+    assert!(validate_secret_name("KEY\nbad").is_err());
+}
+
+#[test]
+fn test_validate_secret_name_rejects_carriage_return() {
+    assert!(validate_secret_name("KEY\rbad").is_err());
+}
+
+#[test]
+fn test_validate_secret_name_rejects_too_long() {
+    let long_name = "K".repeat(513);
+    assert!(validate_secret_name(&long_name).is_err());
+}
+
+#[test]
+fn test_validate_secret_name_accepts_valid() {
+    assert!(validate_secret_name("VALID_KEY_123").is_ok());
+}
+
+#[test]
+fn test_validate_secret_value_rejects_null_byte() {
+    assert!(validate_secret_value("val\0bad").is_err());
+}
+
+#[test]
+fn test_validate_secret_value_accepts_valid() {
+    assert!(validate_secret_value("normal value").is_ok());
+}
+
+// ─── Sanitize Error Output Tests ─────────────────────────────
+
+#[test]
+fn test_sanitize_error_redacts_token() {
+    let input = "Error: token=abc123secret\nOther: foo=bar";
+    let output = sanitize_error_output(input);
+    assert!(output.contains("token=[REDACTED]"));
+    assert!(!output.contains("abc123secret"));
+    assert!(output.contains("foo=bar"));
+}
+
+#[test]
+fn test_sanitize_error_redacts_api_key() {
+    let input = "Error: api_key=sk-123456\nok line";
+    let output = sanitize_error_output(input);
+    assert!(output.contains("api_key=[REDACTED]"));
+    assert!(!output.contains("sk-123456"));
+}
+
+#[test]
+fn test_sanitize_error_redacts_password() {
+    let input = "line1\npassword=supersecret\nline3";
+    let output = sanitize_error_output(input);
+    assert!(output.contains("password=[REDACTED]"));
+    assert!(!output.contains("supersecret"));
 }

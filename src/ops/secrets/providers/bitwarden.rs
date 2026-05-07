@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct BitwardenProvider;
@@ -90,15 +91,15 @@ impl SecretProvider for BitwardenProvider {
 
         let mut count = 0;
         for (key, value) in secrets {
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
             if let Some(id) = existing.get(key.as_str()) {
-                // Update existing secret
                 let id_str = id.clone();
-                let args = vec!["secret", "edit", &id_str, "--value", value];
-                run_cli("bws", &args, &env_refs, "bitwarden")?;
+                let args = vec!["secret", "edit", &id_str, "--value", "__TEMP__"];
+                run_cli_with_tempfile("bws", &args, value, &env_refs, "bitwarden")?;
             } else {
-                // Create new secret
-                let args = vec!["secret", "create", key, value, &project_id_str];
-                run_cli("bws", &args, &env_refs, "bitwarden")?;
+                let args = vec!["secret", "create", key, "__TEMP__", &project_id_str];
+                run_cli_with_tempfile("bws", &args, value, &env_refs, "bitwarden")?;
             }
             count += 1;
         }

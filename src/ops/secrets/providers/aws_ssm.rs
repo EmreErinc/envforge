@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct AwsSsmProvider;
@@ -125,6 +126,8 @@ impl SecretProvider for AwsSsmProvider {
         let env_refs = env_refs_from_env(&env_vars);
 
         for (key, value) in secrets {
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
             let param_name = format!("{}/{}", path.trim_end_matches('/'), key);
             let mut args = vec![
                 "ssm",
@@ -132,7 +135,7 @@ impl SecretProvider for AwsSsmProvider {
                 "--name",
                 &param_name,
                 "--value",
-                value,
+                "fileb://__TEMP__",
                 "--type",
                 "SecureString",
                 "--overwrite",
@@ -144,7 +147,7 @@ impl SecretProvider for AwsSsmProvider {
                 args.extend_from_slice(&["--region", &region_str]);
             }
 
-            run_cli("aws", &args, &env_refs, "aws-ssm")?;
+            run_cli_with_tempfile("aws", &args, value, &env_refs, "aws-ssm")?;
         }
 
         Ok(secrets.len())

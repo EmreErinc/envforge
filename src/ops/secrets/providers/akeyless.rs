@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct AkeylessProvider;
@@ -91,13 +92,22 @@ impl SecretProvider for AkeylessProvider {
 
         let mut count = 0;
         for (key, value) in secrets {
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
             let full_name = format!("{}{}", path_prefix, key);
 
-            let args = vec!["update-secret-val", "--name", &full_name, "--value", value];
+            let args = vec![
+                "update-secret-val",
+                "--name",
+                &full_name,
+                "--value",
+                "__TEMP__",
+            ];
 
-            if run_cli("akeyless", &args, &env_refs, "akeyless").is_err() {
-                let create_args = vec!["create-secret", "--name", &full_name, "--value", value];
-                run_cli("akeyless", &create_args, &env_refs, "akeyless")?;
+            if run_cli_with_tempfile("akeyless", &args, value, &env_refs, "akeyless").is_err() {
+                let create_args =
+                    vec!["create-secret", "--name", &full_name, "--value", "__TEMP__"];
+                run_cli_with_tempfile("akeyless", &create_args, value, &env_refs, "akeyless")?;
             }
             count += 1;
         }

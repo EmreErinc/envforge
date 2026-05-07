@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::config::config_dir;
 use crate::ops::encrypt::{decrypt_value, encrypt_value, is_encrypted};
@@ -108,6 +109,42 @@ pub fn read_all_credentials(provider: &str) -> Result<HashMap<String, String>, S
     }
 
     Ok(decrypted)
+}
+
+/// Call a closure with decrypted credentials, then zeroize the memory.
+/// Prevents secrets from persisting in memory after use.
+pub fn with_credentials<T>(
+    provider: &str,
+    f: impl FnOnce(&HashMap<String, String>) -> Result<T, SecretsError>,
+) -> Result<T, SecretsError> {
+    let mut creds = read_all_credentials(provider)?;
+    let result = f(&creds);
+    // Zeroize all credential values in the map
+    for value in creds.values_mut() {
+        value.zeroize();
+    }
+    creds.clear();
+    result
+}
+
+/// Clear decrypted credentials from memory for a provider.
+/// Call after credential operations to prevent in-memory persistence.
+pub fn clear_provider_credentials(provider: &str) {
+    if let Ok(mut creds) = read_all_credentials(provider) {
+        for value in creds.values_mut() {
+            value.zeroize();
+        }
+        creds.clear();
+    }
+}
+
+/// Clear all decrypted credentials from all providers.
+pub fn clear_all_credentials() {
+    if let Ok(providers) = list_configured_providers() {
+        for provider in &providers {
+            clear_provider_credentials(provider);
+        }
+    }
 }
 
 /// Remove all credentials for a provider.

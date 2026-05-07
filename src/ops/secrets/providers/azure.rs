@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, sort_secret_pairs, SecretProvider, SecretsError};
+use super::super::provider::{
+    run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name, validate_secret_value,
+    SecretProvider, SecretsError,
+};
 
 pub struct AzureKeyVaultProvider;
 
@@ -102,9 +105,10 @@ impl SecretProvider for AzureKeyVaultProvider {
         let vault = credentials.get("vault_name").cloned().unwrap_or_default();
 
         for (key, value) in secrets {
-            // Convert underscore env var names to hyphenated vault names
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
             let vault_name = to_vault_name(key);
-            run_cli(
+            run_cli_with_tempfile(
                 "az",
                 &[
                     "keyvault",
@@ -112,11 +116,12 @@ impl SecretProvider for AzureKeyVaultProvider {
                     "set",
                     "--name",
                     &vault_name,
-                    "--value",
-                    value,
+                    "--file",
+                    "__TEMP__",
                     "--vault-name",
                     &vault,
                 ],
+                value,
                 &[],
                 "azure",
             )?;
