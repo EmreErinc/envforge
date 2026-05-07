@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::ParseError;
+use crate::model::{AnalyticsConfig, ParseError};
 
 /// EnvForge application configuration.
 ///
@@ -24,6 +24,8 @@ pub struct AppConfig {
     pub clipboard: ClipboardConfig,
     #[serde(default)]
     pub lifecycle: LifecycleConfig,
+    #[serde(default)]
+    pub analytics: AnalyticsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +183,7 @@ impl Default for AppConfig {
             validation: HashMap::new(),
             clipboard: ClipboardConfig::default(),
             lifecycle: LifecycleConfig::default(),
+            analytics: AnalyticsConfig::default(),
         }
     }
 }

@@ -1,3 +1,4 @@
+mod analytics_cmd;
 mod audit_cmd;
 mod commands;
 mod error;
@@ -9,6 +10,7 @@ mod wizard;
 
 use clap::{Parser, Subcommand};
 
+pub use analytics_cmd::*;
 pub use audit_cmd::*;
 pub use commands::*;
 pub use error::{CliError, CliResult};
@@ -598,6 +600,12 @@ pub enum Commands {
     Project {
         #[command(subcommand)]
         action: ProjectAction,
+    },
+
+    /// Secret usage analytics: unused detection, deprecation, retention
+    Analytics {
+        #[command(subcommand)]
+        action: AnalyticsAction,
     },
 }
 
