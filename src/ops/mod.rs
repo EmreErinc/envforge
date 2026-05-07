@@ -21,6 +21,7 @@ pub mod grouping;
 pub mod hardening;
 pub mod hook;
 pub mod lease;
+pub mod lifecycle;
 mod listing;
 pub mod man;
 pub mod mcp_scan;

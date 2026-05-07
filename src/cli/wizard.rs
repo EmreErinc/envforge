@@ -143,6 +143,7 @@ pub fn run_wizard() -> Result<bool, Box<dyn std::error::Error>> {
         profiles: crate::config::ProfilesConfig::default(),
         validation: std::collections::HashMap::new(),
         clipboard: ClipboardConfig::default(),
+        lifecycle: LifecycleConfig::default(),
     };
 
     let config_path = config_file_path().map_err(|e| format!("Config path error: {}", e))?;

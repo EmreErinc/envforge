@@ -145,6 +145,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             key,
             dry_run: dr,
             stale,
+            strategy: _,
             propagate,
         } => cmd_rotate(key, *dr || dry_run, *stale, *propagate),
         Commands::Hook { shell } => cmd_hook(shell),
@@ -228,6 +229,12 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             return;
         }
         Commands::Session { action } => cmd_session(action, json),
+        Commands::Lifecycle { action } => {
+            match crate::cli::lifecycle_cmd::handle_lifecycle(action, json) {
+                Ok(()) => Ok(()),
+                Err(e) => Err(Box::<dyn std::error::Error>::from(e.to_string())),
+            }
+        }
         Commands::Project { action } => cmd_project(action, json, dry_run),
     };
 

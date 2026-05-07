@@ -22,6 +22,8 @@ pub struct AppConfig {
     pub validation: HashMap<String, String>,
     #[serde(default)]
     pub clipboard: ClipboardConfig,
+    #[serde(default)]
+    pub lifecycle: LifecycleConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +64,44 @@ impl Default for ClipboardConfig {
         Self {
             enabled: true,
             warn_on_secret: true,
+        }
+    }
+}
+
+/// Lifecycle automation configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifecycleConfig {
+    /// Default stale threshold in days.
+    #[serde(default = "default_stale_threshold")]
+    pub default_stale_threshold_days: u32,
+    /// Default grace period before decommission in days.
+    #[serde(default = "default_grace_period")]
+    pub default_grace_period_days: u32,
+    /// Default rotation strategy.
+    #[serde(default = "default_rotation_strategy")]
+    pub default_rotation_strategy: String,
+    /// Whether to auto-create lifecycle rules from schema.
+    #[serde(default = "default_true")]
+    pub auto_create_rules_from_schema: bool,
+    /// Days to retain snapshots before auto-cleanup.
+    #[serde(default = "default_snapshot_retention")]
+    pub snapshot_retention_days: u32,
+}
+
+fn default_stale_threshold() -> u32 { 90 }
+fn default_grace_period() -> u32 { 7 }
+fn default_rotation_strategy() -> String { "replace".into() }
+fn default_true() -> bool { true }
+fn default_snapshot_retention() -> u32 { 30 }
+
+impl Default for LifecycleConfig {
+    fn default() -> Self {
+        Self {
+            default_stale_threshold_days: 90,
+            default_grace_period_days: 7,
+            default_rotation_strategy: "replace".into(),
+            auto_create_rules_from_schema: true,
+            snapshot_retention_days: 30,
         }
     }
 }
@@ -140,6 +180,7 @@ impl Default for AppConfig {
             profiles: ProfilesConfig::default(),
             validation: HashMap::new(),
             clipboard: ClipboardConfig::default(),
+            lifecycle: LifecycleConfig::default(),
         }
     }
 }

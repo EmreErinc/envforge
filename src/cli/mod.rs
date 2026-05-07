@@ -1,6 +1,7 @@
 mod audit_cmd;
 mod commands;
 mod error;
+mod lifecycle_cmd;
 mod project_cmd;
 mod secrets_cmd;
 mod sync_cmd;
@@ -11,6 +12,7 @@ use clap::{Parser, Subcommand};
 pub use audit_cmd::*;
 pub use commands::*;
 pub use error::{CliError, CliResult};
+pub use lifecycle_cmd::LifecycleAction;
 pub use project_cmd::*;
 pub use secrets_cmd::*;
 pub use sync_cmd::*;
@@ -347,6 +349,10 @@ pub enum Commands {
         #[arg(long)]
         stale: bool,
 
+        /// Rotation strategy (replace, dual_write, blue_green, provider_managed)
+        #[arg(long)]
+        strategy: Option<String>,
+
         /// Auto-push to provider and sync after rotation (no interactive prompts)
         #[arg(long)]
         propagate: bool,
@@ -580,6 +586,12 @@ pub enum Commands {
     Session {
         #[command(subcommand)]
         action: SessionAction,
+    },
+
+    /// Secret lifecycle automation
+    Lifecycle {
+        #[command(subcommand)]
+        action: LifecycleAction,
     },
 
     /// Project-scoped environment management

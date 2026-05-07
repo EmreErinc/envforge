@@ -107,6 +107,8 @@ pub struct App {
     pub grouping_enabled: bool,
     pub add_target: AddTarget,
     pub help_page: usize,
+    /// Lifecycle info message displayed when 'L' is pressed
+    pub lifecycle_info: String,
 }
 
 impl App {
@@ -187,6 +189,7 @@ impl App {
             grouping_enabled: true,
             add_target: AddTarget::Profile,
             help_page: 0,
+            lifecycle_info: String::new(),
         })
     }
 
@@ -556,6 +559,30 @@ impl App {
                     self.revealed.remove(&self.selected);
                 } else {
                     self.revealed.insert(self.selected);
+                }
+            }
+            KeyCode::Char('L') => {
+                // Show lifecycle info for the selected key
+                if let Some(entry) = self.selected_entry() {
+                    match crate::ops::lifecycle::orchestrator::get_state(&entry.key) {
+                        Ok(state) => {
+                            self.lifecycle_info = format!(
+                                "{}: {:?} | rotations: {} | age: unknown",
+                                entry.key,
+                                state,
+                                "n/a"
+                            );
+                            self.notify(&self.lifecycle_info.clone(), NotificationLevel::Success);
+                        }
+                        Err(e) => {
+                            self.notify(
+                                &format!("lifecycle error: {e}"),
+                                NotificationLevel::Warning,
+                            );
+                        }
+                    }
+                } else {
+                    self.notify("No key selected", NotificationLevel::Success);
                 }
             }
             KeyCode::Char('/') => {

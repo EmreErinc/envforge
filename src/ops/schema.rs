@@ -21,6 +21,11 @@ pub struct SchemaVariable {
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub env_overrides: HashMap<String, SchemaOverride>,
+    // Lifecycle fields
+    pub ttl_days: Option<u32>,
+    pub rotation_strategy: Option<String>,
+    pub auto_rotate: Option<bool>,
+    pub notify_days_before_expiry: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +94,10 @@ impl Default for SchemaVariable {
             min: None,
             max: None,
             env_overrides: HashMap::new(),
+            ttl_days: None,
+            rotation_strategy: None,
+            auto_rotate: None,
+            notify_days_before_expiry: None,
         }
     }
 }
@@ -204,6 +213,21 @@ fn parse_variable(name: &str, table: &toml::Table) -> Result<SchemaVariable, Sch
             .get("max")
             .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))),
         env_overrides: HashMap::new(),
+        ttl_days: table
+            .get("ttl_days")
+            .and_then(|v| v.as_integer())
+            .map(|i| i as u32),
+        rotation_strategy: table
+            .get("rotation_strategy")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        auto_rotate: table
+            .get("auto_rotate")
+            .and_then(|v| v.as_bool()),
+        notify_days_before_expiry: table
+            .get("notify_days_before_expiry")
+            .and_then(|v| v.as_integer())
+            .map(|i| i as u32),
     })
 }
 
