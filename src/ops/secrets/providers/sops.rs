@@ -137,22 +137,34 @@ impl SecretProvider for SopsProvider {
 
         // Encrypt the temp file
         let temp_path_str = temp.path().to_string_lossy().to_string();
-        let mut encrypt_args = vec!["encrypt", "--in-place"];
 
         let encryption_type = credentials
             .get("encryption_type")
             .map(|s| s.as_str())
             .unwrap_or("age");
 
-        let key_file_str;
+        // Extract age public key from key file if using age encryption
+        let public_key_str;
         if encryption_type == "age" {
             if let Some(kf) = credentials.get("key_file") {
-                // Read age public key from key file for encryption
-                key_file_str = kf.clone();
-                // For age encryption, we need the recipient (public key)
-                // SOPS uses SOPS_AGE_KEY_FILE for decryption, and --age for encryption recipient
-                encrypt_args.extend_from_slice(&["--age", &key_file_str]);
+                let key_content =
+                    std::fs::read_to_string(kf).map_err(|e| SecretsError::IoError {
+                        path: kf.into(),
+                        source: e,
+                    })?;
+                public_key_str = extract_age_public_key(&key_content)?;
+            } else {
+                return Err(SecretsError::CredentialError(
+                    "age encryption requires 'key_file' credential".to_string(),
+                ));
             }
+        } else {
+            public_key_str = String::new();
+        }
+
+        let mut encrypt_args = vec!["encrypt", "--in-place"];
+        if encryption_type == "age" {
+            encrypt_args.extend_from_slice(&["--age", &public_key_str]);
         }
 
         encrypt_args.push(&temp_path_str);
@@ -163,6 +175,16 @@ impl SecretProvider for SopsProvider {
             path: path.into(),
             source: e,
         })?;
+
+        // Set restrictive permissions on the destination file (0600 on Unix)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(
+                std::path::Path::new(path),
+                std::fs::Permissions::from_mode(0o600),
+            );
+        }
 
         // NamedTempFile auto-deletes on drop, but we clean up explicitly for clarity
         let _ = std::fs::remove_file(temp.path());
@@ -240,4 +262,18 @@ pub fn parse_sops_output(output: &str) -> Result<Vec<(String, String)>, SecretsE
 pub fn build_env(credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
     let provider = SopsProvider;
     provider.build_provider_env(credentials)
+}
+
+/// Extract the age public key from a key file content.
+/// Reads lines starting with "# public key: " and returns the key string.
+fn extract_age_public_key(key_content: &str) -> Result<String, SecretsError> {
+    for line in key_content.lines() {
+        if let Some(pubkey) = line.strip_prefix("# public key: ") {
+            return Ok(pubkey.to_string());
+        }
+    }
+    Err(SecretsError::ProviderError {
+        provider: "sops".to_string(),
+        message: "No public key found in age key file".to_string(),
+    })
 }

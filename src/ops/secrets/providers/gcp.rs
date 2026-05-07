@@ -127,8 +127,16 @@ impl SecretProvider for GcpSecretManagerProvider {
                 "gcp",
             )?;
 
-            // Suppress create error (secret may already exist)
-            let _ = create_result;
+            // Check create error: only suppress "already exists", propagate others
+            match create_result {
+                Ok(_) => {}
+                Err(e) => {
+                    let msg = e.to_string().to_lowercase();
+                    if !msg.contains("already exists") && !msg.contains("alreadyexist") {
+                        return Err(e);
+                    }
+                }
+            }
         }
 
         Ok(secrets.len())

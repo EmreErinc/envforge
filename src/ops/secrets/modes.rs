@@ -47,7 +47,7 @@ pub fn pull_secrets(
     existing_keys: &HashMap<String, String>,
 ) -> Result<PullOutput, SecretsError> {
     let provider = registry.get(provider_name)?;
-    let credentials = read_all_credentials(provider_name)?;
+    let mut credentials = read_all_credentials(provider_name)?;
     provider.authenticate(&credentials)?;
 
     let mut secrets = provider.pull(&credentials, path)?;
@@ -92,6 +92,12 @@ pub fn pull_secrets(
         }
     }
 
+    // Zeroize credentials from memory before returning
+    for v in credentials.values_mut() {
+        v.zeroize();
+    }
+    credentials.clear();
+
     let pull_result = PullResult {
         provider: provider_name.to_string(),
         keys_new: new_keys,
@@ -112,7 +118,7 @@ pub fn push_secrets(
     filter: Option<&str>,
 ) -> Result<PushResult, SecretsError> {
     let provider = registry.get(provider_name)?;
-    let credentials = read_all_credentials(provider_name)?;
+    let mut credentials = read_all_credentials(provider_name)?;
     provider.authenticate(&credentials)?;
 
     let filtered: Vec<(String, String)> = if let Some(pattern) = filter {
@@ -126,6 +132,11 @@ pub fn push_secrets(
     };
 
     if filtered.is_empty() {
+        // Zeroize before early return
+        for v in credentials.values_mut() {
+            v.zeroize();
+        }
+        credentials.clear();
         return Err(SecretsError::ProviderError {
             provider: provider_name.to_string(),
             message: "no keys to push (check --keys or --filter)".to_string(),
@@ -138,6 +149,12 @@ pub fn push_secrets(
     }
 
     let count = provider.push(&credentials, path, &filtered)?;
+
+    // Zeroize credentials from memory before returning
+    for v in credentials.values_mut() {
+        v.zeroize();
+    }
+    credentials.clear();
 
     Ok(PushResult {
         provider: provider_name.to_string(),
@@ -156,8 +173,12 @@ pub fn resolve_all_references(
         if is_reference(value) {
             if let Some(secret_ref) = SecretRef::parse(value) {
                 let provider = registry.get(&secret_ref.provider)?;
-                let credentials = read_all_credentials(&secret_ref.provider)?;
+                let mut credentials = read_all_credentials(&secret_ref.provider)?;
                 let resolved = resolve_reference(&secret_ref, provider, &credentials)?;
+                for v in credentials.values_mut() {
+                    v.zeroize();
+                }
+                credentials.clear();
                 results.push((key.clone(), resolved, true));
             } else {
                 results.push((key.clone(), value.clone(), false));

@@ -201,6 +201,9 @@ pub fn run_external_scanner(content: &str) -> Option<Vec<String>> {
 }
 
 /// Run a specific scanner command on the given content.
+/// Note: passes the temp file path to the scanner command via a shell.
+/// The scanner command is user-configured via ENVFORGE_EXTERNAL_SCANNER env var.
+/// The temp file path is system-generated and contains only safe characters.
 fn run_external_scanner_with_cmd(scanner_cmd: &str, content: &str) -> Option<Vec<String>> {
     let tmp = tempfile::NamedTempFile::new().ok()?;
     std::fs::write(tmp.path(), content).ok()?;
