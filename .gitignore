@@ -2,35 +2,47 @@
 
 # EnvForge test artifacts
 *.bak
+.tmp/
+fuzz/target
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+editors/intellij/.intellijPlatform/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# AI-DLC / specsmd (development tooling, not part of the release)
-.specsmd/
-.claude/
-memory-bank/
 node_modules/
-plans/
 package.json
 package-lock.json
-envforge-*.md
-skills-lock.json
+
+# AI-Tools related
+.specsmd/
+plans/
+memory-bank/
+.claude/
+.kiro
+.github/agents
+.github/prompts
+.junie/
+.opencode/
+.gemini/
+.cursor/
+.codex/
+.cline/
 .agents
+AGENTS.md
+
 # Un-ignore editor plugin package files (needed for CI builds)
 !editors/**/package.json
 !editors/**/package-lock.json
+
 # EnvForge project environments
 .env.*
 !.env.schema
 !.env.example
 !.env.ai.md
-AGENTS.md
-editors/intellij/.intellijPlatform/
