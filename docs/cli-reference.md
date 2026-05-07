@@ -1,6 +1,29 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.6.2
+> Generated for EnvForge v0.7.4
+
+## Quick Recipes
+
+Jump to a solution:
+
+| I want to... | Command(s) |
+|---|---|
+| Protect a project from AI agents | `envforge fence` → `envforge ai-hook install claude-code` → `envforge mcp harden` |
+| Sync env vars across machines | `envforge sync init` → `envforge sync mark --all --sync` → `envforge sync push` |
+| Pull secrets from Vault/AWS | `envforge secrets config vault --set token=x` → `envforge secrets pull --from vault --path secret/myapp` → `envforge run --resolve -- cmd` |
+| Validate .env in CI/CD | `envforge validate --schema .env.schema --env .env.production` |
+| Find unused secrets | `envforge analytics unused` → `envforge analytics deprecation` |
+| Set up a new project | `envforge project init` → `envforge schema generate` → `envforge init` |
+| Share secrets with a teammate | `envforge share create --recipient age1... --all --output secrets.age` |
+| Rotate stale secrets | `envforge rotate --stale --propagate` |
+| Run a health check | `envforge check` / `envforge doctor --verbose` |
+| Export for Kubernetes | `envforge export --format k8s --k8s-name app-secrets` |
+| Scan for leaked secrets | `envforge scan --staged` / `envforge scan --mcp` |
+| Generate shell completions | `envforge completions zsh --install` |
+| Monitor secret infrastructure | `envforge monitor status` / `envforge monitor stream` |
+| Automate secret lifecycle | `envforge lifecycle rule list` → `envforge lifecycle check` |
+
+Commands support `--json` for machine output and `--dry-run` for preview.
 
 ## Global Flags
 
@@ -3033,6 +3056,379 @@ envforge offset --show
 envforge offset --suggest
 envforge offset --show --json
 ```
+
+---
+
+## Secret Lifecycle
+
+### envforge lifecycle check
+
+Evaluate all enabled lifecycle rules against current state.
+
+```
+Usage: envforge lifecycle check [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge lifecycle check
+envforge lifecycle check --json
+```
+
+Output (text):
+```
+Fired 2 trigger(s):
+  [age] rule=rotate-stale-tokens — Secret API_KEY is 95 days old
+  [cron] rule=weekly-health-report — Weekly health check triggered
+```
+
+---
+
+### envforge lifecycle rule list
+
+List all configured lifecycle rules.
+
+```
+Usage: envforge lifecycle rule list [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge lifecycle rule list
+envforge lifecycle rule list --json
+```
+
+---
+
+### envforge lifecycle rule rotate-secret
+
+Rotate a secret via lifecycle orchestrator.
+
+```
+Usage: envforge lifecycle rule rotate-secret <KEY> [--strategy STRATEGY]
+```
+
+| Argument/Flag | Description |
+|---|---|
+| `<KEY>` | Secret key to rotate |
+| `--strategy <STRATEGY>` | Rotation strategy: `replace`, `dual_write`, `blue_green`, `provider_managed` [default: replace] |
+
+**Examples:**
+
+```bash
+envforge lifecycle rule rotate-secret API_KEY --strategy dual_write
+envforge lifecycle rule rotate-secret DB_PASSWORD --json
+```
+
+---
+
+### envforge lifecycle state
+
+Show lifecycle state for a secret (creating, active, rotating, deprecated, etc.).
+
+```
+Usage: envforge lifecycle state <KEY> [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge lifecycle state API_KEY
+envforge lifecycle state DB_PASSWORD --json
+```
+
+Output:
+```
+API_KEY: Active (last rotated: 2026-04-15T12:00:00Z, rotation count: 3)
+```
+
+---
+
+### envforge lifecycle snapshot list
+
+List lifecycle snapshots for a key.
+
+```
+Usage: envforge lifecycle snapshot list [--key KEY] [OPTIONS]
+```
+
+| Flag | Description |
+|---|---|
+| `--key <KEY>` | Filter by key |
+
+**Examples:**
+
+```bash
+envforge lifecycle snapshot list
+envforge lifecycle snapshot list --key API_KEY --json
+```
+
+---
+
+### envforge lifecycle snapshot delete
+
+Delete a lifecycle snapshot by ID.
+
+```
+Usage: envforge lifecycle snapshot delete <ID>
+```
+
+**Examples:**
+
+```bash
+envforge lifecycle snapshot delete 550e8400-e29b-41d4-a716-446655440000
+```
+
+---
+
+## Secret Analytics
+
+Track secret usage patterns, detect dormant secrets, and generate deprecation recommendations.
+
+### envforge analytics unused
+
+Detect secrets with no access in N days.
+
+```
+Usage: envforge analytics unused [--threshold DAYS] [OPTIONS]
+```
+
+| Flag | Description |
+|---|---|
+| `--threshold <DAYS>` | Days threshold [default: 90] |
+
+**Examples:**
+
+```bash
+envforge analytics unused
+envforge analytics unused --threshold 30 --json
+```
+
+Output:
+```
+Unused secrets (no access in 90 days):
+
+  OLD_API_KEY — dormant in all environments (confidence: 95%)
+  LEGACY_TOKEN — only referenced in archived configs (confidence: 87%)
+```
+
+---
+
+### envforge analytics low-usage
+
+Detect secrets with unusually low access counts.
+
+```
+Usage: envforge analytics low-usage [--max-accesses N] [--days DAYS] [OPTIONS]
+```
+
+| Flag | Description |
+|---|---|
+| `--max-accesses <N>` | Maximum access count threshold [default: 5] |
+| `--days <DAYS>` | Time window in days [default: 30] |
+
+**Examples:**
+
+```bash
+envforge analytics low-usage
+envforge analytics low-usage --max-accesses 3 --days 90
+```
+
+---
+
+### envforge analytics deprecation
+
+Show deprecation recommendations with timelines.
+
+```
+Usage: envforge analytics deprecation [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge analytics deprecation
+envforge analytics deprecation --json
+```
+
+Output:
+```
+Deprecation recommendations:
+
+  OLD_API_KEY — Dormant >90 days, 0 dependents
+    Review by: 2026-05-14, Deprecate by: 2026-06-13, Remove by: 2026-08-12
+    Confidence: 95%, Dependents: 0
+```
+
+---
+
+### envforge analytics summary
+
+Show analytics summary (event count, secret count, config state).
+
+```
+Usage: envforge analytics summary [--days DAYS] [OPTIONS]
+```
+
+| Flag | Description |
+|---|---|
+| `--days <DAYS>` | Time window in days [default: 7] |
+
+**Examples:**
+
+```bash
+envforge analytics summary
+envforge analytics summary --days 30 --json
+```
+
+Output:
+```
+Analytics Summary:
+
+  Total secrets:    42
+  Total events:     1847
+  Active secrets:   38
+
+  Config:
+    enabled:        true
+    retention_days: 365
+    max_events:     100000
+    auto_aggregate: true
+```
+
+---
+
+### envforge analytics recompute
+
+Recompute aggregate statistics from raw events.
+
+```
+Usage: envforge analytics recompute [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge analytics recompute
+envforge analytics recompute --json
+```
+
+---
+
+### envforge analytics retention show
+
+Show current retention settings.
+
+```
+Usage: envforge analytics retention show [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge analytics retention show
+envforge analytics retention show --json
+```
+
+---
+
+### envforge analytics retention set
+
+Set retention days for raw events.
+
+```
+Usage: envforge analytics retention set --days <DAYS>
+```
+
+| Flag | Description |
+|---|---|
+| `--days <DAYS>` | Number of days to retain raw events |
+
+**Examples:**
+
+```bash
+envforge analytics retention set --days 90
+```
+
+---
+
+### envforge analytics prune
+
+Remove raw events older than a date or retention window.
+
+```
+Usage: envforge analytics prune [--before DATE] [OPTIONS]
+```
+
+| Flag | Description |
+|---|---|
+| `--before <DATE>` | Remove events before this date (ISO 8601 or YYYY-MM-DD) |
+
+**Examples:**
+
+```bash
+# Prune based on retention_days setting
+envforge analytics prune
+
+# Prune before specific date
+envforge analytics prune --before 2025-01-01
+envforge analytics prune --before 2026-01-01T00:00:00Z --json
+```
+
+---
+
+## Real-Time Monitoring
+
+### envforge monitor status
+
+Run health checks on secret infrastructure (providers, canary integrity, fence status, encryption).
+
+```
+Usage: envforge monitor status [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge monitor status
+envforge monitor status --json
+```
+
+Output (text):
+```
+Health Check Results:
+
+  ✓ providers     — 13/13 available
+  ✓ canary        — 4 canaries intact
+  ✓ encryption    — age key accessible
+  ✓ fence         — active on 3/3 AI tools
+```
+
+---
+
+### envforge monitor stream
+
+Stream real-time secret access events.
+
+```
+Usage: envforge monitor stream [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge monitor stream
+```
+
+Output (streaming JSON lines):
+```
+{"timestamp":"2026-05-07T12:00:00Z","key":"API_KEY","accessor":"claude-code","action":"read","source":"proxy"}
+{"timestamp":"2026-05-07T12:00:01Z","key":"DB_URL","accessor":"cursor","action":"reference","source":"lsp"}
+```
+
+Press Ctrl+C to stop.
 
 ---
 

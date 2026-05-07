@@ -2,7 +2,7 @@
 
 The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **22 AI safety tools**, 13 secret provider integrations, encrypted sync, and 90+ commands.
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **25 AI safety tools**, 13 secret provider integrations, encrypted sync, and 90+ commands.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
@@ -40,7 +40,10 @@ EnvForge provides the most comprehensive AI-agent secret protection of any CLI t
 | **Detection** | Access Audit | `envforge audit --access` | JSONL log of proxy access |
 | **Governance** | Approval Flow | `envforge proxy --require-approval` | Human approves each secret access |
 | **Governance** | Dependency Map | `envforge deps KEY --source` | What breaks if this secret rotates? |
-| **Governance** | External Scanner | `ENVFORGE_EXTERNAL_SCANNER=ggshield` | Delegate to 500+ detector engine |
+| **Governance** | External Scanner | `envforge scanner test <name>` | Multi-scanner pipeline (Lakera Guard, ggshield) |
+| **Governance** | Session Scoping | `envforge session start --ttl 1h` | Per-AI-tool session scoping with auto-detection |
+| **Governance** | Lifecycle Automation | `envforge lifecycle check` | Rule-based secret create/rotate/decommission |
+| **Governance** | Analytics | `envforge analytics unused` | Dormant secret detection, deprecation, retention |
 
 ### Quick Setup: Protect a Project in 30 Seconds
 
@@ -98,7 +101,7 @@ envforge revoke --all
 | **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
 | **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
 | **Export** | 8 formats: dotenv, JSON, YAML, TOML, Docker, Docker Secrets, K8s, tfvars |
-| **CLI** | 80+ subcommands, `--json` output, `--dry-run` preview, shell completions |
+| **CLI** | 90+ subcommands, `--json` output, `--dry-run` preview, shell completions |
 | **Run** | Subprocess injection with volatile, redact, multi-profile, resolve |
 | **Schema** | `.env.schema` — type validation, JSON Schema, onboarding wizard, drift detection |
 | **Projects** | Multi-env project config, wizard setup, `envforge project env diff`, provider pull/push per env |
@@ -109,6 +112,9 @@ envforge revoke --all
 | **IDE Extensions** | VS Code + IntelliJ — LSP diagnostics, hover, completions, go-to-definition |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
 | **Health Check** | `envforge doctor` + `envforge check` — 15+ checks with fix suggestions |
+| **Lifecycle** | Automated secret create/rotate/decommission with state machine, trigger engine, rollback |
+| **Analytics** | Unused detection, low-usage flagging, deprecation timelines, retention management, pruning |
+| **Monitoring** | `envforge monitor status` — real-time health probes (providers, canary, fence, encryption) + event stream |
 | **Security** | Secret scanning, pre-commit hooks, value masking, credential TTL |
 
 ## Installation
@@ -362,6 +368,8 @@ Additional TUI features:
 ### CLI Reference
 
 All commands support `--json` for machine-readable output and `--dry-run` for preview.
+
+Full documentation: [CLI Reference](docs/cli-reference.md) (90+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [Scanner Recipes](docs/scanner-recipes.md)
 
 ```bash
 # Variable management
@@ -1528,7 +1536,7 @@ src/
 ├── parser/              # Shell file parser & writer (byte-for-byte round-trip safe)
 ├── config/              # App config, backup, atomic writes
 │
-├── ops/                 # Core operations (35 modules)
+├── ops/                 # Core operations (50+ modules)
 │   │
 │   │── ── Core ──────────────────────────
 │   ├── crud.rs          # Add, edit, delete, move, toggle
@@ -1557,12 +1565,32 @@ src/
 │   ├── fence.rs         # AI tool ignore rules (Cursor, Copilot, Claude Code)
 │   ├── sanitize.rs      # Secret value stripping from any file
 │   ├── ai_hooks.rs      # AI coding tool hook installation
+│   ├── ai_guard.rs      # 3-stage AI tool guard (pre-tool, post-tool, content scan)
 │   ├── proxy.rs         # Local HTTP credential proxy for AI agents
+│   ├── session.rs       # Per-AI-tool session scoping with TTL
+│   ├── lease.rs         # Time-bounded secret access leases
+│   ├── hardening.rs     # 4-layer adversarial input hardening
+│   ├── external_scanner.rs # Multi-scanner pipeline (Lakera, ggshield, etc.)
+│   ├── canary.rs        # Honeypot credential detection
+│   ├── deps.rs          # Secret dependency graph
 │   ├── audit.rs         # Git author audit trail + AI leak detection
 │   │
 │   │── ── Scanning & Security ──────────
 │   ├── scanner.rs       # Secret scanning (source code + staged files)
 │   ├── uri_resolve.rs   # URI-based secret references (vault://, aws-ssm://)
+│   │
+│   │── ── Lifecycle & Analytics ─────────
+│   ├── lifecycle/       # Secret lifecycle automation
+│   │   ├── orchestrator.rs  # Create/rotate/decommission workflows
+│   │   ├── rule_manager.rs  # CRUD for lifecycle rules
+│   │   ├── trigger_engine.rs # Rule evaluation engine
+│   │   ├── rollback.rs      # Snapshot-based rollback
+│   │   ├── state_machine.rs # Lifecycle state transitions
+│   │   └── schema_lifecycle.rs # Schema-driven rule creation
+│   ├── analytics.rs     # Secret usage analytics (unused, low-usage, deprecation)
+│   ├── monitor/         # Real-time health monitoring
+│   │   ├── health.rs    # Provider/canary/fence/encryption probes
+│   │   └── fingerprint.rs # Event fingerprinting
 │   │
 │   │── ── Shell Integration ────────────
 │   ├── hook.rs          # Shell auto-load hooks (zsh, bash, fish)
@@ -1571,6 +1599,11 @@ src/
 │   ├── grouping.rs      # Variable grouping (prefix-based + custom)
 │   ├── clipboard.rs     # Clipboard integration
 │   ├── undo.rs          # Undo/redo stack
+│   │
+│   │── ── Project Management ───────────
+│   ├── project.rs       # Multi-env project config
+│   ├── man.rs           # Built-in man page generator
+│   ├── offset.rs        # Protected zone detection
 │   │
 │   │── ── Remote Sync ──────────────────
 │   ├── sync/            # Git-based cross-machine sync
@@ -1616,11 +1649,15 @@ src/
 │   ├── input.rs         # Text input handling
 │   └── mod.rs           # run_tui() entry
 │
-├── cli/                 # Clap CLI (80+ subcommands)
+├── cli/                 # Clap CLI (90+ subcommands)
 │   ├── commands.rs      # Command implementations
 │   ├── mod.rs           # CLI struct, Commands enum
 │   ├── sync_cmd.rs      # Sync subcommands
 │   ├── secrets_cmd.rs   # Secrets subcommands
+│   ├── lifecycle_cmd.rs # Lifecycle subcommands
+│   ├── analytics_cmd.rs # Analytics subcommands
+│   ├── audit_cmd.rs     # Audit trail subcommands
+│   ├── project_cmd.rs   # Project subcommands
 │   └── wizard.rs        # First-run setup wizard
 │
 └── action/              # GitHub Action (composite)
