@@ -312,14 +312,21 @@ fn export_csv(report: &Soc2Report, writer: &mut dyn Write) -> Result<(), ReportE
     .map_err(|e| ReportError::ExportFailed(e.to_string()))?;
 
     for v in &report.violations {
+        // RFC 4180 quoting: wrap each field in `"..."`, double internal
+        // quotes, fold newlines / carriage returns to spaces. The
+        // previous code only replaced commas in `description` with
+        // semicolons and emitted `secret_key` not at all, so a
+        // description containing a literal `"` or newline would corrupt
+        // the row for downstream parsers (Excel, Numbers, Splunk).
         writeln!(
             writer,
-            "{:?},{:?},{},{},{}",
-            v.violation_type,
-            v.severity,
-            v.event_id,
-            v.timestamp.to_rfc3339(),
-            v.description.replace(',', ";"),
+            "{},{},{},{},{},{}",
+            csv_field(&format!("{:?}", v.violation_type)),
+            csv_field(&format!("{:?}", v.severity)),
+            csv_field(&v.event_id.to_string()),
+            csv_field(&v.timestamp.to_rfc3339()),
+            csv_field(&v.description),
+            csv_field(v.secret_key.as_deref().unwrap_or("")),
         )
         .map_err(|e| ReportError::ExportFailed(e.to_string()))?;
     }
@@ -387,6 +394,25 @@ fn export_markdown(report: &Soc2Report, writer: &mut dyn Write) -> Result<(), Re
     .map_err(|e| ReportError::ExportFailed(e.to_string()))?;
 
     Ok(())
+}
+
+/// Quote and escape a field for RFC 4180 CSV.
+///
+/// Wraps the value in double-quotes, doubles any embedded double-quote,
+/// and folds `\r` / `\n` to a single space so a single field cannot
+/// span multiple lines and corrupt downstream row parsing.
+pub fn csv_field(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 2);
+    out.push('"');
+    for ch in input.chars() {
+        match ch {
+            '"' => out.push_str("\"\""),
+            '\n' | '\r' => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Escape a string for safe inclusion in Markdown report output.

@@ -110,14 +110,25 @@ pub fn extract_origin(request: &str) -> Option<String> {
 /// `Host` header carries the name the *browser* used, which under
 /// rebinding is `evil.com`, NOT `127.0.0.1`. Rejecting unknown hosts
 /// closes the rebinding vector even when the `Origin` header is absent.
+///
+/// Returns `None` when the header is absent OR when **multiple** Host
+/// headers are present (RFC 7230 §5.4 requires the server to respond
+/// 400 in that case — multiple Host headers are a classic request
+/// smuggling vector against intermediaries). The handler treats
+/// `None` as failed-host-check and returns 403.
 pub fn extract_host(request: &str) -> Option<String> {
+    let mut found: Option<String> = None;
     for line in request.lines() {
         let lower = line.to_ascii_lowercase();
         if lower.starts_with("host:") {
-            return Some(line[5..].trim().to_string());
+            if found.is_some() {
+                // Duplicate Host header — refuse to pick one.
+                return None;
+            }
+            found = Some(line[5..].trim().to_string());
         }
     }
-    None
+    found
 }
 
 /// Whether the `Host` header value is a loopback address. Used as a

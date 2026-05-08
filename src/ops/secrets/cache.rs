@@ -102,10 +102,35 @@ fn cache_dir() -> Result<PathBuf, SecretsError> {
 }
 
 /// Get the cache file path for a provider + key combination.
+///
+/// BOTH `provider` and `key` are sanitized so they can't escape the
+/// cache directory via `..`, absolute path, or directory separator.
+/// Cache files contain decrypted secret values; a `provider="../etc"`
+/// would otherwise let a SecretRef poison the user's wider config tree.
 fn cache_file_path(provider: &str, key: &str) -> Result<PathBuf, SecretsError> {
+    if provider.is_empty() {
+        return Err(SecretsError::CacheError(
+            "cache provider name cannot be empty".to_string(),
+        ));
+    }
+    if provider.contains('\0') || provider.len() > 128 {
+        return Err(SecretsError::CacheError(format!(
+            "invalid cache provider name: {:?}",
+            provider
+        )));
+    }
+    let safe_provider: String = provider
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     let dir = cache_dir()?;
-    let provider_dir = dir.join(provider);
-    // Use key name directly (sanitized for filesystem)
+    let provider_dir = dir.join(&safe_provider);
     let safe_key: String = key
         .chars()
         .map(|c| {
@@ -255,7 +280,25 @@ pub fn invalidate_cache(provider: &str, key: &str) -> Result<(), SecretsError> {
 
 /// Invalidate all cache for a provider.
 pub fn invalidate_provider_cache(provider: &str) -> Result<(), SecretsError> {
-    let dir = cache_dir()?.join(provider);
+    // Same sanitization as `cache_file_path` so `provider="../etc"`
+    // can't be used to remove arbitrary directories.
+    if provider.is_empty() || provider.contains('\0') || provider.len() > 128 {
+        return Err(SecretsError::CacheError(format!(
+            "invalid cache provider name: {:?}",
+            provider
+        )));
+    }
+    let safe_provider: String = provider
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let dir = cache_dir()?.join(&safe_provider);
     if dir.exists() {
         std::fs::remove_dir_all(&dir).map_err(|e| SecretsError::IoError {
             path: dir,

@@ -80,8 +80,24 @@ pub fn get_rule(rule_id: &RuleId) -> Result<LifecycleRule, OpError> {
     get_rule_at(rule_id, &path)
 }
 
+/// Maximum size of a lifecycle rule TOML file. Rules are tiny by
+/// design (single-key cron + action); 256 KiB is generous. Rejecting
+/// oversized files defends against OOM via a crafted / corrupt rule
+/// file (mirrors the cap pattern in `mcp_scan.rs`).
+const MAX_RULE_FILE_BYTES: u64 = 256 * 1024;
+
 fn get_rule_at(rule_id: &RuleId, path: &std::path::Path) -> Result<LifecycleRule, OpError> {
     let _ = rule_id;
+    if let Ok(meta) = fs::metadata(path) {
+        if meta.len() > MAX_RULE_FILE_BYTES {
+            return Err(OpError::Other(format!(
+                "rule file {} exceeds {}-byte size limit ({} bytes)",
+                path.display(),
+                MAX_RULE_FILE_BYTES,
+                meta.len()
+            )));
+        }
+    }
     let content = fs::read_to_string(path)?;
     toml::from_str(&content).map_err(OpError::TomlDeserialize)
 }
@@ -161,6 +177,13 @@ pub fn list_rules_in(base: &std::path::Path) -> Result<Vec<LifecycleRule>, OpErr
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "toml") {
+            // Skip oversized files rather than returning an error so
+            // a single corrupt rule doesn't break listing of all rules.
+            if let Ok(meta) = fs::metadata(&path) {
+                if meta.len() > MAX_RULE_FILE_BYTES {
+                    continue;
+                }
+            }
             if let Ok(content) = fs::read_to_string(&path) {
                 if let Ok(rule) = toml::from_str::<LifecycleRule>(&content) {
                     rules.push(rule);
@@ -203,6 +226,13 @@ fn list_rules_in_dir(dir: &std::path::Path) -> Result<Vec<LifecycleRule>, OpErro
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "toml") {
+            // Skip oversized files rather than returning an error so
+            // a single corrupt rule doesn't break listing of all rules.
+            if let Ok(meta) = fs::metadata(&path) {
+                if meta.len() > MAX_RULE_FILE_BYTES {
+                    continue;
+                }
+            }
             if let Ok(content) = fs::read_to_string(&path) {
                 if let Ok(rule) = toml::from_str::<LifecycleRule>(&content) {
                     rules.push(rule);

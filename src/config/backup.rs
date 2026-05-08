@@ -42,6 +42,22 @@ pub fn create_backup(file_path: &Path) -> Result<PathBuf, ConfigError> {
         source: e,
     })?;
 
+    // `std::fs::copy` follows the source mode but applies the umask to
+    // the destination, so a 0600 source can land at 0644 on the backup.
+    // Backups of `~/.envforge/config.toml` may carry secrets / API
+    // keys; force 0600 so the copy is not world-readable. Mirrors the
+    // pattern used elsewhere (P2 snapshot, P3 changelog).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&final_path, std::fs::Permissions::from_mode(0o600)).map_err(
+            |e| ConfigError::IoError {
+                path: final_path.clone(),
+                source: e,
+            },
+        )?;
+    }
+
     Ok(final_path)
 }
 

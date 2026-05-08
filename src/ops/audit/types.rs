@@ -200,6 +200,12 @@ impl AuditEvent {
                 .unwrap_or_default()
                 .as_bytes(),
         );
+        // `metadata` is `serde_json::Value`; the default serde_json
+        // backing `Map<String, Value>` (without the `preserve_order`
+        // feature, see Cargo.toml) is alphabetic, so this serialization
+        // is deterministic across runs and matches across inserts of
+        // the same key set. The audit's chain-of-hash invariant therefore
+        // holds for the metadata field as well.
         hasher.update(
             serde_json::to_string(&self.metadata)
                 .unwrap_or_default()

@@ -184,7 +184,24 @@ async fn run_scanner_cmd(
             .ok()?;
 
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(content.as_bytes()).await;
+            // Cap stdin payload so we don't pump arbitrary megabytes
+            // through the pipe to a downstream scanner that may OOM
+            // (and which we then `wait_with_output` on, holding the
+            // stdout buffer in our own memory). 4 MiB comfortably
+            // exceeds any legitimate `.env` file.
+            const MAX_SCANNER_INPUT_BYTES: usize = 4 * 1024 * 1024;
+            let bytes = content.as_bytes();
+            let to_send = if bytes.len() > MAX_SCANNER_INPUT_BYTES {
+                eprintln!(
+                    "envforge: scanner input ({} bytes) exceeds {}-byte cap; truncating before send",
+                    bytes.len(),
+                    MAX_SCANNER_INPUT_BYTES
+                );
+                &bytes[..MAX_SCANNER_INPUT_BYTES]
+            } else {
+                bytes
+            };
+            let _ = stdin.write_all(to_send).await;
             let _ = stdin.shutdown().await;
         }
 

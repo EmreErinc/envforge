@@ -154,6 +154,12 @@ pub fn get_state(key: &str) -> Result<LifecycleState, OpError> {
 }
 
 /// Apply a state transition and persist to the state log.
+///
+/// Writes the lifecycle state log with mode 0600 on Unix at create
+/// time. State transitions can record sensitive metadata (rotation
+/// reasons, decommission justifications) and were previously created
+/// world-readable via the default umask. Defensive post-write chmod
+/// also tightens any existing log file from earlier versions.
 fn apply_state_transition(key: &str, event: &StateEvent) -> Result<LifecycleState, OpError> {
     use std::fs;
     use std::io::Write;
@@ -169,6 +175,17 @@ fn apply_state_transition(key: &str, event: &StateEvent) -> Result<LifecycleStat
     fs::create_dir_all(&dir)?;
 
     let path = dir.join(format!("{key}.jsonl"));
+
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(&path)?
+    };
+    #[cfg(not(unix))]
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -176,6 +193,20 @@ fn apply_state_transition(key: &str, event: &StateEvent) -> Result<LifecycleStat
 
     let line = serde_json::to_string(&transition)?;
     writeln!(file, "{line}")?;
+    // fsync so a crash between flush and writeback doesn't drop a
+    // transition the caller already committed to act on.
+    file.sync_all()?;
+
+    // Defensive post-write chmod for files inherited from older versions.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.permissions().mode() & 0o077 != 0 {
+                let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+            }
+        }
+    }
 
     Ok(next)
 }

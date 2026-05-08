@@ -89,12 +89,33 @@ pub fn parse_uri_content(content: &str) -> Vec<(String, String)> {
 }
 
 /// Result of resolving a single entry.
-#[derive(Debug, Clone)]
+///
+/// **`Debug` is implemented manually** to mask the secret `value` field.
+/// Without this, any `format!("{:?}", entry)`, panic message, `dbg!()`,
+/// or log statement would leak the resolved plaintext. Callers that
+/// truly need the value access it through the public field directly.
+#[derive(Clone)]
 pub struct ResolvedEntry {
     pub key: String,
     pub value: String,
     pub was_uri: bool,
     pub error: Option<String>,
+}
+
+impl std::fmt::Debug for ResolvedEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value_preview = if self.value.is_empty() {
+            "<empty>".to_string()
+        } else {
+            format!("***({} chars)", self.value.chars().count())
+        };
+        f.debug_struct("ResolvedEntry")
+            .field("key", &self.key)
+            .field("value", &value_preview)
+            .field("was_uri", &self.was_uri)
+            .field("error", &self.error)
+            .finish()
+    }
 }
 
 /// Resolve all secret URIs in a list of entries.

@@ -183,6 +183,45 @@ Verified by reading actual code:
 - **Search field regex DoS** — TUI uses `fuzzy_search` (substring/scoring, not regex).
 - **Listing `Commented` filter** — comment classification uses `LineNode::Comment` from parser, not `=` heuristic.
 
+#### Sixth rescan (8 fixes shipped + 2 false positives + 1 deferred)
+
+Sixth deep audit covered remaining surfaces (secrets/age, lifecycle/state_machine + orchestrator + rule_manager, audit/types + custody, parser/serialize, cli/commands.rs deep-grep, sync/init, config/backup, mcp_scan follow-up, share follow-up, uri_resolve follow-up, external_scanner, duplicates, supply chain) plus regression-verification of Q1-Q5. Q1-Q5 all hold.
+
+##### High
+
+- **T2 — Cache provider name path traversal** (`src/ops/secrets/cache.rs:105-160, 282-310`): `cache_file_path` sanitized `key` but not `provider`. A `provider="../../etc"` request would land cache writes outside the user's secrets-cache dir; cache files contain decrypted values. Now both `provider` and `key` are restricted to `[A-Za-z0-9_-]` (other chars folded to `_`); empty / NUL / >128-byte provider names are rejected. Same sanitization applied in `invalidate_provider_cache`.
+
+##### Medium
+
+- **T3 — Backup file world-readable after copy** (`src/config/backup.rs:11-62`): `std::fs::copy` applies umask to the destination, so a 0600 source could land at 0644 on the backup. Now post-`copy` chmod 0600 on Unix, errors propagated. Mirrors the P2 / P3 0600 pattern.
+- **T4 — Lifecycle state log world-readable + missing fsync** (`src/ops/lifecycle/orchestrator.rs:155-220`): state-transition `.jsonl` files were created with default umask. Now opens with `OpenOptions::mode(0o600)` on Unix at create time, calls `sync_all` after `writeln`, and applies a defensive post-write chmod for files inherited from older versions.
+- **T5 — Rule TOML size cap** (`src/ops/lifecycle/rule_manager.rs:83-110, 175-200`): every rule reader (`get_rule_at`, both `list_rules_in_dir` paths) now checks `metadata().len()` against `MAX_RULE_FILE_BYTES = 256 KiB` before `read_to_string` + `toml::from_str`, defending against OOM via a crafted / corrupt rule file. Mirrors 0.7.5 N7's MCP-config size cap.
+- **T6 — CSV report quoting** (`src/ops/audit/report_generator.rs::export_csv` + new `csv_field` helper): the previous code only replaced commas in `description` with semicolons and didn't emit `secret_key` despite advertising it in the header. New RFC 4180 `csv_field` helper wraps every field in `"…"`, doubles internal quotes, and folds `\r` / `\n` to spaces. All six columns now go through it.
+
+##### Low
+
+- **T7 — `ResolvedEntry` masked Debug** (`src/ops/uri_resolve.rs:91-118`): `derive(Debug)` on a struct with a plaintext `value: String` field meant any `format!("{:?}", ...)`, panic message, `dbg!()`, or log call leaked the resolved secret. Custom `Debug` impl now renders the value as `***(<n> chars)`. Real value still accessible via the public field for callers that need it.
+- **T8 — Multiple `Host` headers rejected** (`src/ops/proxy.rs::extract_host`): RFC 7230 §5.4 requires servers to respond 400 to requests with multiple Host headers (request-smuggling vector against intermediaries). `extract_host` now returns `None` when more than one `host:` line is present; the handler treats `None` as host-check failure → 403.
+- **T9 — External scanner stdin cap** (`src/ops/external_scanner.rs:185-210`): `stdin.write_all(content.as_bytes())` was unbounded; a 100 MiB `.env` could OOM the scanner subprocess (which envforge then waits on). Cap added at 4 MiB; oversized input is truncated with a single `eprintln!` notice.
+
+##### False positives ruled out
+
+- **T1 audit hash non-deterministic over `metadata`** — investigated. `metadata: serde_json::Value`. Default `serde_json::Map<String, Value>` (no `preserve_order` feature, see Cargo.toml) is alphabetically ordered, so existing `serde_json::to_string(&self.metadata)` IS deterministic. Doc-comment added to make this explicit and pin the assumption to the Cargo feature set.
+- **CLI `--token` / `--password` flags exist** — third pass through `cli/commands.rs` confirms no such flags. Sensitive values only flow via stdin / prompt / file. Repeated false positive across rescans.
+
+##### Deferred
+
+- **T10 — Parser CRLF preservation** (`src/parser/parse.rs:99-114`): unmodified lines preserve `\r` (round-trips through serialize cleanly); modified lines re-emit without `\r`, so editing a Windows-style `.envrc` in-place can lose CRs. Data-integrity issue, not security. Tracking for a future fix that detects line-ending style on parse and preserves on serialize for modified nodes.
+
+##### Q1-Q5 regression check
+
+Verified by reading code:
+- Q1 host check before secret routes; CORS = `null`; mixed-case Host handled. Plus T8 hardening for multiple Host headers.
+- Q2 iterative DP doesn't backtrack on `a*a*a*a*a*b` × `aaaa…`; correct on empty-pattern / all-`*` edge cases.
+- Q3 every `DiffEntry` construction site goes through `mask_diff_value`. No external constructors.
+- Q4 markdown_escape applied in violation rendering; T6 fixes the CSV side.
+- Q5 `O_NOFOLLOW_LOCAL` correct for Linux/macOS; `set_permissions` runs on the fd; `&File: Read` impl confirmed.
+
 ### Tests
 
 - New tests for `validate_remote_url` (accepts https / ssh / git / scp-like; rejects `ext::`, `file://`, leading dash, rsync, control chars).
@@ -199,10 +238,12 @@ Verified by reading actual code:
 - New `ProfileError::InvalidName` variant; `validate_profile_name` enforced at every profile entry point.
 - New lease APIs: `renew_lease(name, ttl_seconds)`, `with_lease_check_locked(key, f)`. `MAX_EVENTS_LOADED` constant in `query_engine`. `MAX_CIPHERTEXT_BYTES` / `MAX_PLAINTEXT_BYTES` in `encrypt`. New `receive_share_with(data, allow_expired)` in `share`. `ShareError::Expired` is now returned (was previously only formatted into stderr).
 - New `MAX_SNAPSHOT_CIPHERTEXT_BYTES` / `MAX_SNAPSHOT_PLAINTEXT_BYTES` in `sync/encryption.rs`. New `write_snapshot_secure` helper in `snapshot.rs`. New `MAX_INPUT_LEN` const + `redact_value_for_label` helper exposed by `ui/input.rs` / `lsp/completion.rs`.
-- New proxy helpers: `extract_host`, `is_host_loopback`. CORS header changed from `*` to `null` + `Vary: Origin`. New audit action `denied_host`.
+- New proxy helpers: `extract_host`, `is_host_loopback`. CORS header changed from `*` to `null` + `Vary: Origin`. New audit action `denied_host`. `extract_host` now rejects requests with multiple Host headers.
 - Glob matcher rewritten as iterative DP in both `sync/marking.rs` and `secrets/modes.rs` (private `glob_match_inner` removed; `glob_match` signature unchanged).
 - `DiffEntry` gained a `values_differ: bool` field; `value_a` / `value_b` are now masked.
-- New `markdown_escape` public helper in `audit/report_generator.rs`.
+- New `markdown_escape` and `csv_field` public helpers in `audit/report_generator.rs`.
+- `ResolvedEntry` now uses a manual masked `Debug` impl (was `derive(Debug)` exposing plaintext).
+- New `MAX_RULE_FILE_BYTES` const in `lifecycle/rule_manager.rs`. New `MAX_SCANNER_INPUT_BYTES` (inline) cap in `external_scanner.rs`. Cache provider names sanitized like keys.
 
 ## [0.7.4] - 2026-05-07
 
