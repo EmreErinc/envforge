@@ -103,6 +103,47 @@ Third deep audit covered subsystems untouched by the prior two passes (proxy, ru
 - **Parser `&s[1..]` panic** — third repeated false positive; `parse_quoted_value` only entered when `trimmed.starts_with('"' | '\'')`.
 - **Snapshot `metadata.name` not sanitized** — only the *filename* uses `safe_name` (alphanum + `-` + `_`). `metadata.name` is stored in TOML and only displayed, never used as a path component.
 
+#### Fourth rescan (5 additional findings — 1 High, 3 Medium, 1 Low)
+
+Fourth deep audit covered AI guard, AI hooks, fence, sync encryption / conflict / history, secrets/age, modes, full CLI argv sweep, LSP handlers / completion / hover, TUI input, dotenv, config / backup, snapshot, changelog. All O1-O10 fixes verified to hold (no regressions). New findings closed; 8 false positives documented.
+
+##### High
+
+- **P1 — `decrypt_snapshot` ciphertext + plaintext caps** (`src/ops/sync/encryption.rs:51-77`): O7 fixed `encrypt::decrypt_value` but `sync::encryption::decrypt_snapshot` is a separate code path with the same shape — no size cap before `Decryptor::new`, `read_to_string` unbounded. A malicious sync remote could ship a decompression-bomb age file and OOM `envforge sync pull`. Added `MAX_SNAPSHOT_CIPHERTEXT_BYTES = 8 MiB` checked before `Decryptor::new` and `Read::take(reader, MAX_SNAPSHOT_PLAINTEXT_BYTES = 8 MiB)` on the decrypted reader.
+
+##### Medium
+
+- **P2 — Snapshot file world-readable** (`src/ops/snapshot.rs:102`): `fs::write(&path, content)` inherited the umask (typically 0644). Snapshot TOML embeds live ENV values verbatim (intentionally plaintext-on-disk under `~/.envforge/snapshots`; encryption only applies to the *sync* layer). New `write_snapshot_secure` helper uses `OpenOptions::mode(0o600)` on Unix and refuses to run on non-unix. Same pattern used in 0.7.5 N4 for `lifecycle/rollback.rs`.
+- **P3 — Changelog file world-readable** (`src/ops/changelog.rs:39-69`): `OpenOptions::create(true).append(true)` inherited the umask. Changelog records action / key / timestamp history — useful workflow signal even without values. Now opens with `.mode(0o600)` on Unix at create time, plus a defensive post-write chmod for files already on disk from older versions with looser perms.
+- **P4 — LSP completion suggested live secret values as labels** (`src/lsp/completion.rs:192-216`): the "current value" suggestion put `mv.value.clone()` in `CompletionItem.label`. Editors render labels in completion popups and may persist them in history files / telemetry — turning the LSP into a side-channel for secret exposure. Now `label` is a redacted preview (`***` for short values, `<2 chars>***(<n> chars)` for longer) and the real value flows via `insert_text`, so accepting the suggestion still works. New helper `redact_value_for_label`.
+
+##### Low
+
+- **P5 — TUI text input length cap** (`src/ui/input.rs`): `TextInput::insert` and `::new` were unbounded; bracketed-paste in modern terminals can deliver megabytes per event, OOM-ing the backing `String`. New `MAX_INPUT_LEN = 128 KiB` constant; `insert` silently refuses past the cap, `new` truncates oversized initial text at a UTF-8 char boundary.
+
+##### O1-O10 regression check
+
+Verified by reading actual code, not just file presence:
+- O1 (audit emitter): both append and first-write paths set 0600; append also `sync_all`s. ✓
+- O2 (profile name validation): `validate_profile_name` called at top of `create_profile`, `delete_profile`, `switch_profile`. ✓
+- O3 (lease lock): mutex acquired in create / revoke / revoke_all / check / renew / `with_lease_check_locked`. ✓
+- O4 (quote escape): double-quote escapes `\` then `"`; single-quote uses POSIX close-escape-reopen. ✓
+- O5 (scanner cap): `metadata().len()` check is BEFORE `read_to_string`. ✓
+- O6 (audit query): `BufReader::lines` truly streams; `MAX_EVENTS_LOADED = 250_000` cap triggers via `saturating_sub`. ✓
+- O7 (encrypt cap): `Read::take` wraps the actual `Decryptor::decrypt` reader, not the post-`read_to_string` value. ✓
+- O9 (share TTL): `receive_share` (no `_with`) returns `Err(ShareError::Expired)`, not warn-only. ✓
+
+##### False positives ruled out
+
+- **`ai_hooks.rs:48-49` shell injection** — verified `"$TOOL_INPUT"` is double-quoted in the shell command string. Shell `$`-expansion inside double quotes does not re-interpret the expanded value's metacharacters; the value lands as a single literal arg to `envforge`. Standard safe pattern.
+- **`ai_guard.rs::is_sensitive_path` Unicode bypass** — `is_sensitive_path` is a heuristic prepass for warnings. Actual fence / permission decisions go through exact-byte path matches. A homoglyph that fools the heuristic just reduces guidance quality; it does not bypass enforcement.
+- **`GuardResult.blocked` advisory** — calling sites already check `if result.blocked { ... }`. Type-system enforcement is style, not security.
+- **`sync/conflict.rs` trusts remote values** — sync is consent-based; auto-resolution only fires when user has explicitly set `[sync] conflict_strategy = keep-remote`. Plus 0.7.5 M4 `verify_signatures` now available for stricter setups. Not a finding.
+- **`fence.rs` not runtime-enforced** — fence writes Claude Code deny rules; enforcement is Claude Code's. Documented as defense-in-depth, not isolation.
+- **`secrets_cmd.rs` `--set token=VALUE` argv** — already documented in 0.7.4 hardening notes as a known design limitation; users directed to stdin / config file for sensitive values. Not new.
+- **Volatile mode heap fragmentation** — `modes.rs` uses `zeroize` correctly; secrets cleared before scope exit. No persistent disk write in volatile path.
+- **`copypasta` unmaintained** — verified currently maintained (0.10.2 latest); no open advisories.
+
 ### Tests
 
 - New tests for `validate_remote_url` (accepts https / ssh / git / scp-like; rejects `ext::`, `file://`, leading dash, rsync, control chars).
@@ -118,6 +159,7 @@ Third deep audit covered subsystems untouched by the prior two passes (proxy, ru
 - `walk_json` in `src/ops/mcp_scan.rs` gained a required `depth: usize` parameter (private function; no public-API impact).
 - New `ProfileError::InvalidName` variant; `validate_profile_name` enforced at every profile entry point.
 - New lease APIs: `renew_lease(name, ttl_seconds)`, `with_lease_check_locked(key, f)`. `MAX_EVENTS_LOADED` constant in `query_engine`. `MAX_CIPHERTEXT_BYTES` / `MAX_PLAINTEXT_BYTES` in `encrypt`. New `receive_share_with(data, allow_expired)` in `share`. `ShareError::Expired` is now returned (was previously only formatted into stderr).
+- New `MAX_SNAPSHOT_CIPHERTEXT_BYTES` / `MAX_SNAPSHOT_PLAINTEXT_BYTES` in `sync/encryption.rs`. New `write_snapshot_secure` helper in `snapshot.rs`. New `MAX_INPUT_LEN` const + `redact_value_for_label` helper exposed by `ui/input.rs` / `lsp/completion.rs`.
 
 ## [0.7.4] - 2026-05-07
 

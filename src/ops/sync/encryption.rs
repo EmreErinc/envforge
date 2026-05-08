@@ -44,6 +44,19 @@ pub fn encrypt_snapshot(toml_content: &str) -> Result<String, SyncError> {
     Ok(format!("{}{}", ENCRYPTED_HEADER, encoded))
 }
 
+/// Maximum decoded ciphertext size accepted by [`decrypt_snapshot`].
+/// Snapshots are TOML files containing tracked ENV entries; legitimate
+/// content fits comfortably in single-digit MiB. The cap defends against
+/// decompression-bomb-style age files in a malicious sync remote
+/// causing OOM during `envforge sync pull`. Mirrors the cap in
+/// `src/ops/encrypt.rs` (0.7.5 O7).
+const MAX_SNAPSHOT_CIPHERTEXT_BYTES: usize = 8 * 1024 * 1024;
+
+/// Maximum decrypted plaintext size read from the age stream. Bounds
+/// memory growth even if the decryptor surfaces an unexpectedly large
+/// stream from a crafted ciphertext.
+const MAX_SNAPSHOT_PLAINTEXT_BYTES: u64 = 8 * 1024 * 1024;
+
 /// Decrypt an encrypted snapshot back to TOML string.
 ///
 /// Auto-detects encrypted vs plaintext. If the content does not start with the
@@ -55,6 +68,15 @@ pub fn decrypt_snapshot(content: &str) -> Result<String, SyncError> {
 
     let encoded = &content[ENCRYPTED_HEADER.len()..];
     let decoded = base64_decode(encoded)?;
+    if decoded.len() > MAX_SNAPSHOT_CIPHERTEXT_BYTES {
+        return Err(SyncError::EncryptionFailed {
+            message: format!(
+                "encrypted snapshot too large ({} bytes, max {})",
+                decoded.len(),
+                MAX_SNAPSHOT_CIPHERTEXT_BYTES
+            ),
+        });
+    }
 
     let key_content =
         crate::ops::encrypt::ensure_age_key().map_err(|e| SyncError::EncryptionFailed {
@@ -64,12 +86,13 @@ pub fn decrypt_snapshot(content: &str) -> Result<String, SyncError> {
 
     let decryptor = age::Decryptor::new(&decoded[..]).map_err(|_| SyncError::DecryptionFailed)?;
 
-    let mut reader = decryptor
+    let reader = decryptor
         .decrypt(std::iter::once(&identity as &dyn age::Identity))
         .map_err(|_| SyncError::DecryptionFailed)?;
 
+    let mut limited = std::io::Read::take(reader, MAX_SNAPSHOT_PLAINTEXT_BYTES);
     let mut decrypted = String::new();
-    reader
+    limited
         .read_to_string(&mut decrypted)
         .map_err(|_| SyncError::DecryptionFailed)?;
 

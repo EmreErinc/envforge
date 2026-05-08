@@ -189,15 +189,27 @@ fn value_completions(
         }
     }
 
-    // Suggest current value from managed vars
+    // Suggest current value from managed vars.
+    //
+    // The completion label is shown in the editor's completion popup AND
+    // is often persisted in completion / suggestion history (VS Code,
+    // Neovim, JetBrains). Putting the live secret value in `label`
+    // turns the LSP into a side-channel for secret exposure (screen
+    // recording, pair programming, history files). Use a redacted
+    // preview as the visible label and `insert_text` for the actual
+    // value the user will get on accept.
     for mv in managed_vars {
         if mv.key == key && !mv.value.is_empty() {
-            let already = items.iter().any(|i| i.label == mv.value);
+            let preview = redact_value_for_label(&mv.value);
+            let already = items
+                .iter()
+                .any(|i| i.detail.as_deref() == Some("current value") && i.label == preview);
             if !already {
                 items.push(CompletionItem {
-                    label: mv.value.clone(),
+                    label: preview,
                     kind: Some(CompletionItemKind::VALUE),
                     detail: Some("current value".into()),
+                    insert_text: Some(mv.value.clone()),
                     sort_text: Some("0_current".into()),
                     ..Default::default()
                 });
@@ -260,4 +272,18 @@ fn reference_completions(
     }
 
     items
+}
+
+/// Render a non-revealing preview of a secret value for use as an LSP
+/// completion `label`. Editor clients display labels in popups and may
+/// persist them in history; the real value still flows through
+/// `insert_text` so accepting the suggestion works normally.
+fn redact_value_for_label(value: &str) -> String {
+    let len = value.chars().count();
+    if len <= 4 {
+        "***".to_string()
+    } else {
+        let head: String = value.chars().take(2).collect();
+        format!("{head}***({len} chars)")
+    }
 }

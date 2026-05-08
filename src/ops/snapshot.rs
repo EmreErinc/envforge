@@ -99,12 +99,45 @@ pub fn create_snapshot(
     let path = dir.join(&filename);
 
     let content = toml::to_string_pretty(&snapshot)?;
-    fs::write(&path, content)?;
+    write_snapshot_secure(&path, &content)?;
 
     // Auto-prune old snapshots
     let _ = prune_snapshots(20);
 
     Ok(path)
+}
+
+/// Write a snapshot file with 0600 permissions on Unix.
+///
+/// Snapshots embed live ENV values verbatim (these are intentionally
+/// stored plaintext-on-disk under `~/.envforge/snapshots`, NOT encrypted —
+/// the encryption layer lives in `sync/encryption.rs`). Default umask
+/// would leave them world-readable; this helper sets 0600 at create time
+/// via `OpenOptions::mode`, matching the pattern used by `analytics/storage.rs`
+/// and the lifecycle-rollback fix.
+fn write_snapshot_secure(path: &std::path::Path, content: &str) -> Result<(), OpError> {
+    use std::io::Write;
+
+    #[cfg(not(unix))]
+    {
+        let _ = (path, content);
+        return Err(OpError::from(
+            "snapshot writes require a unix-like OS for secure (0600) writes",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(content.as_bytes())?;
+        file.sync_all()?;
+        Ok(())
+    }
 }
 
 // ── List ───────────────────────────────────────────────────

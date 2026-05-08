@@ -34,14 +34,38 @@ pub fn log_change(profile: &str, action: &str, key: &str, detail: &str) {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        // Append
+        // Append. Set 0600 at create time on Unix so the changelog (which
+        // records action/key history — useful workflow signal even
+        // without values) never lands world-readable. Defensively
+        // tighten perms on every open so a stale 0644 file from earlier
+        // versions is corrected on first use.
         use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
+        #[cfg(unix)]
+        let opener = {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .open(&path)
+        };
+        #[cfg(not(unix))]
+        let opener = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&path)
-        {
+            .open(&path);
+
+        if let Ok(mut file) = opener {
             let _ = file.write_all(line.as_bytes());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&path) {
+                if meta.permissions().mode() & 0o077 != 0 {
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+                }
+            }
         }
 
         // Rotate if needed
