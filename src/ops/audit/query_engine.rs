@@ -331,6 +331,14 @@ fn compute_time_range(events: &[AuditEvent]) -> TimeRange {
 // ─── Log Reader ────────────────────────────────────────────────────
 
 /// Read all events from all JSONL log files in a directory.
+/// Hard cap on the number of events loaded from disk in a single
+/// query. With long-running installs, audit logs grow without bound;
+/// loading a multi-million-entry log into a `Vec<AuditEvent>` exhausts
+/// memory before the filter pipeline ever runs. When the cap is hit,
+/// the call returns the events read so far so the user gets *something*
+/// useful, plus an `eprintln!` so the truncation is visible.
+pub const MAX_EVENTS_LOADED: usize = 250_000;
+
 pub fn read_all_events(log_dir: &Path) -> Result<Vec<AuditEvent>, QueryError> {
     let mut events = Vec::new();
 
@@ -341,7 +349,16 @@ pub fn read_all_events(log_dir: &Path) -> Result<Vec<AuditEvent>, QueryError> {
     for category in LogCategory::all() {
         let path = log_dir.join(category.filename());
         if path.exists() {
-            let category_events = read_events_file(&path)?;
+            let remaining = MAX_EVENTS_LOADED.saturating_sub(events.len());
+            if remaining == 0 {
+                eprintln!(
+                    "audit query: hit MAX_EVENTS_LOADED ({}); results truncated. \
+                     Use --since / --until to narrow the window.",
+                    MAX_EVENTS_LOADED
+                );
+                break;
+            }
+            let category_events = read_events_file_capped(&path, remaining)?;
             events.extend(category_events);
         }
     }
@@ -363,13 +380,30 @@ pub fn read_events_by_category(
 }
 
 fn read_events_file(path: &Path) -> Result<Vec<AuditEvent>, QueryError> {
-    let content = std::fs::read_to_string(path).map_err(|e| QueryError::ReadFailed {
+    read_events_file_capped(path, usize::MAX)
+}
+
+/// Read events from a JSONL log file, line-by-line, stopping after
+/// `cap` events. Streams through `BufRead::lines` instead of loading
+/// the entire file into one `String` so a single 1 GiB log file does
+/// not require 1 GiB resident memory just to be parsed.
+fn read_events_file_capped(path: &Path, cap: usize) -> Result<Vec<AuditEvent>, QueryError> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(path).map_err(|e| QueryError::ReadFailed {
         path: path.to_path_buf(),
         source: e,
     })?;
+    let reader = std::io::BufReader::new(file);
 
     let mut events = Vec::new();
-    for (line_num, line) in content.lines().enumerate() {
+    for (idx, line_result) in reader.lines().enumerate() {
+        if events.len() >= cap {
+            break;
+        }
+        let line = line_result.map_err(|e| QueryError::ReadFailed {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -377,7 +411,7 @@ fn read_events_file(path: &Path) -> Result<Vec<AuditEvent>, QueryError> {
         let event: AuditEvent =
             serde_json::from_str(line).map_err(|e| QueryError::ParseFailed {
                 path: path.to_path_buf(),
-                line: (line_num + 1) as u64,
+                line: (idx + 1) as u64,
                 source: e,
             })?;
         events.push(event);

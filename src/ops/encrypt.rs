@@ -139,6 +139,17 @@ pub fn encrypt_value(plain: &str) -> Result<String, EncryptError> {
     Ok(format!("{}{}{}", ENC_PREFIX, encoded, ENC_SUFFIX_STR))
 }
 
+/// Maximum decoded ciphertext size accepted by [`decrypt_value`].
+/// Legitimate ENV values are well under 1 MiB; bigger inputs are
+/// rejected to defend against decompression-bomb-style age files that
+/// would balloon during `read_to_string`.
+const MAX_CIPHERTEXT_BYTES: usize = 1024 * 1024;
+
+/// Maximum decrypted plaintext size read from an age stream. Bounds
+/// memory growth even if the decryptor itself surfaces an unexpectedly
+/// large stream from a crafted ciphertext.
+const MAX_PLAINTEXT_BYTES: u64 = 1024 * 1024;
+
 /// Decrypt an encrypted value.
 pub fn decrypt_value(encrypted: &str) -> Result<String, EncryptError> {
     let key_content = ensure_age_key()?;
@@ -146,16 +157,24 @@ pub fn decrypt_value(encrypted: &str) -> Result<String, EncryptError> {
 
     let data = extract_encrypted_data(encrypted)?;
     let decoded = base64_decode(&data)?;
+    if decoded.len() > MAX_CIPHERTEXT_BYTES {
+        return Err(EncryptError::DecryptFailed(format!(
+            "ciphertext too large ({} bytes, max {})",
+            decoded.len(),
+            MAX_CIPHERTEXT_BYTES
+        )));
+    }
 
     let decryptor = age::Decryptor::new(&decoded[..])
         .map_err(|e| EncryptError::DecryptFailed(e.to_string()))?;
 
-    let mut reader = decryptor
+    let reader = decryptor
         .decrypt(std::iter::once(&identity as &dyn age::Identity))
         .map_err(|e| EncryptError::DecryptFailed(e.to_string()))?;
 
+    let mut limited = std::io::Read::take(reader, MAX_PLAINTEXT_BYTES);
     let mut decrypted = String::new();
-    reader
+    limited
         .read_to_string(&mut decrypted)
         .map_err(|e| EncryptError::DecryptFailed(e.to_string()))?;
 

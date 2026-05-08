@@ -14,6 +14,14 @@ pub struct SharePackage {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ShareMeta {
     pub created_at: String,
+    /// Hostname of the sender at encryption time.
+    ///
+    /// **Not authenticated.** This field is set by the sender from
+    /// `hostname::get()` and is preserved as-is through age encryption,
+    /// but age does not bind it to the sender's identity. Treat this
+    /// value as informational metadata, NOT proof of origin. If you
+    /// need verifiable sender identity, sign the share contents with
+    /// the sender's private age key out-of-band and verify on receipt.
     pub created_by: String,
     pub key_count: usize,
     pub expires_at: Option<String>,
@@ -106,7 +114,32 @@ pub fn create_share(
 }
 
 /// Receive (decrypt) a share file using local age private key.
+///
+/// By default, expired shares are rejected (`ShareError::Expired`).
+/// Pass `allow_expired = true` to bypass — typically for recovery /
+/// inspection where the user has already accepted that the TTL passed.
 pub fn receive_share(encrypted_data: &[u8]) -> Result<SharePackage, ShareError> {
+    receive_share_with(encrypted_data, false)
+}
+
+/// Variant of [`receive_share`] that lets the caller opt into accepting
+/// expired shares.
+pub fn receive_share_with(
+    encrypted_data: &[u8],
+    allow_expired: bool,
+) -> Result<SharePackage, ShareError> {
+    // Cap input size — same reasoning as encrypt::decrypt_value: defend
+    // against decompression-bomb-style age files.
+    const MAX_SHARE_BYTES: usize = 8 * 1024 * 1024;
+    const MAX_SHARE_PLAINTEXT_BYTES: u64 = 8 * 1024 * 1024;
+    if encrypted_data.len() > MAX_SHARE_BYTES {
+        return Err(ShareError::DecryptFailed(format!(
+            "share blob too large ({} bytes, max {})",
+            encrypted_data.len(),
+            MAX_SHARE_BYTES
+        )));
+    }
+
     // Load local age identity
     let key_content = ensure_age_key()?;
     let identity = get_identity(&key_content)?;
@@ -115,12 +148,13 @@ pub fn receive_share(encrypted_data: &[u8]) -> Result<SharePackage, ShareError> 
     let decryptor = age::Decryptor::new(encrypted_data)
         .map_err(|e| ShareError::DecryptFailed(e.to_string()))?;
 
-    let mut reader = decryptor
+    let reader = decryptor
         .decrypt(std::iter::once(&identity as &dyn age::Identity))
         .map_err(|e| ShareError::DecryptFailed(e.to_string()))?;
 
+    let mut limited = std::io::Read::take(reader, MAX_SHARE_PLAINTEXT_BYTES);
     let mut decrypted = String::new();
-    reader
+    limited
         .read_to_string(&mut decrypted)
         .map_err(|e| ShareError::DecryptFailed(e.to_string()))?;
 
@@ -128,14 +162,20 @@ pub fn receive_share(encrypted_data: &[u8]) -> Result<SharePackage, ShareError> 
     let package: SharePackage = toml::from_str(&decrypted)
         .map_err(|e| ShareError::InvalidFormat(format!("TOML parse failed: {}", e)))?;
 
-    // Check expiry (warn but don't block)
+    // Hard-block expired shares unless caller explicitly opts in.
+    // The 0.7.5 behaviour ("warn but don't block") was advisory only,
+    // which made the TTL a comment rather than a control.
     if let Some(ref expires_at) = package.metadata.expires_at {
         if let Ok(expiry) = chrono::DateTime::parse_from_str(expires_at, "%Y-%m-%dT%H:%M:%S%z") {
             if chrono::Local::now() > expiry {
-                eprintln!(
-                    "Warning: this share expired at {}. Proceeding anyway.",
-                    expires_at
-                );
+                if allow_expired {
+                    eprintln!(
+                        "Warning: share expired at {} (--allow-expired set, proceeding).",
+                        expires_at
+                    );
+                } else {
+                    return Err(ShareError::Expired(expires_at.clone()));
+                }
             }
         }
     }

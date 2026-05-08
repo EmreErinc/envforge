@@ -112,6 +112,16 @@ fn scan_file(
         return Ok(());
     }
 
+    // Cap per-file size to defend against OOM when scanning user-pointed
+    // directories that may contain a massive text-like file (e.g. a
+    // crafted log inside a repo `envforge scan` is asked to walk).
+    const MAX_SCAN_FILE_BYTES: u64 = 10 * 1024 * 1024;
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() > MAX_SCAN_FILE_BYTES {
+            return Ok(());
+        }
+    }
+
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return Ok(()), // Skip unreadable files

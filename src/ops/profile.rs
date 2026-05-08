@@ -15,6 +15,30 @@ fn shellexpand(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Strict profile-name validation: only `[A-Za-z0-9_-]{1,64}`.
+///
+/// Profile names get interpolated into a filesystem path
+/// (`~/.env_managed.{name}`). Without validation, a name like
+/// `../../etc/cron.d/evil` would resolve outside the user's home
+/// directory and let the caller write/delete arbitrary files.
+fn validate_profile_name(name: &str) -> Result<(), ProfileError> {
+    if name.is_empty() || name.len() > 64 {
+        return Err(ProfileError::InvalidName(name.to_string()));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(ProfileError::InvalidName(name.to_string()));
+    }
+    // Reject leading dash so the name can never be parsed as a CLI flag
+    // by a downstream caller.
+    if name.starts_with('-') {
+        return Err(ProfileError::InvalidName(name.to_string()));
+    }
+    Ok(())
+}
+
 /// Switch the active profile.
 ///
 /// Updates config and replaces the profile source directive in the shell config.
@@ -23,6 +47,7 @@ pub fn switch_profile(
     primary_shell_file: &mut ShellFile,
     new_profile: &str,
 ) -> Result<(), ProfileError> {
+    validate_profile_name(new_profile)?;
     // Validate profile exists
     if !config.profiles.entries.contains_key(new_profile) {
         return Err(ProfileError::NotFound(new_profile.to_string()));
@@ -47,6 +72,7 @@ pub fn switch_profile(
 
 /// Create a new profile.
 pub fn create_profile(config: &mut AppConfig, name: &str) -> Result<PathBuf, ProfileError> {
+    validate_profile_name(name)?;
     if config.profiles.entries.contains_key(name) {
         return Err(ProfileError::AlreadyExists(name.to_string()));
     }
@@ -79,6 +105,7 @@ pub fn delete_profile(
     name: &str,
     delete_file: bool,
 ) -> Result<(), ProfileError> {
+    validate_profile_name(name)?;
     if config.profiles.active == name {
         return Err(ProfileError::CannotDeleteActive(name.to_string()));
     }
@@ -289,4 +316,7 @@ pub enum ProfileError {
 
     #[error("config error")]
     ConfigError,
+
+    #[error("invalid profile name '{0}': must be 1-64 chars of [A-Za-z0-9_-], no leading dash")]
+    InvalidName(String),
 }

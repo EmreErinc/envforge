@@ -339,8 +339,22 @@ pub fn emit_to(
     let line_with_newline = format!("{line_json}\n");
 
     let (line_number, bytes_written) = if path.exists() {
-        // Append to existing file
+        // Append to existing file. Defensively tighten permissions to 0600
+        // in case an older envforge created the file with a looser umask
+        // or an external actor relaxed them. Audit logs contain
+        // `secret_key` names, source attribution, and AI-guard verdicts;
+        // they must not be world-readable.
         let existing_lines = count_lines(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&path) {
+                let mode = meta.permissions().mode();
+                if mode & 0o077 != 0 {
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+                }
+            }
+        }
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .open(&path)
@@ -358,15 +372,34 @@ pub fn emit_to(
             path: path.clone(),
             source: e,
         })?;
+        // fsync after every append: without this, a crash between flush
+        // and writeback drops audit events. For an audit trail this is
+        // a confidentiality / non-repudiation issue, not just durability.
+        file.sync_all().map_err(|e| EmitterError::WriteFailed {
+            path: path.clone(),
+            source: e,
+        })?;
         (existing_lines + 1, line_with_newline.len())
     } else {
-        // First write to this log file — use atomic write
+        // First write to this log file — use atomic write, then chmod 0600.
+        // `atomic_write` does fsync but inherits the umask of the caller,
+        // which is typically 0644.
         crate::config::atomic_write(&path, &line_with_newline, None).map_err(|e| {
             EmitterError::WriteFailed {
                 path: path.clone(),
                 source: std::io::Error::other(e.to_string()),
             }
         })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).map_err(
+                |e| EmitterError::WriteFailed {
+                    path: path.clone(),
+                    source: e,
+                },
+            )?;
+        }
         (1, line_with_newline.len())
     };
 

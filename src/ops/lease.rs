@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -6,6 +7,26 @@ use serde::{Deserialize, Serialize};
 use super::OpError;
 
 const LEASES_DIR: &str = "leases";
+
+/// Process-wide lock serializing every lease operation
+/// (create / revoke / renew / check). Without this, a concurrent
+/// `revoke_lease` could land between [`check_lease_access`] returning
+/// "allowed" and the caller actually using the secret. The window is
+/// narrow but real on multi-threaded callers (proxy + run sharing
+/// state). Cross-process races still exist but are out of scope —
+/// kernel `flock` would address them.
+fn lease_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Acquire the lease lock, recovering from poisoning so a panic in one
+/// caller doesn't permanently disable lease checks for the rest.
+fn acquire_lease_lock() -> std::sync::MutexGuard<'static, ()> {
+    lease_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lease {
@@ -47,6 +68,7 @@ pub fn create_lease(
     ttl_seconds: i64,
     keys: Option<Vec<String>>,
 ) -> Result<Lease, OpError> {
+    let _guard = acquire_lease_lock();
     let now = Utc::now();
     let expires = now + chrono::Duration::seconds(ttl_seconds);
 
@@ -123,8 +145,43 @@ fn list_leases_in(dir: &std::path::Path) -> Vec<LeaseStatus> {
 
 /// Revoke a specific lease.
 pub fn revoke_lease(name: &str) -> Result<bool, OpError> {
+    let _guard = acquire_lease_lock();
     let dir = leases_dir()?;
     revoke_lease_in(&dir, name)
+}
+
+/// Renew (extend) an existing, non-revoked lease by `ttl_seconds`.
+/// Returns the updated lease, or `None` if the lease does not exist.
+/// Errors if the lease has already been revoked or has already expired
+/// (callers should create a new lease in that case).
+pub fn renew_lease(name: &str, ttl_seconds: i64) -> Result<Option<Lease>, OpError> {
+    let _guard = acquire_lease_lock();
+    let dir = leases_dir()?;
+    let path = dir.join(format!("{}.toml", name));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let mut lease: Lease = toml::from_str(&content)?;
+    if lease.revoked {
+        return Err(OpError::from(format!(
+            "lease '{}' is revoked; create a new lease instead",
+            name
+        )));
+    }
+    if let Ok(expires) = DateTime::parse_from_rfc3339(&lease.expires_at) {
+        if expires.with_timezone(&Utc) <= Utc::now() {
+            return Err(OpError::from(format!(
+                "lease '{}' has already expired; create a new lease instead",
+                name
+            )));
+        }
+    }
+    let new_expires = Utc::now() + chrono::Duration::seconds(ttl_seconds);
+    lease.expires_at = new_expires.to_rfc3339();
+    let updated = toml::to_string_pretty(&lease)?;
+    std::fs::write(&path, updated)?;
+    Ok(Some(lease))
 }
 
 fn revoke_lease_in(dir: &std::path::Path, name: &str) -> Result<bool, OpError> {
@@ -145,6 +202,7 @@ fn revoke_lease_in(dir: &std::path::Path, name: &str) -> Result<bool, OpError> {
 
 /// Revoke ALL leases (killswitch).
 pub fn revoke_all_leases() -> Result<usize, OpError> {
+    let _guard = acquire_lease_lock();
     let dir = leases_dir()?;
     revoke_all_in(&dir)
 }
@@ -170,12 +228,29 @@ fn revoke_all_in(dir: &std::path::Path) -> Result<usize, OpError> {
 
 /// Check if a key is accessible under any active (non-expired, non-revoked) lease.
 /// Returns Some(lease_name) if access granted, None if denied.
+///
+/// Holds the process-wide lease lock for the duration of the check, so a
+/// concurrent `revoke_lease` / `revoke_all_leases` cannot land between
+/// the check and the caller's use of the returned verdict (in-process
+/// TOCTOU). For tighter coupling, callers can use
+/// [`with_lease_check_locked`] to keep the lock held while consuming.
 pub fn check_lease_access(key: &str) -> Option<String> {
+    let _guard = acquire_lease_lock();
     let dir = match leases_dir() {
         Ok(d) => d,
         Err(_) => return None,
     };
     check_lease_access_in(&dir, key)
+}
+
+/// Run `f` while holding the lease lock, after a successful access check.
+/// Lets a caller (e.g. proxy / run) atomically check access and then
+/// release the secret without a concurrent revoke racing in between.
+pub fn with_lease_check_locked<T, F: FnOnce(&str) -> T>(key: &str, f: F) -> Option<T> {
+    let _guard = acquire_lease_lock();
+    let dir = leases_dir().ok()?;
+    let lease_name = check_lease_access_in(&dir, key)?;
+    Some(f(&lease_name))
 }
 
 fn check_lease_access_in(dir: &std::path::Path, key: &str) -> Option<String> {

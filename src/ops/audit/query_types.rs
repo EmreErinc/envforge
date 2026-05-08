@@ -368,6 +368,20 @@ fn validate_filter_compatibility(
                 reason: "MetadataKey cannot be empty".to_string(),
             });
         }
+        // Cap user-supplied filter keys so a deserialized API request
+        // can't ship a 1 MiB string into the matcher loop and OOM.
+        const MAX_METADATA_KEY_LEN: usize = 256;
+        if key.len() > MAX_METADATA_KEY_LEN {
+            return Err(QueryError::InvalidFilter {
+                field: field.clone(),
+                op,
+                reason: format!(
+                    "MetadataKey too long ({} chars, max {})",
+                    key.len(),
+                    MAX_METADATA_KEY_LEN
+                ),
+            });
+        }
     }
 
     Ok(())

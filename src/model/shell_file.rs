@@ -123,8 +123,18 @@ impl LineNode {
                     ExportStyle::Bare => "",
                 };
                 let quoted_value = match quote_style {
-                    QuoteStyle::Double => format!("\"{}\"", value),
-                    QuoteStyle::Single => format!("'{}'", value),
+                    // Escape `\` and `"` so a value containing the closing
+                    // quote character cannot break out and corrupt the
+                    // line. Without this, a modified value like `he"llo`
+                    // would serialize as `KEY="he"llo"` and re-parse to
+                    // a different value, breaking the round-trip
+                    // invariant the rest of the codebase relies on.
+                    QuoteStyle::Double => {
+                        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+                    }
+                    // POSIX single-quote rule: there is no escape inside
+                    // single quotes; close, escape, reopen.
+                    QuoteStyle::Single => format!("'{}'", value.replace('\'', "'\\''")),
                     QuoteStyle::None => value.clone(),
                 };
                 let comment_suffix = match inline_comment {

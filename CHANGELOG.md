@@ -70,6 +70,39 @@ A second deep audit after the C / H / M / L pass surfaced fanout gaps and module
 - C1 URL `?` / `#` smuggling — git does not interpret URL query strings as CLI flags. `--upload-pack=` injection requires `-c` config or argv injection (already blocked).
 - `validate_env_pair` not applied to credentials — verified: every credential map flows `build_provider_env` → `env_refs_from_env` → `run_cli` / `run_cli_with_stdin` (or the three direct `cmd.env` sites in pass/vault/conjur), all of which call `validate_env_pair`. Coverage complete.
 
+#### Third rescan (10 additional findings — 2 High, 6 Medium, 2 Low)
+
+Third deep audit covered subsystems untouched by the prior two passes (proxy, run, share, lease, audit emitter / query / custody / report / ai-guard, profile, snapshot, parser deep, scanner, dotenv, CLI surface, model). All real findings closed; 7 false positives documented separately.
+
+##### High
+
+- **O1 — Audit log permissions + missing fsync on append** (`src/ops/audit/emitter.rs:341-371`): two paths — append (`OpenOptions::new().append(true)`) inherited the umask (typically 0644 → world-readable) and only `flush`ed without `sync_all`; first-write went through `atomic_write` which fsyncs but didn't chmod 0600. Audit logs contain `secret_key` names, source attribution, and AI-guard verdicts. Now both paths set 0600 (defensive chmod on append-open if the existing file has looser perms), and the append path calls `sync_all` after `flush` so a power-loss between flush and writeback can no longer drop audit entries.
+- **O2 — Profile name path traversal** (`src/ops/profile.rs`): `create_profile(name)` interpolated `name` into `~/.env_managed.{name}` and wrote there; same vector in `delete_profile` and `switch_profile`. With `name = "../../etc/cron.d/evil"` the resolved path escaped `$HOME`. New `validate_profile_name` enforces strict `[A-Za-z0-9_-]{1,64}` (no leading dash); applied at the top of `create_profile`, `delete_profile`, and `switch_profile`. New `ProfileError::InvalidName` variant.
+
+##### Medium
+
+- **O3 — Lease TOCTOU + missing renew** (`src/ops/lease.rs`): `check_lease_access` returned a verdict that a concurrent `revoke_lease` could invalidate before the caller actually used the secret. New process-wide `OnceLock<Mutex<()>>` serializes every lease op (create / revoke / revoke-all / check). New `with_lease_check_locked(key, f)` lets a caller (proxy / run) hold the lock from access check through secret release atomically. New `renew_lease(name, ttl_seconds)` — extends a non-revoked, non-expired lease in one transaction.
+- **O4 — Quote-style serialize escapes embedded quotes** (`src/model/shell_file.rs:125-138`): when `modified=true`, `format!("\"{}\"", value)` blindly wrapped values, so `value=he"llo` produced malformed output that re-parsed to a different value. Now POSIX-correct: `Double` escapes `\` and `"`; `Single` uses the close-escape-reopen `'\''` pattern. Restores the byte-for-byte round-trip invariant the parser relies on.
+- **O5 — Scanner per-file size cap** (`src/ops/scanner.rs:115`): `read_to_string` was unbounded. New 10 MiB per-file cap before the read; oversized files are skipped silently (matches existing "skip unreadable" behaviour).
+- **O6 — Audit query bounded read + filter input cap** (`src/ops/audit/query_engine.rs`, `src/ops/audit/query_types.rs`): `read_all_events` previously slurped every JSONL log into one `Vec` regardless of size. Now (a) reads via `BufReader::lines` so a 1 GiB log doesn't require 1 GiB of `String`, (b) caps total events at `MAX_EVENTS_LOADED = 250_000` per query and warns to stderr when truncated. Filter validation now caps `MetadataKey(String)` at 256 bytes so an attacker-supplied filter can't ship 1 MiB into the matcher.
+- **O7 — Age decryption ciphertext + plaintext caps** (`src/ops/encrypt.rs`): `decrypt_value` accepted base64 of any size and read the decrypted stream with `read_to_string` — vulnerable to decompression-bomb age files. New 1 MiB cap on decoded ciphertext (`MAX_CIPHERTEXT_BYTES`) checked before `Decryptor::new`, and 1 MiB cap on the decrypted output via `Read::take(reader, MAX_PLAINTEXT_BYTES)`.
+- **O8 — Share metadata `created_by` documented as unauthenticated** (`src/ops/share.rs`): the field carries the sender's hostname, which age does not bind to identity. Added rustdoc making this explicit and pointing callers at out-of-band signing if verifiable origin is required. Consumers should treat the value as informational only.
+
+##### Low
+
+- **O9 — Share TTL hard-blocks expired by default** (`src/ops/share.rs`): `receive_share` previously printed a warning and proceeded — TTL was effectively a comment, not a control. Now `receive_share` returns `ShareError::Expired` on expired shares; new `receive_share_with(data, allow_expired)` lets the CLI offer an explicit override. Plus an 8 MiB cap on encrypted share input + decrypted plaintext (same decompression-bomb defense as O7).
+- **O10 — AI-guard secret detection: anchored prefixes + entropy fallback** (`src/ops/audit/ai_guard_integration.rs:184-280`): the prefix-only detector matched `sk-` inside `ask-1234` (false positive) and missed any token without a known prefix (false negative). Now prefixes must be anchored at a non-token boundary AND followed by ≥16 token-alphabet bytes; pattern table extended (Stripe live/test, ASIA, GitHub server-to-server / user-to-server / fine-grained PAT, Slack app/user tokens, GitLab PAT, Google API/OAuth, JWT). New entropy fallback flags any 32+ char run of `[A-Za-z0-9_\-./]` containing upper + lower + digits as a "credential-like token", catching encoded / unprefixed leaks.
+
+##### False positives ruled out
+
+- **`run.rs` argv leak** — verified `Command::new(command).args(args)` only carries the user's command + args. Resolved secrets flow via `cmd.envs(env)` after `env_clear()`. `/proc/PID/cmdline` does not see them. Repeated false positive across passes.
+- **`vault.rs` role_id/secret_id payload leak** — `payload = format!("role_id={}\nsecret_id={}\n", ...)` is written to `vault`'s **stdin**, deliberately *avoiding* `/proc/PID/cmdline`. This is the secure path.
+- **`copy_key_value` clipboard exposure** — that's the function's purpose; user explicitly invokes. Mitigation already in place via 0.7.5 L2 TTL auto-clear for sensitive keys.
+- **`export_format::export_docker_secrets` "secret in script"** — Docker secret export embeds values by definition; user explicitly requests it. Single-quote escape is correct for bash literal context.
+- **Custody chain forgery** — addressed by existing hash-chain (`AuditEvent.entry_hash` covers `prev_hash`); state-file deletion is detected by 0.7.5 N8.
+- **Parser `&s[1..]` panic** — third repeated false positive; `parse_quoted_value` only entered when `trimmed.starts_with('"' | '\'')`.
+- **Snapshot `metadata.name` not sanitized** — only the *filename* uses `safe_name` (alphanum + `-` + `_`). `metadata.name` is stored in TOML and only displayed, never used as a path component.
+
 ### Tests
 
 - New tests for `validate_remote_url` (accepts https / ssh / git / scp-like; rejects `ext::`, `file://`, leading dash, rsync, control chars).
@@ -83,6 +116,8 @@ A second deep audit after the C / H / M / L pass surfaced fanout gaps and module
 - **`read_all_credentials`**: doc-commented with explicit guidance to prefer `with_credentials` or new `read_all_credentials_zeroizing`.
 - New helpers exported from `src/ops/secrets/provider.rs`: `validate_provider_response_value`, `validate_provider_response_label`, `validate_provider_arg`, `validate_env_pair`, `MAX_PROVIDER_VALUE_LEN`, `MAX_PROVIDER_LABEL_LEN`.
 - `walk_json` in `src/ops/mcp_scan.rs` gained a required `depth: usize` parameter (private function; no public-API impact).
+- New `ProfileError::InvalidName` variant; `validate_profile_name` enforced at every profile entry point.
+- New lease APIs: `renew_lease(name, ttl_seconds)`, `with_lease_check_locked(key, f)`. `MAX_EVENTS_LOADED` constant in `query_engine`. `MAX_CIPHERTEXT_BYTES` / `MAX_PLAINTEXT_BYTES` in `encrypt`. New `receive_share_with(data, allow_expired)` in `share`. `ShareError::Expired` is now returned (was previously only formatted into stderr).
 
 ## [0.7.4] - 2026-05-07
 

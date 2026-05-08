@@ -183,29 +183,114 @@ pub fn audit_secret_exposure(
 
 // ─── Secret Detection ────────────────────────────────────────────
 
+/// Prefix-anchored credential patterns. Each entry is matched against
+/// the input as `<prefix><body>` where `<body>` is required to look
+/// like the credential's actual alphabet, not arbitrary characters
+/// that happen to follow the prefix.
 const SECRET_PATTERNS: &[(&str, &str)] = &[
     ("sk-", "OpenAI/Stripe API key"),
+    ("sk_live_", "Stripe live secret key"),
+    ("sk_test_", "Stripe test secret key"),
     ("AKIA", "AWS access key"),
+    ("ASIA", "AWS temporary access key"),
     ("ghp_", "GitHub personal access token"),
     ("gho_", "GitHub OAuth token"),
+    ("ghs_", "GitHub server-to-server token"),
+    ("ghu_", "GitHub user-to-server token"),
+    ("github_pat_", "GitHub fine-grained PAT"),
     ("xoxb-", "Slack bot token"),
+    ("xoxa-", "Slack app token"),
+    ("xoxp-", "Slack user token"),
     ("SG.", "SendGrid API key"),
-    ("eyJ", "JWT token prefix"),
+    ("glpat-", "GitLab personal access token"),
+    ("AIza", "Google API key"),
+    ("ya29.", "Google OAuth access token"),
+    ("eyJ", "JWT token"),
 ];
 
+/// `[A-Za-z0-9_\-]` — the alphabet used by every credential prefix above.
+fn is_token_byte(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_' || c == b'-' || c == b'.' || c == b'/'
+}
+
 fn detect_secrets_in_input(input: &str) -> Vec<String> {
+    let bytes = input.as_bytes();
     let mut found = Vec::new();
+
     for (prefix, name) in SECRET_PATTERNS {
-        if let Some(pos) = input.find(prefix) {
-            let after = &input[pos + prefix.len()..];
-            if after.len() >= 4 {
-                found.push(name.to_string());
+        let pbytes = prefix.as_bytes();
+        let mut start = 0;
+        while let Some(rel) = input[start..].find(prefix) {
+            let pos = start + rel;
+            // Anchor: previous byte must be absent or a non-token byte.
+            // Without this, `ask-12345` matches `sk-` even though it's
+            // a substring of an unrelated word. With it, prefixes only
+            // count when they actually start a token.
+            let anchored = pos == 0 || !is_token_byte(bytes[pos - 1]);
+            if anchored {
+                // Body: at least 16 token bytes after the prefix. Real
+                // credentials are far longer; this filters out random
+                // English text that happens to contain a prefix.
+                let after = &bytes[pos + pbytes.len()..];
+                let body_len = after.iter().take_while(|c| is_token_byte(**c)).count();
+                if body_len >= 16 {
+                    found.push((*name).to_string());
+                    break; // one hit per pattern is enough
+                }
             }
+            start = pos + pbytes.len();
         }
     }
+
+    // Generic high-entropy token fallback: 32+ char run of token bytes
+    // with mixed case + digits. Catches obfuscated / unprefixed leaks
+    // (e.g. base64 of a real token) that the prefix table misses.
+    if has_high_entropy_token(input) {
+        found.push("High-entropy credential-like token".to_string());
+    }
+
     found.sort();
     found.dedup();
     found
+}
+
+fn has_high_entropy_token(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    let mut run_start: Option<usize> = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if is_token_byte(b) {
+            run_start.get_or_insert(i);
+        } else if let Some(start) = run_start.take() {
+            if check_token_run(&bytes[start..i]) {
+                return true;
+            }
+        }
+    }
+    if let Some(start) = run_start {
+        if check_token_run(&bytes[start..]) {
+            return true;
+        }
+    }
+    false
+}
+
+fn check_token_run(run: &[u8]) -> bool {
+    if run.len() < 32 {
+        return false;
+    }
+    let mut has_upper = false;
+    let mut has_lower = false;
+    let mut has_digit = false;
+    for &b in run {
+        if b.is_ascii_uppercase() {
+            has_upper = true;
+        } else if b.is_ascii_lowercase() {
+            has_lower = true;
+        } else if b.is_ascii_digit() {
+            has_digit = true;
+        }
+    }
+    has_upper && has_lower && has_digit
 }
 
 // ─── Session Tracking ────────────────────────────────────────────
