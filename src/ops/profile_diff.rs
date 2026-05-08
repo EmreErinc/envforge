@@ -17,12 +17,35 @@ pub enum DiffKind {
     Modified,
 }
 
+/// One key's diff between two profiles.
+///
+/// **Note on values:** `value_a` and `value_b` are stored **masked**
+/// (first 2 chars + length, similar to `mask_for_log`) so callers that
+/// `Debug`-print the struct, serialize it to JSON, or render it to UI
+/// cannot accidentally leak secret values. If a caller has a real need
+/// for the raw value (e.g. an interactive merge UI), it must re-load
+/// the entries through [`crate::ops::listing`] explicitly — the diff
+/// result is intentionally not a side-channel for plaintext exfiltration.
 #[derive(Debug, Clone)]
 pub struct DiffEntry {
     pub key: String,
     pub kind: DiffKind,
     pub value_a: Option<String>,
     pub value_b: Option<String>,
+    /// Whether the two values differ. Allows the modified-vs-only-in-X
+    /// distinction without exposing raw values.
+    pub values_differ: bool,
+}
+
+/// Mask a value for inclusion in a diff entry.
+fn mask_diff_value(value: &str) -> String {
+    let len = value.chars().count();
+    if len <= 4 {
+        "***".to_string()
+    } else {
+        let head: String = value.chars().take(2).collect();
+        format!("{head}***({len} chars)")
+    }
 }
 
 #[derive(Debug)]
@@ -82,16 +105,18 @@ pub fn diff_profiles(
                 diff_entries.push(DiffEntry {
                     key: key.clone(),
                     kind: DiffKind::Modified,
-                    value_a: Some(value_a.clone()),
-                    value_b: Some(value_b.clone()),
+                    value_a: Some(mask_diff_value(value_a)),
+                    value_b: Some(mask_diff_value(value_b)),
+                    values_differ: true,
                 });
             }
             None => {
                 diff_entries.push(DiffEntry {
                     key: key.clone(),
                     kind: DiffKind::OnlyInA,
-                    value_a: Some(value_a.clone()),
+                    value_a: Some(mask_diff_value(value_a)),
                     value_b: None,
+                    values_differ: true,
                 });
             }
             _ => {} // Same value — skip
@@ -105,7 +130,8 @@ pub fn diff_profiles(
                 key: key.clone(),
                 kind: DiffKind::OnlyInB,
                 value_a: None,
-                value_b: Some(value_b.clone()),
+                value_b: Some(mask_diff_value(value_b)),
+                values_differ: true,
             });
         }
     }

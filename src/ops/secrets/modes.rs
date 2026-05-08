@@ -191,24 +191,30 @@ pub fn resolve_all_references(
     Ok(results)
 }
 
-/// Simple glob matching.
+/// Simple glob matching (supports `*` and `?`).
+///
+/// Iterative `O(P × T)` DP. Replaces a recursive backtracker that was
+/// exponential on adversarial inputs (Q2 fix in 0.7.5 fifth rescan).
 pub fn glob_match(pattern: &str, text: &str) -> bool {
-    let pat_chars: Vec<char> = pattern.chars().collect();
-    let text_chars: Vec<char> = text.chars().collect();
-    glob_match_inner(&pat_chars, &text_chars)
-}
-
-fn glob_match_inner(pattern: &[char], text: &[char]) -> bool {
-    match (pattern.first(), text.first()) {
-        (None, None) => true,
-        (Some('*'), _) => {
-            glob_match_inner(&pattern[1..], text)
-                || (!text.is_empty() && glob_match_inner(pattern, &text[1..]))
+    let pat: Vec<char> = pattern.chars().collect();
+    let txt: Vec<char> = text.chars().collect();
+    let (m, n) = (pat.len(), txt.len());
+    let mut prev = vec![false; n + 1];
+    let mut curr = vec![false; n + 1];
+    prev[0] = true;
+    for i in 1..=m {
+        curr[0] = pat[i - 1] == '*' && prev[0];
+        for j in 1..=n {
+            curr[j] = match pat[i - 1] {
+                '*' => prev[j] || curr[j - 1],
+                '?' => prev[j - 1],
+                p => p == txt[j - 1] && prev[j - 1],
+            };
         }
-        (Some('?'), Some(_)) => glob_match_inner(&pattern[1..], &text[1..]),
-        (Some(p), Some(t)) if p == t => glob_match_inner(&pattern[1..], &text[1..]),
-        _ => false,
+        std::mem::swap(&mut prev, &mut curr);
+        curr.fill(false);
     }
+    prev[n]
 }
 
 // ─── Volatile Mode ───────────────────────────────────────────

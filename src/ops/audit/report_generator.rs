@@ -364,12 +364,16 @@ fn export_markdown(report: &Soc2Report, writer: &mut dyn Write) -> Result<(), Re
     writeln!(writer, "\n## Violations\n").map_err(|e| ReportError::ExportFailed(e.to_string()))?;
 
     for v in &report.violations {
+        // `description` is user/event-controlled — escape before
+        // interpolating into markdown so a description containing
+        // `<script>` / backticks / pipes / `[…](url)` cannot inject
+        // active markup or HTML when the report is rendered.
         writeln!(
             writer,
             "- **[{:?}]** {:?}: {} (at {})",
             v.severity,
             v.violation_type,
-            v.description,
+            markdown_escape(&v.description),
             v.timestamp.to_rfc3339(),
         )
         .map_err(|e| ReportError::ExportFailed(e.to_string()))?;
@@ -383,6 +387,39 @@ fn export_markdown(report: &Soc2Report, writer: &mut dyn Write) -> Result<(), Re
     .map_err(|e| ReportError::ExportFailed(e.to_string()))?;
 
     Ok(())
+}
+
+/// Escape a string for safe inclusion in Markdown report output.
+///
+/// Markdown viewers commonly render embedded HTML, so a `description`
+/// containing `<script>...</script>` becomes XSS the moment the report
+/// is opened in a browser-based viewer (GitHub web, VS Code preview,
+/// Confluence, etc.). This helper escapes:
+///
+/// - HTML special chars (`<`, `>`, `&`) so embedded HTML is rendered
+///   as visible text rather than interpreted.
+/// - Backticks so a value can't break out of inline code or open a
+///   fenced code block.
+/// - Pipes so a description can't break the column layout when used
+///   inside a table.
+/// - `[` / `]` so link / image syntax can't be smuggled.
+/// - Newlines so multi-line content can't escape its bullet / row.
+pub fn markdown_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '&' => out.push_str("&amp;"),
+            '`' => out.push_str("&#96;"),
+            '|' => out.push_str("&#124;"),
+            '[' => out.push_str("&#91;"),
+            ']' => out.push_str("&#93;"),
+            '\n' | '\r' => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 // ─── Report Error ─────────────────────────────────────────────────

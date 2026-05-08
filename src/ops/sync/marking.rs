@@ -156,25 +156,43 @@ pub fn list_keys_with_status(
         .collect()
 }
 
-/// Simple glob matching (supports * and ?).
+/// Simple glob matching (supports `*` and `?`).
+///
+/// Iterative DP over `pattern` × `text` — runs in `O(P × T)` time and
+/// `O(T)` extra memory. The earlier recursive implementation rebranched
+/// on every `*` and was vulnerable to exponential backtracking on
+/// adversarial inputs (e.g. pattern `a*a*a*a*a*b` against text
+/// `aaaaaaaaaaaa`). This version is structurally immune: each cell of
+/// the DP table is computed at most once.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    let pat_chars: Vec<char> = pattern.chars().collect();
-    let text_chars: Vec<char> = text.chars().collect();
-    glob_match_inner(&pat_chars, &text_chars)
-}
+    let pat: Vec<char> = pattern.chars().collect();
+    let txt: Vec<char> = text.chars().collect();
+    let (m, n) = (pat.len(), txt.len());
 
-fn glob_match_inner(pattern: &[char], text: &[char]) -> bool {
-    match (pattern.first(), text.first()) {
-        (None, None) => true,
-        (Some('*'), _) => {
-            // Try matching * as empty, or consuming one text char
-            glob_match_inner(&pattern[1..], text)
-                || (!text.is_empty() && glob_match_inner(pattern, &text[1..]))
+    // dp[i][j] = pat[..i] matches txt[..j]. Roll over rows of `i` to
+    // keep memory at O(n).
+    let mut prev = vec![false; n + 1];
+    let mut curr = vec![false; n + 1];
+    prev[0] = true;
+    // Patterns starting with `*`s match empty text up to that prefix.
+    // (Keep this off `prev` because `prev` represents pat[..0]; instead
+    // prime `curr` correctly each pattern step below.)
+
+    for i in 1..=m {
+        curr[0] = pat[i - 1] == '*' && prev[0];
+        for j in 1..=n {
+            curr[j] = match pat[i - 1] {
+                '*' => prev[j] || curr[j - 1],
+                '?' => prev[j - 1],
+                p => p == txt[j - 1] && prev[j - 1],
+            };
         }
-        (Some('?'), Some(_)) => glob_match_inner(&pattern[1..], &text[1..]),
-        (Some(p), Some(t)) if p == t => glob_match_inner(&pattern[1..], &text[1..]),
-        _ => false,
+        std::mem::swap(&mut prev, &mut curr);
+        // Reset `curr` for the next iteration so stale state doesn't leak
+        curr.fill(false);
     }
+
+    prev[n]
 }
 
 #[cfg(test)]

@@ -102,6 +102,33 @@ pub fn extract_origin(request: &str) -> Option<String> {
     None
 }
 
+/// Extract the `Host` header from raw HTTP request text.
+///
+/// Used to defend against DNS-rebinding: a malicious page on
+/// `evil.com` can rebind that hostname to `127.0.0.1` and trick the
+/// browser into delivering same-origin XHR to our localhost proxy. The
+/// `Host` header carries the name the *browser* used, which under
+/// rebinding is `evil.com`, NOT `127.0.0.1`. Rejecting unknown hosts
+/// closes the rebinding vector even when the `Origin` header is absent.
+pub fn extract_host(request: &str) -> Option<String> {
+    for line in request.lines() {
+        let lower = line.to_ascii_lowercase();
+        if lower.starts_with("host:") {
+            return Some(line[5..].trim().to_string());
+        }
+    }
+    None
+}
+
+/// Whether the `Host` header value is a loopback address. Used as a
+/// hard gate before any secret-bearing route runs.
+pub fn is_host_loopback(host: &str) -> bool {
+    let bare = extract_host_from_origin(host).to_ascii_lowercase();
+    DEFAULT_SAFE_HOSTS
+        .iter()
+        .any(|h| h.eq_ignore_ascii_case(&bare))
+}
+
 /// Extract the domain/host from a URL or origin value.
 /// e.g. "http://example.com:3000/path" -> "example.com"
 pub fn extract_host_from_origin(origin: &str) -> String {
@@ -139,7 +166,12 @@ const DEFAULT_SAFE_HOSTS: &[&str] = &["127.0.0.1", "localhost", "::1"];
 pub fn is_origin_allowed(origin: Option<&str>, allowed_origins: Option<&[String]>) -> bool {
     let origin = match origin {
         Some(o) if !o.is_empty() => o,
-        // No origin header → likely a direct/curl request from localhost; allow
+        // No Origin header → permissible only for non-secret routes.
+        // Secret-serving routes additionally require [`is_host_loopback`]
+        // to defeat DNS-rebinding (where the browser omits Origin on
+        // simple GETs). The host check is enforced at the handler boundary
+        // (`handle_secret_request`); leaving this `true` keeps health /
+        // status probes unbroken.
         _ => return true,
     };
 
@@ -298,9 +330,18 @@ pub fn route_request(
 }
 
 /// Format an HTTP response.
+///
+/// Sends `Access-Control-Allow-Origin: null` instead of `*`. The
+/// previous wildcard combined with the proxy's permissive
+/// no-Origin-header policy let DNS-rebinding attackers read responses
+/// from a forged-localhost origin. `null` tells the browser the
+/// response is non-shareable across origins, which the same-origin
+/// policy then enforces. Loopback callers (curl, envforge CLI,
+/// localhost extensions) don't go through CORS at all and are
+/// unaffected. Vary header signals caches not to share across origins.
 pub fn format_response(status: &str, body: &str) -> String {
     format!(
-        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: null\r\nVary: Origin\r\nConnection: close\r\n\r\n{}",
         status,
         body.len(),
         body
@@ -456,6 +497,39 @@ pub fn start_proxy(
                 let (method, path) = parse_request_line(&request);
                 // Redact full request from logs to prevent accidental secret exposure in stderr
                 let user_agent = extract_user_agent(&request);
+
+                // DNS-rebinding defense: every request that reaches a
+                // secret-bearing route must carry a `Host` header
+                // pointing at loopback. Browsers under DNS rebinding
+                // send the *original* hostname (e.g. `evil.com`) in
+                // the `Host` header even though the IP resolved to
+                // 127.0.0.1; rejecting non-loopback hosts closes the
+                // attack regardless of whether `Origin` was set.
+                let host_header = extract_host(&request);
+                let host_ok = host_header
+                    .as_deref()
+                    .map(is_host_loopback)
+                    .unwrap_or(false);
+                if !host_ok {
+                    let body = r#"{"error":"host not allowed"}"#;
+                    let response = format_response("403 Forbidden", body);
+                    let _ = stream.write_all(response.as_bytes());
+
+                    let entry = AuditEntry {
+                        timestamp: chrono::Local::now()
+                            .format("%Y-%m-%dT%H:%M:%S%z")
+                            .to_string(),
+                        action: "denied_host".to_string(),
+                        key: None,
+                        keys_served: None,
+                        client_addr: client_addr.clone(),
+                        user_agent: user_agent.clone(),
+                        granted: false,
+                    };
+                    log_audit(&entry);
+                    let _ = (method, path, host_header);
+                    continue;
+                }
 
                 // Origin check
                 let origin = extract_origin(&request);
@@ -688,8 +762,36 @@ mod tests {
         assert!(resp.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(resp.contains("Content-Type: application/json"));
         assert!(resp.contains("Content-Length: 15"));
-        assert!(resp.contains("Access-Control-Allow-Origin: *"));
+        // Q1 fix: CORS now `null` rather than wildcard so a DNS-rebound
+        // browser cannot read responses cross-origin.
+        assert!(resp.contains("Access-Control-Allow-Origin: null"));
+        assert!(!resp.contains("Access-Control-Allow-Origin: *"));
+        assert!(resp.contains("Vary: Origin"));
         assert!(resp.ends_with(r#"{"status":"ok"}"#));
+    }
+
+    #[test]
+    fn test_extract_host() {
+        assert_eq!(
+            extract_host("GET / HTTP/1.1\r\nHost: 127.0.0.1:8765\r\n\r\n"),
+            Some("127.0.0.1:8765".to_string())
+        );
+        assert_eq!(
+            extract_host("GET / HTTP/1.1\r\nhost: localhost\r\n\r\n"),
+            Some("localhost".to_string())
+        );
+        assert_eq!(extract_host("GET / HTTP/1.1\r\n\r\n"), None);
+    }
+
+    #[test]
+    fn test_is_host_loopback() {
+        assert!(is_host_loopback("127.0.0.1"));
+        assert!(is_host_loopback("127.0.0.1:8765"));
+        assert!(is_host_loopback("localhost"));
+        assert!(is_host_loopback("LOCALHOST"));
+        assert!(is_host_loopback("[::1]:8765"));
+        assert!(!is_host_loopback("evil.com"));
+        assert!(!is_host_loopback("attacker.example.com:8765"));
     }
 
     // ─── Audit entry tests ────────────────────────────────

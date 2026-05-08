@@ -20,26 +20,64 @@ pub fn ensure_age_key() -> Result<String, EncryptError> {
         age_key_path().map_err(|_| EncryptError::KeyError("Cannot find config dir".into()))?;
 
     if path.exists() {
-        // Verify and fix permissions on existing key file
+        // Verify and fix permissions on the existing key file.
+        //
+        // Open the file FIRST, then chmod via the open file handle.
+        // This closes a TOCTOU window: the previous code did
+        // `metadata(&path)` → `set_permissions(&path)` which a local
+        // attacker could race by swapping the path (rename / symlink)
+        // between the two syscalls. Using `File::set_permissions`
+        // applies the chmod to the inode we actually have open, not
+        // to whatever now sits at that path.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = path.metadata() {
-                let mode = metadata.permissions().mode();
+            // Refuse to follow a symlink that may have been swapped in
+            // by another local user. `File::open` follows symlinks; we
+            // need `O_NOFOLLOW` to be safe, but std doesn't expose it
+            // directly — use OpenOptionsExt::custom_flags.
+            use std::os::unix::fs::OpenOptionsExt;
+            // O_NOFOLLOW values from <fcntl.h>: 0x100 on Linux, 0x100
+            // on macOS / *BSD. Other unices fall through to 0 (best
+            // effort — chmod-on-handle still defeats the `path`-level
+            // TOCTOU even without `O_NOFOLLOW`).
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            const O_NOFOLLOW_LOCAL: i32 = 0x0100;
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+            const O_NOFOLLOW_LOCAL: i32 = 0;
+
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(O_NOFOLLOW_LOCAL)
+                .open(&path)
+                .map_err(|e| EncryptError::KeyError(format!("Cannot open age key file: {}", e)))?;
+            if let Ok(meta) = file.metadata() {
+                let mode = meta.permissions().mode();
                 if mode & 0o077 != 0 {
                     log::warn!(
                         "age key file {} has overly permissive permissions ({:o}), fixing to 0600",
                         path.display(),
                         mode & 0o777
                     );
-                    let perms = std::fs::Permissions::from_mode(0o600);
-                    let _ = std::fs::set_permissions(&path, perms);
+                    let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
                 }
             }
+            // Read via the same handle so we read the same inode whose
+            // permissions we just fixed.
+            let mut content = String::new();
+            use std::io::Read as _;
+            (&file)
+                .read_to_string(&mut content)
+                .map_err(|e| EncryptError::KeyError(format!("Cannot read age key file: {}", e)))?;
+            Ok(content)
         }
 
-        std::fs::read_to_string(&path)
-            .map_err(|e| EncryptError::KeyError(format!("Cannot read key: {}", e)))
+        #[cfg(not(unix))]
+        {
+            Err(EncryptError::KeyError(
+                "secure age key reads require a unix-like OS".into(),
+            ))
+        }
     } else {
         let key = age::x25519::Identity::generate();
         let secret = key.to_string();

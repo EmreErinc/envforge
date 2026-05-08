@@ -144,6 +144,45 @@ Verified by reading actual code, not just file presence:
 - **Volatile mode heap fragmentation** — `modes.rs` uses `zeroize` correctly; secrets cleared before scope exit. No persistent disk write in volatile path.
 - **`copypasta` unmaintained** — verified currently maintained (0.10.2 latest); no open advisories.
 
+#### Fifth rescan (5 additional findings — 1 High, 3 Medium, 1 Low)
+
+Fifth deep audit covered proxy full request handling, sync/marking + machine + history + push, secrets/age, lifecycle orchestrator + state machine + schema_lifecycle, audit custody + report_generator, profile_diff, dotenv re-verify, parser/serialize, ui/app + dialogs, listing, duplicates, cli/error, encrypt re-verify. P1-P5 fixes verified to hold (no regressions). New findings closed; 9 false positives documented.
+
+##### High
+
+- **Q1 — DNS-rebinding via missing Host check + wildcard CORS** (`src/ops/proxy.rs:92-197, 333-342, 504-535`): two layered defects composed into a real exploit. (a) `is_origin_allowed` accepted requests without an `Origin` header (common for simple GETs); (b) `format_response` always sent `Access-Control-Allow-Origin: *`. A page on `evil.com` could rebind that name to `127.0.0.1` (DNS rebinding), issue a same-origin XHR, hit the localhost proxy, and read the response — exfiltrating secrets. New `extract_host` + `is_host_loopback` helpers; the request handler now requires the `Host` header to match `127.0.0.1` / `localhost` / `[::1]` (with optional port) before serving any route, so a rebound `evil.com` is rejected even with `Origin` absent. CORS header changed from `*` to `null` plus `Vary: Origin` so browsers cannot share responses cross-origin.
+- **Q2 — Glob matcher exponential backtracking** (`src/ops/sync/marking.rs:160-202`, `src/ops/secrets/modes.rs:194-220`): the recursive `glob_match_inner` rebranched on every `*`; pattern `a*a*a*a*a*b` against text `aaaaaaaaaaaa` blew up to `O(2^n)`. Replaced with iterative `O(P × T)` DP using two rolling rows. Same algorithm replacement applied in both occurrences.
+
+##### Medium
+
+- **Q3 — `profile_diff::DiffEntry` carries plaintext values** (`src/ops/profile_diff.rs:20-110`): the struct stored raw `value_a` / `value_b`, inviting accidental exposure via `Debug`-print, JSON serialization, or direct UI rendering. Other lifecycle / audit paths consistently mask before storing; this one was the outlier. New `mask_diff_value` helper applied at construction; raw values never enter the struct. Added `values_differ: bool` so callers can still distinguish "modified" without reading values. Doc-comment makes the masking contract explicit.
+- **Q4 — Markdown report does not escape user-controlled `description`** (`src/ops/audit/report_generator.rs:330-388`): violation `description` was interpolated into markdown via `writeln!("- ... {}", v.description, ...)`. Markdown renderers commonly accept embedded HTML, so a description containing `<script>...</script>` becomes XSS in any HTML-rendered viewer (GitHub web, VS Code preview, Confluence, etc). New `markdown_escape` helper escapes `<`, `>`, `&`, backticks, pipes, `[`, `]`, and folds newlines to spaces; applied to every user-controlled string interpolated into the markdown writer.
+
+##### Low
+
+- **Q5 — `ensure_age_key` chmod TOCTOU** (`src/ops/encrypt.rs:18-90`): the previous `metadata(&path)` → `set_permissions(&path)` sequence had a race where a same-uid local attacker could swap the path between the two syscalls. Now opens the file once with `O_NOFOLLOW` (custom flag, falls back to 0 on non-Linux/macOS — `chmod`-on-handle still defeats path-level TOCTOU regardless), runs `File::set_permissions` on the handle, and reads the same file descriptor whose perms we just fixed.
+
+##### P1-P5 regression check
+
+Verified by reading actual code:
+- P1 (sync `decrypt_snapshot`): size check before `Decryptor::new`; `Read::take` wraps real reader. ✓
+- P2 (`write_snapshot_secure`): `OpenOptions::mode(0o600)` at create-time + `sync_all`. ✓
+- P3 (`changelog::log_change`): `.mode(0o600)` in OpenOptions + post-write defensive chmod. ✓
+- P4 (LSP completion): `redact_value_for_label` returns `***` for short values, `<2 chars>***(<n> chars)` for longer; UTF-8 safe via `chars().take()`; real value flows via `insert_text`. ✓
+- P5 (TUI input): `MAX_INPUT_LEN` check before `String::insert`; constructor truncates oversized initial text at char boundary; no other bulk-insert entry points. ✓
+
+##### False positives ruled out
+
+- **`secrets/age.rs`** — separate from `encrypt.rs`; uses age crate primitives directly without bespoke decryption (no decompression-bomb surface).
+- **`rotate_secret` missing snapshot** — `rotate.rs::apply_rotation` performs its own atomic-write of the new value; not a security gap.
+- **Custody chain forgery** — addressed by hash chain; 0.7.5 N8 detects state-file deletion. Forgery requires log-file write access, which is the threat model boundary.
+- **Machine override no auth** — `sync/machine.rs::set_override` operates on the local user's sync repo. Sync is consent-based.
+- **Proxy 4096-byte fixed read** — long URIs return 400; no buffer overflow (Rust); single-connection only; not a finding.
+- **Dotenv `$VAR` expansion** — verified: `parse_dotenv_content` does NOT expand `$VAR` / `${VAR}`. Values stored as parsed.
+- **Parser serialize round-trip** — deterministic per-line; no header injection.
+- **Search field regex DoS** — TUI uses `fuzzy_search` (substring/scoring, not regex).
+- **Listing `Commented` filter** — comment classification uses `LineNode::Comment` from parser, not `=` heuristic.
+
 ### Tests
 
 - New tests for `validate_remote_url` (accepts https / ssh / git / scp-like; rejects `ext::`, `file://`, leading dash, rsync, control chars).
@@ -160,6 +199,10 @@ Verified by reading actual code, not just file presence:
 - New `ProfileError::InvalidName` variant; `validate_profile_name` enforced at every profile entry point.
 - New lease APIs: `renew_lease(name, ttl_seconds)`, `with_lease_check_locked(key, f)`. `MAX_EVENTS_LOADED` constant in `query_engine`. `MAX_CIPHERTEXT_BYTES` / `MAX_PLAINTEXT_BYTES` in `encrypt`. New `receive_share_with(data, allow_expired)` in `share`. `ShareError::Expired` is now returned (was previously only formatted into stderr).
 - New `MAX_SNAPSHOT_CIPHERTEXT_BYTES` / `MAX_SNAPSHOT_PLAINTEXT_BYTES` in `sync/encryption.rs`. New `write_snapshot_secure` helper in `snapshot.rs`. New `MAX_INPUT_LEN` const + `redact_value_for_label` helper exposed by `ui/input.rs` / `lsp/completion.rs`.
+- New proxy helpers: `extract_host`, `is_host_loopback`. CORS header changed from `*` to `null` + `Vary: Origin`. New audit action `denied_host`.
+- Glob matcher rewritten as iterative DP in both `sync/marking.rs` and `secrets/modes.rs` (private `glob_match_inner` removed; `glob_match` signature unchanged).
+- `DiffEntry` gained a `values_differ: bool` field; `value_a` / `value_b` are now masked.
+- New `markdown_escape` public helper in `audit/report_generator.rs`.
 
 ## [0.7.4] - 2026-05-07
 
