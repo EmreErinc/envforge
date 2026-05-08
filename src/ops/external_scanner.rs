@@ -109,7 +109,25 @@ pub async fn run_scanners(registry: &ScannerRegistry, content: &str) -> Vec<Scan
 
             let content = content.to_string();
             let handle = tokio::spawn(async move {
-                let mut parts = legacy_cmd.split_whitespace();
+                // Reject shell-style values to prevent argv smuggling
+                // (e.g. `/bin/sh -c "evil"` re-interpreted by split_whitespace).
+                // Only accept an absolute path optionally followed by simple
+                // whitespace-separated args containing none of: quotes, $, `, ;, |, &, \, <, >, newline.
+                let trimmed = legacy_cmd.trim();
+                if trimmed.is_empty()
+                    || !trimmed.starts_with('/')
+                    || trimmed.contains([
+                        '\'', '"', '$', '`', ';', '|', '&', '\\', '<', '>', '\n', '\r',
+                    ])
+                {
+                    eprintln!(
+                        "envforge: ENVFORGE_EXTERNAL_SCANNER must be an absolute path with simple, \
+                         whitespace-separated args (no shell metacharacters); ignoring."
+                    );
+                    return None;
+                }
+
+                let mut parts = trimmed.split_whitespace();
                 let program = match parts.next() {
                     Some(p) => p,
                     None => return None,

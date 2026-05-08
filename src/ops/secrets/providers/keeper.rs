@@ -1,9 +1,23 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
-    validate_secret_value, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
+    validate_secret_name, validate_secret_value, SecretProvider, SecretsError,
 };
+
+/// Pull the `profile` credential, if present, after validating it cannot
+/// inject a CLI flag (leading `-`, control chars, etc.). Returns
+/// `Ok(None)` when the field is unset; `Err` when a hostile value is
+/// present in the credential store.
+fn checked_profile(credentials: &HashMap<String, String>) -> Result<Option<String>, SecretsError> {
+    match credentials.get("profile") {
+        Some(p) => {
+            validate_provider_arg(p, "keeper profile")?;
+            Ok(Some(p.clone()))
+        }
+        None => Ok(None),
+    }
+}
 
 pub struct KeeperProvider;
 
@@ -53,10 +67,9 @@ impl SecretProvider for KeeperProvider {
         let env_refs = env_refs_from_env(&env_vars);
 
         let mut list_args = vec!["secret", "list", "--json"];
-        let profile_str;
-        if let Some(profile) = credentials.get("profile") {
-            profile_str = profile.clone();
-            list_args.extend_from_slice(&["--profile", &profile_str]);
+        let profile_str = checked_profile(credentials)?;
+        if let Some(p) = profile_str.as_deref() {
+            list_args.extend_from_slice(&["--profile", p]);
         }
 
         let list_output = run_cli("ksm", &list_args, &env_refs, "keeper")?;
@@ -65,10 +78,8 @@ impl SecretProvider for KeeperProvider {
         let mut secrets = Vec::new();
         for (uid, title) in &records {
             let mut get_args = vec!["secret", "get", "--uid", uid, "--json"];
-            let prof_str;
-            if let Some(profile) = credentials.get("profile") {
-                prof_str = profile.clone();
-                get_args.extend_from_slice(&["--profile", &prof_str]);
+            if let Some(p) = profile_str.as_deref() {
+                get_args.extend_from_slice(&["--profile", p]);
             }
 
             if let Ok(output) = run_cli("ksm", &get_args, &env_refs, "keeper") {
@@ -92,10 +103,9 @@ impl SecretProvider for KeeperProvider {
         let env_refs = env_refs_from_env(&env_vars);
 
         let mut list_args = vec!["secret", "list", "--json"];
-        let profile_str;
-        if let Some(profile) = credentials.get("profile") {
-            profile_str = profile.clone();
-            list_args.extend_from_slice(&["--profile", &profile_str]);
+        let profile_str = checked_profile(credentials)?;
+        if let Some(p) = profile_str.as_deref() {
+            list_args.extend_from_slice(&["--profile", p]);
         }
 
         let list_output = run_cli("ksm", &list_args, &env_refs, "keeper")?;
@@ -113,10 +123,8 @@ impl SecretProvider for KeeperProvider {
                 let field_value = format!("password={}", value);
                 let mut update_args = vec!["secret", "update", "--uid", uid, "--field", "__TEMP__"];
 
-                let prof_str;
-                if let Some(profile) = credentials.get("profile") {
-                    prof_str = profile.clone();
-                    update_args.extend_from_slice(&["--profile", &prof_str]);
+                if let Some(p) = profile_str.as_deref() {
+                    update_args.extend_from_slice(&["--profile", p]);
                 }
 
                 run_cli_with_tempfile("ksm", &update_args, &field_value, &env_refs, "keeper")?;
@@ -161,10 +169,9 @@ impl SecretProvider for KeeperProvider {
         let env_refs = env_refs_from_env(&env_vars);
 
         let mut args = vec!["secret", "list", "--json"];
-        let profile_str;
-        if let Some(profile) = credentials.get("profile") {
-            profile_str = profile.clone();
-            args.extend_from_slice(&["--profile", &profile_str]);
+        let profile_str = checked_profile(credentials)?;
+        if let Some(p) = profile_str.as_deref() {
+            args.extend_from_slice(&["--profile", p]);
         }
 
         let output = run_cli("ksm", &args, &env_refs, "keeper")?;
@@ -188,14 +195,24 @@ pub fn parse_keeper_list(output: &str) -> Result<Vec<(String, String)>, SecretsE
             message: e.to_string(),
         })?;
 
-    let records: Vec<(String, String)> = arr
-        .iter()
-        .filter_map(|item| {
-            let uid = item.get("uid")?.as_str()?.to_string();
-            let title = item.get("title")?.as_str()?.to_string();
-            Some((uid, title))
-        })
-        .collect();
+    let mut records: Vec<(String, String)> = Vec::new();
+    for item in &arr {
+        let uid = match item.get("uid").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let title = match item.get("title").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        // Cap label length / reject control chars before propagating.
+        if super::super::provider::validate_provider_response_label("keeper", uid).is_err()
+            || super::super::provider::validate_provider_response_label("keeper", title).is_err()
+        {
+            continue;
+        }
+        records.push((uid.to_string(), title.to_string()));
+    }
 
     Ok(records)
 }
@@ -226,6 +243,9 @@ pub fn parse_keeper_record(output: &str) -> Result<String, SecretsError> {
                         if let Some(first) = values.first() {
                             if let Some(s) = first.as_str() {
                                 if !s.is_empty() {
+                                    super::super::provider::validate_provider_response_value(
+                                        "keeper", s,
+                                    )?;
                                     return Ok(s.to_string());
                                 }
                             }

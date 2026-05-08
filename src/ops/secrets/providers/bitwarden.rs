@@ -1,9 +1,24 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
-    validate_secret_value, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
+    validate_secret_name, validate_secret_value, SecretProvider, SecretsError,
 };
+
+/// Pull and validate `project_id` from the credential store before it's
+/// passed positionally to `bws`. Defends against argv smuggling if the
+/// stored project_id is hostile (leading `-`, control chars, etc.).
+fn checked_project_id(
+    credentials: &HashMap<String, String>,
+) -> Result<Option<String>, SecretsError> {
+    match credentials.get("project_id") {
+        Some(p) => {
+            validate_provider_arg(p, "bitwarden project_id")?;
+            Ok(Some(p.clone()))
+        }
+        None => Ok(None),
+    }
+}
 
 pub struct BitwardenProvider;
 
@@ -57,10 +72,9 @@ impl SecretProvider for BitwardenProvider {
 
         let mut args = vec!["secret", "list"];
 
-        let project_id_str;
-        if let Some(project_id) = credentials.get("project_id") {
-            project_id_str = project_id.clone();
-            args.push(&project_id_str);
+        let project_id_str = checked_project_id(credentials)?;
+        if let Some(p) = project_id_str.as_deref() {
+            args.push(p);
         }
 
         let output = run_cli("bws", &args, &env_refs, "bitwarden")?;
@@ -76,7 +90,7 @@ impl SecretProvider for BitwardenProvider {
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
-        let project_id = credentials.get("project_id").ok_or_else(|| {
+        let project_id_str = checked_project_id(credentials)?.ok_or_else(|| {
             SecretsError::CredentialError(
                 "project_id required for push. Run: envforge secrets config bitwarden --set project_id=<value>".to_string(),
             )
@@ -84,7 +98,6 @@ impl SecretProvider for BitwardenProvider {
 
         // List existing secrets to find IDs for updates
         let mut list_args = vec!["secret", "list"];
-        let project_id_str = project_id.clone();
         list_args.push(&project_id_str);
         let list_output = run_cli("bws", &list_args, &env_refs, "bitwarden")?;
         let existing = parse_bitwarden_list_with_ids(&list_output)?;
@@ -142,17 +155,23 @@ pub fn parse_bitwarden_output(output: &str) -> Result<Vec<(String, String)>, Sec
             message: e.to_string(),
         })?;
 
-    let mut secrets: Vec<(String, String)> = arr
-        .iter()
-        .filter_map(|item| {
-            let key = item.get("key")?.as_str()?;
-            let value = item.get("value")?.as_str()?;
-            if key.is_empty() {
-                return None;
-            }
-            Some((key.to_string(), value.to_string()))
-        })
-        .collect();
+    let mut secrets: Vec<(String, String)> = Vec::new();
+    for item in &arr {
+        let key = match item.get("key").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let value = match item.get("value").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        if key.is_empty() {
+            continue;
+        }
+        super::super::provider::validate_provider_response_label("bitwarden", key)?;
+        super::super::provider::validate_provider_response_value("bitwarden", value)?;
+        secrets.push((key.to_string(), value.to_string()));
+    }
 
     sort_secret_pairs(&mut secrets);
     Ok(secrets)

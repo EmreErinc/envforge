@@ -144,12 +144,29 @@ pub fn list_canaries() -> Result<Vec<CanarySecret>, OpError> {
 }
 
 /// Record a canary trigger (value was accessed/used).
+///
+/// Redacts the canary's `fake_value` from the `source` and `details` fields
+/// before writing them to the alert log or stderr. Without this, a canary
+/// that was tripped by appearing in some log line would re-leak its value
+/// into our own alert log — defeating the purpose, since the canary is
+/// only useful as long as the attacker doesn't know it's a canary.
 pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), OpError> {
+    // Look up the fake_value so we can redact it from contextual strings.
+    let fake_value = load_canaries()
+        .ok()
+        .and_then(|s| s.canaries.get(key).map(|c| c.fake_value.clone()));
+
+    let safe_source = redact_canary_value(source, fake_value.as_deref());
+    let safe_details = redact_canary_value(details, fake_value.as_deref());
+
     // Emit monitor event
     crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
         source: crate::ops::monitor::EventSource::Canary,
         key: Some(key.to_string()),
-        message: format!("Canary '{}' triggered by {}: {}", key, source, details),
+        message: format!(
+            "Canary '{}' triggered by {}: {}",
+            key, safe_source, safe_details
+        ),
         timestamp: chrono::Utc::now(),
     });
     // Update store
@@ -160,12 +177,12 @@ pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), OpEr
         save_canaries(&store)?;
     }
 
-    // Append to alert log
+    // Append to alert log (with the canary value redacted).
     let alert = CanaryAlert {
         timestamp: chrono::Utc::now().to_rfc3339(),
         key: key.to_string(),
-        source: source.to_string(),
-        details: details.to_string(),
+        source: safe_source.clone(),
+        details: safe_details.clone(),
     };
     let log_path = canary_log_path()?;
     if let Some(parent) = log_path.parent() {
@@ -178,13 +195,25 @@ pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), OpEr
     use std::io::Write;
     writeln!(file, "{}", serde_json::to_string(&alert)?)?;
 
-    // Print alert to stderr
+    // Print redacted alert to stderr
     eprintln!(
         "\u{1f6a8} CANARY TRIGGERED: {} (source: {}, {})",
-        key, source, details
+        key, safe_source, safe_details
     );
 
     Ok(())
+}
+
+/// Replace any occurrence of the canary's `fake_value` in a contextual
+/// string with `[CANARY_VALUE_REDACTED]`. Returns the string unchanged
+/// if the fake value isn't present (or isn't known).
+fn redact_canary_value(input: &str, fake_value: Option<&str>) -> String {
+    match fake_value {
+        Some(v) if !v.is_empty() && input.contains(v) => {
+            input.replace(v, "[CANARY_VALUE_REDACTED]")
+        }
+        _ => input.to_string(),
+    }
 }
 
 /// Check all canaries for triggers. Returns triggered ones.

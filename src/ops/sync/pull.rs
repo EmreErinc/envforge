@@ -69,6 +69,22 @@ pub fn pull(
                 // Continue with diff computation
             }
         }
+
+        // Optional signed-commit verification: fail closed if the remote
+        // tip is not signed by a trusted key. Configured via
+        // `[sync] verify_signatures = true` in sync-config.toml.
+        if config.sync.verify_signatures {
+            git.verify_commit("HEAD")
+                .map_err(|e| SyncError::GitCommandFailed {
+                    command: "verify-commit HEAD".to_string(),
+                    stderr: format!(
+                        "signature verification failed for pulled commit ({}). \
+                         Refusing to apply changes. Either sign upstream commits or \
+                         disable [sync] verify_signatures.",
+                        e
+                    ),
+                })?;
+        }
     }
 
     // Read updated snapshot (after pull)

@@ -9,11 +9,10 @@ pub fn sanitize_content(content: &str, secrets: &[(String, String)]) -> (String,
     let mut result = content.to_string();
     let mut count = 0;
 
-    // Sort by value length descending (replace longest first to avoid partial matches)
-    let mut sorted: Vec<_> = secrets
-        .iter()
-        .filter(|(_, v)| v.len() >= 4) // skip very short values
-        .collect();
+    // Sort by value length descending (replace longest first to avoid partial matches).
+    // Skip only empty values; a previous `>= 4` cutoff allowed 3-char tokens
+    // (some API keys / OTPs / pins) to leak through redaction unchanged.
+    let mut sorted: Vec<_> = secrets.iter().filter(|(_, v)| !v.is_empty()).collect();
     sorted.sort_by_key(|a| std::cmp::Reverse(a.1.len()));
 
     for (key, value) in sorted {
@@ -69,17 +68,23 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_skips_short_values() {
-        let content = "PORT=80 and TOKEN=abc";
+    fn test_sanitize_skips_only_empty_values() {
+        // Short tokens (3 chars) used to be silently skipped; M5 removed
+        // that gap. Empty values are still skipped (replacing "" loops).
+        let content = "PORT=80 and TOKEN=abc and EMPTY=";
         let secrets = vec![
-            ("PORT".to_string(), "80".to_string()),   // len 2, skip
-            ("TOKEN".to_string(), "abc".to_string()), // len 3, skip
+            ("PORT".to_string(), "80".to_string()),
+            ("TOKEN".to_string(), "abc".to_string()),
+            ("EMPTY".to_string(), "".to_string()),
         ];
 
         let (result, count) = sanitize_content(content, &secrets);
 
-        assert_eq!(count, 0);
-        assert_eq!(result, content); // unchanged
+        assert_eq!(count, 2);
+        assert!(result.contains("${PORT}"));
+        assert!(result.contains("${TOKEN}"));
+        assert!(!result.contains("=80"));
+        assert!(!result.contains("=abc "));
     }
 
     #[test]

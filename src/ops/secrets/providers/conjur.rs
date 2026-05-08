@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_stdin, sort_secret_pairs, validate_secret_name,
-    validate_secret_value, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_stdin, sort_secret_pairs, validate_env_pair,
+    validate_secret_name, validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct ConjurProvider;
@@ -85,6 +85,7 @@ impl SecretProvider for ConjurProvider {
         let mut cmd = std::process::Command::new("conjur");
         cmd.args(["login", "-i", login]);
         for (k, v) in &env_refs {
+            validate_env_pair(k, v)?;
             cmd.env(k, v);
         }
         cmd.stdin(std::process::Stdio::piped())

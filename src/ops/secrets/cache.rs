@@ -1,21 +1,41 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::config::config_dir;
 
 use super::provider::SecretsError;
 
+/// Process-wide lock serializing cache read-resolve-write critical sections.
+/// Defends against in-process TOCTOU between [`read_cache`] (miss) and
+/// [`write_cache`] (store). Cross-process safety still relies on the
+/// underlying tempfile + atomic-rename in [`write_cache`].
+fn cache_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 const CACHE_DIR: &str = "secrets-cache";
 const DEFAULT_TTL_SECS: u64 = 300; // 5 minutes
 
 /// A single cached secret entry.
+///
+/// Wipes the decrypted `value` from memory on drop to limit how long the
+/// plaintext lives in process memory / swap.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheEntry {
     pub value: String,
     pub fetched_at: String,
     pub ttl_secs: u64,
+}
+
+impl Drop for CacheEntry {
+    fn drop(&mut self) {
+        self.value.zeroize();
+    }
 }
 
 /// A secret reference (pointer to a remote secret).
@@ -111,7 +131,7 @@ pub fn read_cache(provider: &str, key: &str) -> Result<Option<String>, SecretsEr
         source: e,
     })?;
 
-    let entry: CacheEntry = match toml::from_str(&content) {
+    let mut entry: CacheEntry = match toml::from_str(&content) {
         Ok(e) => e,
         Err(_) => {
             // Corrupt cache, remove it
@@ -125,7 +145,10 @@ pub fn read_cache(provider: &str, key: &str) -> Result<Option<String>, SecretsEr
         let now = chrono::Utc::now();
         let elapsed = now.signed_duration_since(fetched).num_seconds() as u64;
         if elapsed <= entry.ttl_secs {
-            return Ok(Some(entry.value));
+            // Take the value out of `entry` (we cannot move-destructure
+            // because CacheEntry implements Drop). The husk will still
+            // be zeroized, but its `value` is now an empty String.
+            return Ok(Some(std::mem::take(&mut entry.value)));
         }
     }
 
@@ -145,12 +168,12 @@ pub fn read_cache_stale(provider: &str, key: &str) -> Result<Option<String>, Sec
         source: e,
     })?;
 
-    let entry: CacheEntry = match toml::from_str(&content) {
+    let mut entry: CacheEntry = match toml::from_str(&content) {
         Ok(e) => e,
         Err(_) => return Ok(None),
     };
 
-    Ok(Some(entry.value))
+    Ok(Some(std::mem::take(&mut entry.value)))
 }
 
 /// Write a value to cache.
@@ -209,9 +232,15 @@ pub fn write_cache(
 
     #[cfg(not(unix))]
     {
-        std::fs::write(&path, &content).map_err(|e| SecretsError::IoError { path, source: e })?;
+        // Refuse to write decrypted secret cache on non-unix targets
+        // where 0600 perms cannot be reliably enforced.
+        let _ = content;
+        return Err(SecretsError::CacheError(
+            "secret cache requires a unix-like OS for secure (0600) writes".to_string(),
+        ));
     }
 
+    #[allow(unreachable_code)]
     Ok(())
 }
 
@@ -287,7 +316,7 @@ pub fn list_all_cached() -> Result<Vec<CachedEntryInfo>, SecretsError> {
                 Err(_) => continue,
             };
 
-            let cache_entry: CacheEntry = match toml::from_str(&content) {
+            let mut cache_entry: CacheEntry = match toml::from_str(&content) {
                 Ok(e) => e,
                 Err(_) => continue,
             };
@@ -302,10 +331,11 @@ pub fn list_all_cached() -> Result<Vec<CachedEntryInfo>, SecretsError> {
                 true
             };
 
+            // Cannot move fields out of `CacheEntry` (it implements Drop).
             entries.push(CachedEntryInfo {
                 provider: provider_name.clone(),
                 key,
-                fetched_at: cache_entry.fetched_at,
+                fetched_at: std::mem::take(&mut cache_entry.fetched_at),
                 ttl_secs: cache_entry.ttl_secs,
                 expired,
             });
@@ -335,7 +365,14 @@ pub fn resolve_reference(
     provider: &dyn super::provider::SecretProvider,
     credentials: &HashMap<String, String>,
 ) -> Result<String, SecretsError> {
-    // Try fresh cache first
+    // Serialize cache miss → fetch → store across threads in this process
+    // so two simultaneous resolves of the same ref don't both call the
+    // remote provider and race to write the cache file.
+    let _guard = cache_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // Try fresh cache first (re-check under lock).
     if let Some(cached) = read_cache(&secret_ref.provider, &secret_ref.key)? {
         return Ok(cached);
     }

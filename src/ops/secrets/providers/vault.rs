@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, parse_json_secrets, run_cli, run_cli_with_stdin, validate_secret_name,
-    validate_secret_value, SecretProvider, SecretsError,
+    env_refs_from_env, parse_json_secrets, run_cli, run_cli_with_stdin, validate_env_pair,
+    validate_secret_name, validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct VaultProvider;
@@ -82,6 +82,7 @@ impl SecretProvider for VaultProvider {
                 let mut cmd = std::process::Command::new("vault");
                 cmd.args(["write", "-format=json", "auth/approle/login", "-"]);
                 for (k, v) in &env_refs {
+                    validate_env_pair(k, v)?;
                     cmd.env(k, v);
                 }
                 cmd.stdin(std::process::Stdio::piped())

@@ -136,6 +136,7 @@ mod tests {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
                 encrypted: true,
+                verify_signatures: false,
             },
             manifest: ManifestConfig {
                 sync_keys: vec!["SYNC_KEY".to_string()],

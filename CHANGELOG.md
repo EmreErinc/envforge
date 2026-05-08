@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5] - 2026-05-08
+
+### Security
+
+Comprehensive hardening pass closing 12 issues from internal audit (2 Critical, 5 High, 5 Medium, 4 Low). No external CVEs filed.
+
+#### Critical
+
+- **C1 — Git remote URL allowlist** (`src/ops/sync/git.rs`): `clone_repo` now validates remote URLs (`validate_remote_url`) and rejects `ext::` (RCE via git-remote-ext), `file://` (local file disclosure), `rsync://`, `ftp(s)://`, `gopher://`, leading-dash, and control-character URLs. Allowed: `https://`, `http://`, `ssh://`, `git://`, `git+ssh://`, `git+https://`, scp-like `user@host:path`. Clone is invoked with `-c protocol.ext.allow=never` and an explicit `--` separator.
+- **C2 — Hook prev-state file relocated** (`src/ops/hook.rs`, `src/cli/mod.rs`, `src/cli/commands.rs`): `.envforge-prev` no longer written into the project directory (where any repo could replace it with attacker-controlled shell that the bash/zsh/fish hook would `eval`). Now stored in the user's envforge config dir under `hook-state/<sha256(canonical_path)>.prev` (mode 0600). Shell hooks call new `envforge env-unload --dir <dir>` subcommand instead of `eval "$(cat ...)"`. Output is re-validated line-by-line (`is_safe_unload_line`) before printing. Legacy in-project prev files are auto-removed on first `envforge env`.
+
+#### High
+
+- **H1 — `ENVFORGE_EXTERNAL_SCANNER` parsing hardened** (`src/ops/external_scanner.rs`): The deprecated env-var path used `split_whitespace`, which re-interpreted `/bin/sh -c "x"` as a shell-style argv. Now rejects values containing shell metacharacters (`'"$\`;|&\\<>` + newlines) and requires an absolute path before splitting.
+- **H2 — Provider arg-flag injection guards** (`src/ops/secrets/provider.rs`, `src/ops/secrets/providers/onepassword.rs`): `validate_secret_name` extended to reject leading `-`, `=`, and all ASCII control chars. New `validate_provider_arg` for paths/items. 1Password `pull`/`get`/`list` validate inputs and place positional args after `--`.
+- **H3 — `fsync` before atomic rename** (`src/config/writer.rs`, `src/ops/sync/init.rs`): Both atomic-write paths now call `temp.as_file().sync_all()` before `persist`. Defends against torn writes leaving zero-length / corrupted files (which can include encrypted secrets / sync snapshots) on power loss.
+- **H4 — Refuse to write secret-bearing files on non-unix** (`src/ops/encrypt.rs`, `src/ops/secrets/cache.rs`, `src/ops/secrets/credentials.rs`): The `#[cfg(not(unix))]` branches previously wrote age private keys / decrypted cache / credential store with default ACLs (world-readable on Windows). Now return a runtime error instead. Project remains Linux/macOS-only per supported targets.
+- **H5 — Zeroize-on-drop for in-memory secrets** (`src/ops/secrets/cache.rs`, `src/ops/secrets/credentials.rs`): `CacheEntry` impls `Drop` that `zeroize::Zeroize`s its `value`. New `Credentials` wrapper struct with `Drop`+`Deref` and accompanying `read_all_credentials_zeroizing()` for callers wanting auto-zero-on-scope-exit. Existing `with_credentials` closure pattern preserved.
+
+#### Medium
+
+- **M1 — URI path traversal rejection** (`src/ops/uri_resolve.rs`): New `validate_uri_path` blocks `..` and `.` segments, leading `/`, double slashes, and control characters before dispatch to provider backends. Some providers (raw Vault KVv2 calls) do not collapse `..`, so this prevents scope escape like `vault://kv/../../sys/`.
+- **M2 — Provider response value validation** (`src/ops/secrets/provider.rs`, `providers/onepassword.rs`, `providers/keeper.rs`, `providers/bitwarden.rs`): New `validate_provider_response_value` (64 KiB cap, NUL rejection) and `validate_provider_response_label` (512 B cap, control-char rejection). Applied in 1Password / Keeper / Bitwarden JSON parsers. Defends against compromised provider CLIs / MITMed daemons injecting hostile values into resolved secret pairs.
+- **M3 — Canary alerts redact own value** (`src/ops/canary.rs`): `trigger_canary` looks up the canary's `fake_value` and replaces any occurrence in the `source` / `details` arguments with `[CANARY_VALUE_REDACTED]` before writing to `canary-alerts.jsonl`, the monitor event stream, and stderr. Without this, a canary tripped because its value appeared in some log line would re-leak the value into our own alert log.
+- **M4 — Optional signed-commit verification on sync pull** (`src/ops/sync/model.rs`, `src/ops/sync/git.rs`, `src/ops/sync/pull.rs`): New `[sync] verify_signatures` config flag (default `false`). When enabled, `envforge sync pull` runs `git verify-commit HEAD` after fetch and fails closed if the commit is unsigned or the signature does not verify.
+- **M5 — Sanitize length filter dropped** (`src/ops/sanitize.rs`): The `>= 4` cutoff in `sanitize_content` allowed 3-character tokens (some PINs / OTPs) to pass through redaction unchanged. Filter now only skips empty values.
+
+#### Low
+
+- **L1 — Cache TOCTOU narrowed** (`src/ops/secrets/cache.rs`): `resolve_reference` takes a process-wide `Mutex` (`OnceLock<Mutex<()>>`) over the read-miss → fetch → write critical section. Eliminates in-process double-fetch races; cross-process safety still rests on tempfile + atomic rename + 0o600.
+- **L2 — Clipboard auto-clear TTL** (`src/ops/clipboard.rs`): New `copy_to_clipboard_with_ttl(text, secs)` spawns a background thread that, after the TTL expires, clears the clipboard if and only if it still holds the value we wrote. `copy_value` now defaults to a 30 s TTL when the key matches `is_sensitive_key`. Best-effort: macOS Pasteboard history and X11 PRIMARY/SECONDARY may still retain the value (documented).
+- **L3 — Profile / project_id validation** (`src/ops/secrets/providers/keeper.rs`, `src/ops/secrets/providers/bitwarden.rs`): New `checked_profile` / `checked_project_id` helpers run `validate_provider_arg` over Keeper's `profile` and Bitwarden's `project_id` before they are passed positionally to `ksm` / `bws`. Hostile values stored in the credential file (e.g. `profile=--something`) now error before subprocess spawn.
+- **L4 — Env-var pair validation at the run-CLI boundary** (`src/ops/secrets/provider.rs`, plus the three direct `cmd.env` sites in `vault.rs`, `conjur.rs`, `pass.rs`): New `validate_env_pair(name, value)` enforces POSIX env name regex (`[A-Za-z_][A-Za-z0-9_]*`), rejects NUL bytes in name and value, and rejects `\n` / `\r` in value. Called from `run_cli` and `run_cli_with_stdin` (which covers `run_cli_with_tempfile` transitively) plus the direct-spawn paths in pass / vault / conjur.
+
+### Tests
+
+- New tests for `validate_remote_url` (accepts https / ssh / git / scp-like; rejects `ext::`, `file://`, leading dash, rsync, control chars).
+- `test_sanitize_skips_short_values` renamed to `test_sanitize_skips_only_empty_values` and updated to cover the new behavior.
+- Existing 772 lib tests + integration suites continue to pass.
+
+### Changed
+
+- **Cargo.toml**: bumped version to 0.7.5
+- **`SyncSettings`**: new field `verify_signatures: bool` (default `false` via serde). Added to all in-tree constructors.
+- **`read_all_credentials`**: doc-commented with explicit guidance to prefer `with_credentials` or new `read_all_credentials_zeroizing`.
+
 ## [0.7.4] - 2026-05-07
 
 ### Added — Secret Lifecycle Automation

@@ -40,6 +40,52 @@ pub struct CredentialStore {
     pub providers: HashMap<String, HashMap<String, String>>,
 }
 
+/// Decrypted credentials handed back to a caller.
+///
+/// Wraps a plain `HashMap<String, String>` so the values can be read via
+/// `Deref` (e.g. `creds.get("token")`), but **also zeroizes every value
+/// when dropped** to prevent decrypted plaintext from lingering in memory
+/// or swap. Callers that previously took `HashMap<String, String>` work
+/// unchanged via `Deref`/`DerefMut`.
+#[derive(Debug, Default)]
+pub struct Credentials {
+    inner: HashMap<String, String>,
+}
+
+impl Credentials {
+    pub fn new(inner: HashMap<String, String>) -> Self {
+        Self { inner }
+    }
+
+    /// Consume the wrapper without zeroizing — only use when the caller
+    /// will manage zeroization itself. Almost always prefer `Deref`.
+    pub fn into_inner(mut self) -> HashMap<String, String> {
+        std::mem::take(&mut self.inner)
+    }
+}
+
+impl std::ops::Deref for Credentials {
+    type Target = HashMap<String, String>;
+    fn deref(&self) -> &HashMap<String, String> {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for Credentials {
+    fn deref_mut(&mut self) -> &mut HashMap<String, String> {
+        &mut self.inner
+    }
+}
+
+impl Drop for Credentials {
+    fn drop(&mut self) {
+        for v in self.inner.values_mut() {
+            v.zeroize();
+        }
+        self.inner.clear();
+    }
+}
+
 /// Store a credential for a provider (encrypts the value).
 pub fn store_credential(provider: &str, key: &str, value: &str) -> Result<(), SecretsError> {
     let path = credentials_path()?;
@@ -85,7 +131,20 @@ pub fn read_credential(provider: &str, key: &str) -> Result<String, SecretsError
 }
 
 /// Read all credentials for a provider (decrypted).
+///
+/// **Note:** the returned `HashMap` contains plaintext credentials. Callers
+/// MUST zeroize the map after use — either by manually calling
+/// `Zeroize::zeroize()` on each value, or (preferred) by using
+/// [`with_credentials`] which handles cleanup automatically. New code should
+/// prefer [`read_all_credentials_zeroizing`] which returns a [`Credentials`]
+/// wrapper that wipes values on drop.
 pub fn read_all_credentials(provider: &str) -> Result<HashMap<String, String>, SecretsError> {
+    Ok(read_all_credentials_zeroizing(provider)?.into_inner())
+}
+
+/// Like [`read_all_credentials`] but returns a [`Credentials`] guard that
+/// zeroizes its values when it goes out of scope.
+pub fn read_all_credentials_zeroizing(provider: &str) -> Result<Credentials, SecretsError> {
     let path = credentials_path()?;
     let store = load_store(&path)?;
 
@@ -108,7 +167,7 @@ pub fn read_all_credentials(provider: &str) -> Result<HashMap<String, String>, S
         decrypted.insert(key.clone(), value);
     }
 
-    Ok(decrypted)
+    Ok(Credentials::new(decrypted))
 }
 
 /// Call a closure with decrypted credentials, then zeroize the memory.
@@ -257,12 +316,15 @@ fn save_store(path: &Path, store: &CredentialStore) -> Result<(), SecretsError> 
 
     #[cfg(not(unix))]
     {
-        std::fs::write(path, content).map_err(|e| SecretsError::IoError {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        // Refuse to write the credential store on non-unix targets where
+        // 0600 perms cannot be reliably enforced before persist.
+        let _ = content;
+        return Err(SecretsError::CredentialError(
+            "credential store requires a unix-like OS for secure (0600) writes".into(),
+        ));
     }
 
+    #[allow(unreachable_code)]
     Ok(())
 }
 

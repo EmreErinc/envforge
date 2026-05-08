@@ -151,6 +151,7 @@ fn test_config_full_roundtrip() {
             auto_push: false,
             conflict_strategy: ConflictStrategy::KeepRemote,
             encrypted: true,
+            verify_signatures: false,
         },
         manifest: ManifestConfig {
             sync_keys: vec!["DB_URL".to_string(), "API_KEY".to_string()],
@@ -188,6 +189,7 @@ fn test_config_conflict_strategy_serialization_variants() {
                 auto_push: false,
                 conflict_strategy: strategy.clone(),
                 encrypted: true,
+                verify_signatures: false,
             },
             manifest: ManifestConfig::default(),
         };

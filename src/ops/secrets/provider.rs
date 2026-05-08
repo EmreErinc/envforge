@@ -386,6 +386,7 @@ pub fn run_cli(
     let mut cmd = Command::new(binary);
     cmd.args(args);
     for (k, v) in env_vars {
+        validate_env_pair(k, v)?;
         cmd.env(k, v);
     }
 
@@ -449,6 +450,7 @@ pub fn run_cli_with_stdin(
     let mut cmd = Command::new(binary);
     cmd.args(args);
     for (k, v) in env_vars {
+        validate_env_pair(k, v)?;
         cmd.env(k, v);
     }
     cmd.stdin(Stdio::piped())
@@ -659,6 +661,57 @@ pub fn env_refs_from_env<'a>(env: &'a [(&'static str, String)]) -> Vec<(&'static
     env.iter().map(|(k, v)| (*k, v.as_str())).collect()
 }
 
+/// Validate a single env-var pair before it is passed to `Command::env`.
+/// Names must be a non-empty ASCII identifier, and neither name nor value
+/// may contain a NUL byte (which would either panic on Unix or terminate
+/// the value silently on some platforms). Newlines are also rejected to
+/// prevent log/output smuggling through env-derived diagnostics.
+pub fn validate_env_pair(name: &str, value: &str) -> Result<(), SecretsError> {
+    if name.is_empty() {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: "env var name cannot be empty".to_string(),
+        });
+    }
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => {
+            return Err(SecretsError::ProviderError {
+                provider: "input".to_string(),
+                message: format!("invalid env var name: '{}'", name),
+            });
+        }
+    }
+    for c in chars {
+        if !(c.is_ascii_alphanumeric() || c == '_') {
+            return Err(SecretsError::ProviderError {
+                provider: "input".to_string(),
+                message: format!("invalid env var name: '{}'", name),
+            });
+        }
+    }
+    if name.contains('\0') {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: "env var name contains NUL byte".to_string(),
+        });
+    }
+    if value.contains('\0') {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: format!("env var '{}' value contains NUL byte", name),
+        });
+    }
+    if value.contains('\n') || value.contains('\r') {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: format!("env var '{}' value contains newline", name),
+        });
+    }
+    Ok(())
+}
+
 /// Extract the first semver-like version number from a version string.
 /// E.g., "vault v1.15.4" → Some("1.15.4"), "bws 2024.1.0" → Some("2024.1.0")
 pub fn extract_version_number(output: &str) -> Option<String> {
@@ -683,6 +736,15 @@ pub fn validate_secret_name(name: &str) -> Result<(), SecretsError> {
             message: format!("secret name too long ({} chars, max 512)", name.len()),
         });
     }
+    // Block leading dash to prevent the value from being parsed by a
+    // downstream provider CLI as an option flag (argv smuggling).
+    if name.starts_with('-') {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: "secret name cannot start with '-' (would be parsed as a CLI flag)"
+                .to_string(),
+        });
+    }
     for ch in name.chars() {
         match ch {
             '\0' => {
@@ -697,7 +759,112 @@ pub fn validate_secret_name(name: &str) -> Result<(), SecretsError> {
                     message: "secret name contains newline character".to_string(),
                 });
             }
+            // Reject other ASCII control characters (tab, BEL, ESC, DEL, ...).
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                return Err(SecretsError::ProviderError {
+                    provider: "input".to_string(),
+                    message: "secret name contains control character".to_string(),
+                });
+            }
+            // `=` would let a key like `foo=bar` poison `--field=label=KEY`
+            // style flags by introducing extra `=` segments.
+            '=' => {
+                return Err(SecretsError::ProviderError {
+                    provider: "input".to_string(),
+                    message: "secret name cannot contain '='".to_string(),
+                });
+            }
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Maximum byte length for a single secret value parsed from a provider's
+/// CLI output. Anything bigger is almost certainly garbage / hostile.
+pub const MAX_PROVIDER_VALUE_LEN: usize = 64 * 1024;
+
+/// Maximum byte length for a label/key parsed from a provider's CLI output.
+pub const MAX_PROVIDER_LABEL_LEN: usize = 512;
+
+/// Reject obviously hostile or malformed values returned from a provider
+/// CLI's JSON output before they propagate into ENV exports / shell.
+///
+/// Returns `Err` if the value exceeds [`MAX_PROVIDER_VALUE_LEN`] bytes
+/// or contains a NUL byte. Other ASCII control characters are allowed
+/// (multi-line tokens are legitimate) but callers may strip them if they
+/// will be exported to the shell.
+pub fn validate_provider_response_value(provider: &str, value: &str) -> Result<(), SecretsError> {
+    if value.len() > MAX_PROVIDER_VALUE_LEN {
+        return Err(SecretsError::ParseError {
+            provider: provider.to_string(),
+            message: format!(
+                "secret value exceeds {} bytes; refusing to import",
+                MAX_PROVIDER_VALUE_LEN
+            ),
+        });
+    }
+    if value.contains('\0') {
+        return Err(SecretsError::ParseError {
+            provider: provider.to_string(),
+            message: "secret value contains NUL byte".to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Reject malformed labels/keys parsed from a provider's CLI output.
+pub fn validate_provider_response_label(provider: &str, label: &str) -> Result<(), SecretsError> {
+    if label.is_empty() {
+        return Err(SecretsError::ParseError {
+            provider: provider.to_string(),
+            message: "empty secret label in provider response".to_string(),
+        });
+    }
+    if label.len() > MAX_PROVIDER_LABEL_LEN {
+        return Err(SecretsError::ParseError {
+            provider: provider.to_string(),
+            message: format!("secret label exceeds {} bytes", MAX_PROVIDER_LABEL_LEN),
+        });
+    }
+    for ch in label.chars() {
+        if ch == '\0' || ch == '\n' || ch == '\r' || (ch as u32) < 0x20 || ch as u32 == 0x7f {
+            return Err(SecretsError::ParseError {
+                provider: provider.to_string(),
+                message: "secret label contains control character".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Validate a value used as a positional argument to a provider CLI.
+/// Same hardening as `validate_secret_name`, applied to paths/items/etc.
+pub fn validate_provider_arg(arg: &str, what: &str) -> Result<(), SecretsError> {
+    if arg.is_empty() {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: format!("{} cannot be empty", what),
+        });
+    }
+    if arg.len() > 1024 {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: format!("{} too long ({} chars, max 1024)", what, arg.len()),
+        });
+    }
+    if arg.starts_with('-') {
+        return Err(SecretsError::ProviderError {
+            provider: "input".to_string(),
+            message: format!("{} cannot start with '-' (CLI flag injection)", what),
+        });
+    }
+    for ch in arg.chars() {
+        if ch == '\0' || ch == '\n' || ch == '\r' || (ch as u32) < 0x20 || ch as u32 == 0x7f {
+            return Err(SecretsError::ProviderError {
+                provider: "input".to_string(),
+                message: format!("{} contains control character", what),
+            });
         }
     }
     Ok(())

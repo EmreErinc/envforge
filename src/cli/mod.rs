@@ -373,6 +373,15 @@ pub enum Commands {
         dir: Option<String>,
     },
 
+    /// Output unload statements (restore previous shell state) for `eval`.
+    /// Reads the prev-state file written by `envforge env` from the
+    /// per-user state dir. Used by shell hooks.
+    EnvUnload {
+        /// Directory whose load is being undone
+        #[arg(long)]
+        dir: String,
+    },
+
     /// Run health checks on EnvForge setup
     Doctor {
         /// Show detailed output for each check

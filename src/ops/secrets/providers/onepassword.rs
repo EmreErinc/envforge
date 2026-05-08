@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
+    validate_provider_response_label, validate_provider_response_value, validate_secret_name,
     validate_secret_value, SecretProvider, SecretsError,
 };
 
@@ -48,12 +49,13 @@ impl SecretProvider for OnePasswordProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
+        validate_provider_arg(path, "1password item path")?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "op",
-            &["item", "get", path, "--format=json"],
+            &["item", "get", "--format=json", "--", path],
             &env_refs,
             "1password",
         )?;
@@ -93,11 +95,20 @@ impl SecretProvider for OnePasswordProvider {
         path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
+        validate_provider_arg(path, "1password item path")?;
+        validate_secret_name(key)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
+        // `key` cannot start with `-`, contain `=`, or contain control chars
+        // (enforced above). Build the flag and place positional args after `--`.
         let field = format!("--fields=label={}", key);
-        let output = run_cli("op", &["item", "get", path, &field], &env_refs, "1password")?;
+        let output = run_cli(
+            "op",
+            &["item", "get", &field, "--", path],
+            &env_refs,
+            "1password",
+        )?;
 
         Ok(output.trim().to_string())
     }
@@ -107,6 +118,7 @@ impl SecretProvider for OnePasswordProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<String>, SecretsError> {
+        validate_provider_arg(path, "1password vault")?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -150,18 +162,22 @@ pub fn parse_item_output(output: &str) -> Result<Vec<(String, String)>, SecretsE
             message: "no fields array in item".to_string(),
         })?;
 
-    let mut result: Vec<(String, String)> = fields
-        .iter()
-        .filter_map(|f| {
-            let label = f.get("label")?.as_str()?;
-            let value = f.get("value").and_then(|v| v.as_str()).unwrap_or("");
-            if label.is_empty() || value.is_empty() {
-                None
-            } else {
-                Some((label.to_string(), value.to_string()))
-            }
-        })
-        .collect();
+    let mut result: Vec<(String, String)> = Vec::new();
+    for f in fields {
+        let label = match f.get("label").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let value = f.get("value").and_then(|v| v.as_str()).unwrap_or("");
+        if label.is_empty() || value.is_empty() {
+            continue;
+        }
+        // Defend against compromised / hostile CLI output: cap sizes,
+        // reject control chars in labels, reject NUL in values.
+        validate_provider_response_label("1password", label)?;
+        validate_provider_response_value("1password", value)?;
+        result.push((label.to_string(), value.to_string()));
+    }
 
     sort_secret_pairs(&mut result);
     Ok(result)

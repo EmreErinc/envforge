@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, sort_secret_pairs, validate_env_pair, SecretProvider, SecretsError,
 };
 
 pub struct PassProvider;
@@ -145,6 +145,7 @@ impl SecretProvider for PassProvider {
             let mut cmd = std::process::Command::new(binary);
             cmd.args(&insert_args);
             for (k, v) in &env_refs {
+                validate_env_pair(k, v)?;
                 cmd.env(k, v);
             }
             cmd.stdin(std::process::Stdio::piped());

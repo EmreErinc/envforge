@@ -122,6 +122,12 @@ pub struct SyncSettings {
     pub conflict_strategy: ConflictStrategy,
     #[serde(default = "default_encrypted")]
     pub encrypted: bool,
+    /// If true, every pulled commit must carry a verifiable git signature
+    /// (`git verify-commit HEAD`). Pulls fail closed if the check fails.
+    /// Default false for backwards compatibility; recommended on for
+    /// untrusted-remote scenarios.
+    #[serde(default)]
+    pub verify_signatures: bool,
 }
 
 fn default_encrypted() -> bool {
@@ -262,6 +268,7 @@ impl SyncConfig {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
                 encrypted: true,
+                verify_signatures: false,
             },
             manifest: ManifestConfig::default(),
         }

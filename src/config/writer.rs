@@ -84,6 +84,14 @@ pub fn atomic_write(
         source: e,
     })?;
 
+    // fsync to disk before atomic rename: without this, a crash between
+    // rename and writeback can leave the file existing but with empty/torn
+    // contents, losing data including encrypted secrets.
+    temp.as_file().sync_all().map_err(|e| WriteError::IoError {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
     // Step 4: Atomic rename
     temp.persist(path).map_err(|e| WriteError::PersistError {
         path: path.to_path_buf(),

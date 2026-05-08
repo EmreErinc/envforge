@@ -146,7 +146,19 @@ impl GitOps for GitCommandRunner {
     }
 
     fn clone_repo(url: &str, target: &Path) -> Result<(), SyncError> {
-        Self::run_git_raw(&["clone", url, &target.to_string_lossy()])?;
+        validate_remote_url(url)?;
+        // Disable git-remote-ext (RCE vector) and dumb file/local protocol unless
+        // explicitly allowlisted via validate_remote_url.
+        Self::run_git_raw(&[
+            "-c",
+            "protocol.ext.allow=never",
+            "-c",
+            "protocol.file.allow=user",
+            "clone",
+            "--",
+            url,
+            &target.to_string_lossy(),
+        ])?;
         Ok(())
     }
 
@@ -251,6 +263,91 @@ impl GitOps for GitCommandRunner {
         let status = self.status()?;
         Ok(!status.is_empty())
     }
+}
+
+impl GitCommandRunner {
+    /// Run `git verify-commit <ref>` and require a Good/Trusted signature.
+    /// Used when `verify_signatures` is enabled to fail closed if a remote
+    /// pulled commit was not signed by a trusted key.
+    pub fn verify_commit(&self, commit: &str) -> Result<(), SyncError> {
+        if commit.is_empty() || commit.starts_with('-') {
+            return Err(SyncError::GitCommandFailed {
+                command: "verify-commit".to_string(),
+                stderr: "invalid commit ref".to_string(),
+            });
+        }
+        // `--raw` would be machine-friendlier but isn't universally supported;
+        // on failure git returns non-zero, which run_git already maps to
+        // GitCommandFailed.
+        self.run_git(&["verify-commit", "--", commit]).map(|_| ())
+    }
+}
+
+// ─── URL Validation ──────────────────────────────────────────
+
+/// Reject remote URLs that could trigger arbitrary command execution
+/// (`ext::`), local file disclosure (`file://`), or argument injection
+/// (leading `-`). Only allow `https://`, `http://`, `ssh://`, `git://`,
+/// or scp-like `user@host:path`.
+pub fn validate_remote_url(url: &str) -> Result<(), SyncError> {
+    let trimmed = url.trim();
+    let bad = |msg: &str| SyncError::GitCommandFailed {
+        command: "clone".to_string(),
+        stderr: format!("invalid remote URL ({}): {}", msg, url),
+    };
+
+    if trimmed.is_empty() {
+        return Err(bad("empty"));
+    }
+    if trimmed.starts_with('-') {
+        return Err(bad("leading dash"));
+    }
+    if trimmed.contains(['\n', '\r', '\0']) {
+        return Err(bad("control character"));
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    // Block known dangerous protocols outright.
+    for danger in [
+        "ext::",
+        "file://",
+        "ftp://",
+        "ftps://",
+        "gopher://",
+        "rsync://",
+    ] {
+        if lower.starts_with(danger) {
+            return Err(bad("disallowed scheme"));
+        }
+    }
+
+    // Allow well-formed schemes.
+    let allowed_scheme = [
+        "https://",
+        "http://",
+        "ssh://",
+        "git://",
+        "git+https://",
+        "git+ssh://",
+    ]
+    .iter()
+    .any(|p| lower.starts_with(p));
+
+    // Allow scp-like syntax: user@host:path (no scheme, must contain `@` and `:`,
+    // and the colon must precede any `/`).
+    let scp_like = !trimmed.contains("://")
+        && trimmed.contains('@')
+        && trimmed
+            .find(':')
+            .is_some_and(|c| trimmed[..c].contains('@') && !trimmed[..c].is_empty());
+
+    if !(allowed_scheme || scp_like) {
+        return Err(bad(
+            "scheme must be https/http/ssh/git or user@host:path form",
+        ));
+    }
+
+    Ok(())
 }
 
 // ─── Parsing Helpers ─────────────────────────────────────────
@@ -471,5 +568,24 @@ mod tests {
     fn test_parse_git_log_empty() {
         let commits = parse_git_log("");
         assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn test_validate_remote_url_accepts_https_ssh_scp() {
+        assert!(validate_remote_url("https://github.com/u/r.git").is_ok());
+        assert!(validate_remote_url("ssh://git@github.com/u/r.git").is_ok());
+        assert!(validate_remote_url("git@github.com:u/r.git").is_ok());
+        assert!(validate_remote_url("git://github.com/u/r.git").is_ok());
+    }
+
+    #[test]
+    fn test_validate_remote_url_rejects_dangerous() {
+        assert!(validate_remote_url("ext::sh -c 'rm -rf /'").is_err());
+        assert!(validate_remote_url("file:///etc/passwd").is_err());
+        assert!(validate_remote_url("-upload-pack=evil").is_err());
+        assert!(validate_remote_url("").is_err());
+        assert!(validate_remote_url("https://x.com/r\n--upload-pack=x").is_err());
+        assert!(validate_remote_url("/local/path").is_err());
+        assert!(validate_remote_url("rsync://x").is_err());
     }
 }

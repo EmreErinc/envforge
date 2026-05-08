@@ -75,8 +75,13 @@ pub fn ensure_age_key() -> Result<String, EncryptError> {
 
         #[cfg(not(unix))]
         {
-            std::fs::write(&path, &content)
-                .map_err(|e| EncryptError::KeyError(format!("Cannot write key: {}", e)))?;
+            // EnvForge does not currently support secure key storage on
+            // non-unix targets (no portable way to set 0600 ACLs from
+            // tempfile before persist). Refuse to write the key rather
+            // than leak a world-readable private key on Windows.
+            return Err(EncryptError::KeyError(
+                "secure age key storage requires a unix-like OS".into(),
+            ));
         }
 
         Ok(content)

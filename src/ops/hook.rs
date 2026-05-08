@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::config::load_or_create_default;
+use sha2::{Digest, Sha256};
+
+use crate::config::{config_dir, load_or_create_default};
 
 use super::OpError;
 use crate::ops::dotenv::parse_dotenv;
@@ -56,9 +58,8 @@ fn generate_zsh_hook() -> String {
 }
 
 _envforge_unload() {
-  if [ -n "$ENVFORGE_LOADED_DIR" ] && [ -f "$ENVFORGE_LOADED_DIR/.envforge-prev" ]; then
-    eval "$(cat "$ENVFORGE_LOADED_DIR/.envforge-prev")"
-    rm -f "$ENVFORGE_LOADED_DIR/.envforge-prev"
+  if [ -n "$ENVFORGE_LOADED_DIR" ]; then
+    eval "$(envforge env-unload --dir "$ENVFORGE_LOADED_DIR" 2>/dev/null)"
   fi
   unset ENVFORGE_LOADED_DIR
   echo "envforge: unloaded" >&2
@@ -102,9 +103,8 @@ fn generate_bash_hook() -> String {
 }
 
 _envforge_unload() {
-  if [ -n "$ENVFORGE_LOADED_DIR" ] && [ -f "$ENVFORGE_LOADED_DIR/.envforge-prev" ]; then
-    eval "$(cat "$ENVFORGE_LOADED_DIR/.envforge-prev")"
-    rm -f "$ENVFORGE_LOADED_DIR/.envforge-prev"
+  if [ -n "$ENVFORGE_LOADED_DIR" ]; then
+    eval "$(envforge env-unload --dir "$ENVFORGE_LOADED_DIR" 2>/dev/null)"
   fi
   unset ENVFORGE_LOADED_DIR
   echo "envforge: unloaded" >&2
@@ -145,9 +145,8 @@ fn generate_fish_hook() -> String {
 end
 
 function _envforge_unload
-  if test -n "$ENVFORGE_LOADED_DIR"; and test -f "$ENVFORGE_LOADED_DIR/.envforge-prev"
-    cat "$ENVFORGE_LOADED_DIR/.envforge-prev" | source
-    rm -f "$ENVFORGE_LOADED_DIR/.envforge-prev"
+  if test -n "$ENVFORGE_LOADED_DIR"
+    envforge env-unload --dir "$ENVFORGE_LOADED_DIR" 2>/dev/null | source
   end
   set -e ENVFORGE_LOADED_DIR
   echo "envforge: unloaded" >&2
@@ -197,8 +196,15 @@ pub fn cmd_env(dir: Option<&str>) -> Result<(), OpError> {
         return Ok(());
     }
 
-    // Save previous values for unload
+    // Save previous values for unload (to user state dir, mode 0600).
     save_prev_values(&base_dir, &env)?;
+
+    // Remove any legacy in-project prev file from older envforge versions
+    // — that location was an RCE risk via attacker-writable repos.
+    let legacy_prev = base_dir.join(".envforge-prev");
+    if legacy_prev.exists() {
+        let _ = std::fs::remove_file(&legacy_prev);
+    }
 
     // Output export statements to stdout
     let mut keys: Vec<&String> = env.keys().collect();
@@ -288,27 +294,142 @@ fn collect_project_env(
     Ok(env)
 }
 
+/// Per-user directory holding hook prev-state files (mode 0700).
+/// Located under the envforge config dir so only the owning user can write,
+/// preventing a malicious project repo from dropping a `.envforge-prev`
+/// file that would later be `eval`ed by the shell hook.
+fn prev_state_dir() -> Result<PathBuf, OpError> {
+    let dir = config_dir()
+        .map_err(|e| OpError::from(format!("cannot resolve config dir: {}", e)))?
+        .join("hook-state");
+    std::fs::create_dir_all(&dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    Ok(dir)
+}
+
+/// Compute the prev-state file path for a project directory.
+/// Uses SHA-256 of the canonical path so the filename is deterministic
+/// across hook invocations and shell-agnostic (Rust computes it, hook
+/// doesn't have to).
+fn prev_state_path(base_dir: &Path) -> Result<PathBuf, OpError> {
+    let canonical = std::fs::canonicalize(base_dir).unwrap_or_else(|_| base_dir.to_path_buf());
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_os_str().as_encoded_bytes());
+    let digest = hasher.finalize();
+    use std::fmt::Write;
+    let hex = digest.iter().fold(String::with_capacity(64), |mut s, b| {
+        let _ = write!(s, "{:02x}", b);
+        s
+    });
+    Ok(prev_state_dir()?.join(format!("{}.prev", hex)))
+}
+
 /// Save previous shell values for the keys we're about to set.
-/// This allows clean unloading.
+/// Writes to a per-user state dir (mode 0600), NOT the project dir, so
+/// repo contents cannot replace the file with attacker-controlled shell.
 fn save_prev_values(base_dir: &Path, env: &HashMap<String, String>) -> Result<(), OpError> {
-    let prev_path = base_dir.join(".envforge-prev");
+    let prev_path = prev_state_path(base_dir)?;
     let mut prev_content = String::new();
 
     for key in env.keys() {
+        if !is_safe_env_name(key) {
+            // Refuse to record anything under a name that itself could
+            // smuggle shell metacharacters into the unload output.
+            continue;
+        }
         match std::env::var(key) {
             Ok(old_value) => {
-                // Variable existed before -- restore it on unload
                 prev_content.push_str(&format!("export {}={}\n", key, shell_escape(&old_value)));
             }
             Err(_) => {
-                // Variable did not exist -- unset it on unload
                 prev_content.push_str(&format!("unset {}\n", key));
             }
         }
     }
 
-    std::fs::write(prev_path, prev_content)?;
+    write_prev_file(&prev_path, &prev_content)
+}
+
+#[cfg(unix)]
+fn write_prev_file(path: &Path, content: &str) -> Result<(), OpError> {
+    use std::os::unix::fs::PermissionsExt;
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let temp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|e| OpError::from(format!("create temp prev file: {}", e)))?;
+    temp.as_file()
+        .set_permissions(std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| OpError::from(format!("chmod prev file: {}", e)))?;
+    std::fs::write(temp.path(), content)
+        .map_err(|e| OpError::from(format!("write prev file: {}", e)))?;
+    temp.persist(path)
+        .map_err(|e| OpError::from(format!("persist prev file: {}", e.error)))?;
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_prev_file(_path: &Path, _content: &str) -> Result<(), OpError> {
+    Err(OpError::from(
+        "envforge hook state writing requires a unix-like OS",
+    ))
+}
+
+/// `KEY` must be `[A-Za-z_][A-Za-z0-9_]*` to be a safe POSIX env name.
+fn is_safe_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Read the prev-state file for `dir`, print its contents to stdout for
+/// `eval`, and remove the file. If no state exists, prints nothing
+/// (idempotent safe no-op for the shell hook).
+pub fn cmd_env_unload(dir: &str) -> Result<(), OpError> {
+    let base_dir = PathBuf::from(dir);
+    let prev_path = prev_state_path(&base_dir)?;
+    if !prev_path.is_file() {
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(&prev_path)?;
+    // The file we wrote contains only `export KEY='...'` and `unset KEY`
+    // lines with shell-safe names. Re-validate before printing to defend
+    // against tampering between save and load.
+    for line in content.lines() {
+        if !is_safe_unload_line(line) {
+            // Skip suspicious line; do not abort entire unload.
+            continue;
+        }
+        println!("{}", line);
+    }
+    let _ = std::fs::remove_file(&prev_path);
+    Ok(())
+}
+
+fn is_safe_unload_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return true;
+    }
+    if let Some(rest) = trimmed.strip_prefix("unset ") {
+        return is_safe_env_name(rest.trim());
+    }
+    if let Some(rest) = trimmed.strip_prefix("export ") {
+        if let Some(eq) = rest.find('=') {
+            let name = &rest[..eq];
+            let value = &rest[eq + 1..];
+            return is_safe_env_name(name)
+                && value.starts_with('\'')
+                && value.ends_with('\'')
+                && !value.contains('\n');
+        }
+    }
+    false
 }
 
 /// Escape a value for safe use in shell `export KEY='VALUE'` statements.

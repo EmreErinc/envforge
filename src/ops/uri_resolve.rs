@@ -155,6 +155,8 @@ fn resolve_single_uri(
     registry_name: &str,
     registry: &ProviderRegistry,
 ) -> Result<String, String> {
+    validate_uri_path(&uri.path)?;
+
     let provider = registry.get(registry_name).map_err(|e| format!("{}", e))?;
 
     let credentials = read_all_credentials(registry_name)
@@ -170,6 +172,36 @@ fn resolve_single_uri(
     provider
         .get(&credentials, dir, secret_key)
         .map_err(|e| format!("{}", e))
+}
+
+/// Reject `..` segments, leading `/`, double slashes, and control chars
+/// in a URI path before it's handed to a provider backend. Some providers
+/// (e.g. raw Vault KVv2 calls) do not collapse `..`, so a path of
+/// `secret/../../sys/` could escape the intended scope.
+fn validate_uri_path(path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        return Err("URI path cannot be empty".to_string());
+    }
+    if path.starts_with('/') {
+        return Err("URI path must not be absolute".to_string());
+    }
+    if path.contains("//") {
+        return Err("URI path must not contain '//'".to_string());
+    }
+    for segment in path.split('/') {
+        if segment == ".." || segment == "." {
+            return Err(format!(
+                "URI path must not contain '{}' segments (path traversal)",
+                segment
+            ));
+        }
+    }
+    for ch in path.chars() {
+        if ch == '\0' || ch == '\n' || ch == '\r' || (ch as u32) < 0x20 {
+            return Err("URI path contains control character".to_string());
+        }
+    }
+    Ok(())
 }
 
 /// Format resolved entries as export statements.

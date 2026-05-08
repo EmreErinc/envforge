@@ -153,6 +153,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         } => cmd_rotate(key, *dr || dry_run, *stale, *propagate),
         Commands::Hook { shell } => cmd_hook(shell),
         Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()).map_err(|e| e.into()),
+        Commands::EnvUnload { dir } => crate::ops::hook::cmd_env_unload(dir).map_err(|e| e.into()),
         Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
         Commands::Check { only } => cmd_check(only.as_deref(), json),
         Commands::Snapshot { action } => cmd_snapshot(action, dry_run, json),

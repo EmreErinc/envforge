@@ -205,6 +205,13 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), SyncError> {
         source: e,
     })?;
 
+    // fsync to disk before atomic rename to defend against torn writes
+    // on crash; sync snapshots may contain plaintext sync values.
+    temp.as_file().sync_all().map_err(|e| SyncError::IoError {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
     temp.persist(path).map_err(|e| SyncError::IoError {
         path: path.to_path_buf(),
         source: e.into(),
@@ -495,6 +502,7 @@ mod tests {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::KeepLocal,
                 encrypted: true,
+                verify_signatures: false,
             },
             manifest: ManifestConfig::default(),
         };
