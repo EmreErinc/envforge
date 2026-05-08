@@ -155,11 +155,47 @@ struct ChainEntry {
 
 const CHAIN_STATE_FILENAME: &str = ".chain-state.json";
 
+/// Return true if `log_dir` contains at least one file that looks like an
+/// audit log (any non-hidden file other than the chain state itself).
+/// Used by [`load_chain_state`] to distinguish "first run, never written"
+/// from "state file was deleted to cover tampering".
+fn log_dir_has_log_files(log_dir: &Path) -> bool {
+    let read = match std::fs::read_dir(log_dir) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    for entry in read.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') {
+            continue;
+        }
+        if entry.path().is_file() {
+            return true;
+        }
+    }
+    false
+}
+
 /// Load chain state from disk.
+///
+/// Detects tampering: if the state file is missing but `log_dir` already
+/// contains log files, the state was deleted to mask earlier tampering.
+/// Without this check, a `.chain-state.json` deleted by an attacker would
+/// silently re-initialize the chain ("fresh chain" instead of "broken
+/// chain"), defeating the tamper-evident property.
 pub fn load_chain_state(log_dir: &Path) -> Result<ChainState, TamperError> {
     let state_path = log_dir.join(CHAIN_STATE_FILENAME);
 
     if !state_path.exists() {
+        if log_dir_has_log_files(log_dir) {
+            return Err(TamperError::InvalidState(format!(
+                "chain state file missing at {} but audit logs exist; possible tampering. \
+                 Refusing to silently re-initialize chain. To accept the loss, \
+                 manually rotate logs or restore from backup.",
+                state_path.display()
+            )));
+        }
         return Ok(ChainState::new());
     }
 

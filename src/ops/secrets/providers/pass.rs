@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, validate_env_pair, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, sort_secret_pairs, validate_env_pair, validate_provider_arg,
+    validate_provider_response_value, validate_secret_name, validate_secret_value, SecretProvider,
+    SecretsError,
 };
 
 pub struct PassProvider;
@@ -96,20 +98,29 @@ impl SecretProvider for PassProvider {
         let env_refs = env_refs_from_env(&env_vars);
         let store = Self::store_dir(credentials);
 
+        if !path.is_empty() {
+            validate_provider_arg(path, "pass path")?;
+        }
         let entries = scan_password_store(&store, path)?;
 
         let mut secrets = Vec::new();
         for entry in &entries {
+            // entry is a filesystem-derived path under store_dir; reject anything
+            // that would be parsed as a flag by the underlying binary.
+            if entry.starts_with('-') {
+                continue;
+            }
             let show_args = if binary == "gopass" {
-                vec!["show", "-o", entry.as_str()]
+                vec!["show", "-o", "--", entry.as_str()]
             } else {
-                vec!["show", entry.as_str()]
+                vec!["show", "--", entry.as_str()]
             };
 
             if let Ok(output) = run_cli(binary, &show_args, &env_refs, "pass") {
                 // First line is the secret value
                 let value = output.lines().next().unwrap_or("").to_string();
                 if !value.is_empty() {
+                    validate_provider_response_value("pass", &value)?;
                     secrets.push((entry.clone(), value));
                 }
             }
@@ -131,13 +142,15 @@ impl SecretProvider for PassProvider {
 
         let mut count = 0;
         for (key, value) in secrets {
+            validate_secret_name(key)?;
+            validate_secret_value(value)?;
             // Use echo pipe approach: echo "value" | pass insert -e key
             let insert_args = if binary == "gopass" {
                 // gopass insert -f key (reads from stdin)
-                vec!["insert", "-f", key.as_str()]
+                vec!["insert", "-f", "--", key.as_str()]
             } else {
                 // pass insert -e key (echo mode, no confirmation)
-                vec!["insert", "-e", key.as_str()]
+                vec!["insert", "-e", "--", key.as_str()]
             };
 
             // Write value to stdin via a temp file + pipe approach using run_cli
@@ -194,18 +207,21 @@ impl SecretProvider for PassProvider {
         _path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
+        validate_secret_name(key)?;
         let binary = Self::detect_binary(credentials);
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
         let show_args = if binary == "gopass" {
-            vec!["show", "-o", key]
+            vec!["show", "-o", "--", key]
         } else {
-            vec!["show", key]
+            vec!["show", "--", key]
         };
 
         let output = run_cli(binary, &show_args, &env_refs, "pass")?;
-        Ok(output.lines().next().unwrap_or("").to_string())
+        let value = output.lines().next().unwrap_or("").to_string();
+        validate_provider_response_value("pass", &value)?;
+        Ok(value)
     }
 
     fn list(
@@ -213,6 +229,9 @@ impl SecretProvider for PassProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<String>, SecretsError> {
+        if !path.is_empty() {
+            validate_provider_arg(path, "pass path")?;
+        }
         let store = Self::store_dir(credentials);
         scan_password_store(&store, path)
     }

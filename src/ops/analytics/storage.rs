@@ -53,6 +53,25 @@ pub fn save_events(
 
     let path = events_file_path()?;
 
+    // Open with restrictive permissions (0600) AT CREATE TIME on Unix.
+    // The previous post-create chmod left a window during which the file
+    // could be opened with the default umask (often world-readable) and
+    // silently swallowed chmod errors via `.ok()`. Use OpenOptions::mode
+    // so the file is never observable on disk with looser perms.
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|e| AnalyticsError::StorageError {
+                path: path.clone(),
+                source: e,
+            })?
+    };
+    #[cfg(not(unix))]
     let file = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -62,10 +81,18 @@ pub fn save_events(
             source: e,
         })?;
 
+    // For files that already existed before we started using `mode(0o600)`,
+    // tighten permissions defensively. Propagate the error this time
+    // instead of dropping it.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).ok();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|e| {
+            AnalyticsError::StorageError {
+                path: path.clone(),
+                source: e,
+            }
+        })?;
     }
 
     let mut writer = std::io::BufWriter::new(file);

@@ -1,6 +1,19 @@
 use std::collections::HashMap;
 
-use super::super::provider::{run_cli, sort_secret_pairs, SecretProvider, SecretsError};
+use super::super::provider::{
+    run_cli, sort_secret_pairs, validate_provider_arg, validate_provider_response_label,
+    validate_provider_response_value, validate_secret_name, SecretProvider, SecretsError,
+};
+
+/// Validate `project_id` from credentials before it is interpolated into a
+/// `--project=` flag. Refuses leading dash / control chars / `=` smuggling.
+fn checked_project(credentials: &HashMap<String, String>) -> Result<String, SecretsError> {
+    let project = credentials.get("project_id").cloned().unwrap_or_default();
+    if !project.is_empty() {
+        validate_provider_arg(&project, "gcp project_id")?;
+    }
+    Ok(project)
+}
 
 pub struct GcpSecretManagerProvider;
 
@@ -45,9 +58,11 @@ impl SecretProvider for GcpSecretManagerProvider {
         let keys = self.list(credentials, "")?;
         let mut result = Vec::new();
 
-        let project = credentials.get("project_id").cloned().unwrap_or_default();
+        let project = checked_project(credentials)?;
 
         for key in &keys {
+            // Keys came from `list` which already validated; re-check is cheap.
+            validate_secret_name(key)?;
             let output = run_cli(
                 "gcloud",
                 &[
@@ -61,7 +76,9 @@ impl SecretProvider for GcpSecretManagerProvider {
                 &[],
                 "gcp",
             )?;
-            result.push((key.clone(), output.trim().to_string()));
+            let trimmed = output.trim();
+            validate_provider_response_value("gcp", trimmed)?;
+            result.push((key.clone(), trimmed.to_string()));
         }
 
         sort_secret_pairs(&mut result);
@@ -74,9 +91,12 @@ impl SecretProvider for GcpSecretManagerProvider {
         _path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
-        let project = credentials.get("project_id").cloned().unwrap_or_default();
+        let project = checked_project(credentials)?;
 
         for (key, value) in secrets {
+            validate_secret_name(key)?;
+            // `value` is written to a 0600 tempfile and passed via
+            // `--data-file=`; not interpreted as an argv value.
             // Try to create; if exists, add a new version
             let create_result = run_cli(
                 "gcloud",
@@ -148,7 +168,8 @@ impl SecretProvider for GcpSecretManagerProvider {
         _path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
-        let project = credentials.get("project_id").cloned().unwrap_or_default();
+        validate_secret_name(key)?;
+        let project = checked_project(credentials)?;
 
         let output = run_cli(
             "gcloud",
@@ -164,7 +185,9 @@ impl SecretProvider for GcpSecretManagerProvider {
             "gcp",
         )?;
 
-        Ok(output.trim().to_string())
+        let value = output.trim();
+        validate_provider_response_value("gcp", value)?;
+        Ok(value.to_string())
     }
 
     fn list(
@@ -172,7 +195,7 @@ impl SecretProvider for GcpSecretManagerProvider {
         credentials: &HashMap<String, String>,
         _path: &str,
     ) -> Result<Vec<String>, SecretsError> {
-        let project = credentials.get("project_id").cloned().unwrap_or_default();
+        let project = checked_project(credentials)?;
 
         let output = run_cli(
             "gcloud",
@@ -205,14 +228,18 @@ pub fn parse_gcp_list_output(output: &str) -> Result<Vec<String>, SecretsError> 
             message: e.to_string(),
         })?;
 
-    let mut names: Vec<String> = items
-        .iter()
-        .filter_map(|i| {
-            let name = i.get("name")?.as_str()?;
-            // Format: "projects/123/secrets/MY_SECRET" → extract "MY_SECRET"
-            name.rsplit('/').next().map(String::from)
-        })
-        .collect();
+    let mut names: Vec<String> = Vec::new();
+    for i in &items {
+        let name = match i.get("name").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        // Format: "projects/123/secrets/MY_SECRET" → extract "MY_SECRET"
+        if let Some(short) = name.rsplit('/').next() {
+            validate_provider_response_label("gcp", short)?;
+            names.push(short.to_string());
+        }
+    }
 
     names.sort();
     Ok(names)

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
+    validate_provider_response_label, validate_provider_response_value, validate_secret_name,
     validate_secret_value, SecretProvider, SecretsError,
 };
 
@@ -68,11 +69,15 @@ impl SecretProvider for AwsSsmProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
+        validate_provider_arg(path, "aws-ssm path")?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
         let region_str = credentials.get("region").cloned().unwrap_or_default();
         let has_region = credentials.contains_key("region");
+        if has_region {
+            validate_provider_arg(&region_str, "aws-ssm region")?;
+        }
 
         let mut all_results = Vec::new();
         let mut next_token: Option<String> = None;
@@ -122,6 +127,7 @@ impl SecretProvider for AwsSsmProvider {
         path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
+        validate_provider_arg(path, "aws-ssm path")?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -143,6 +149,7 @@ impl SecretProvider for AwsSsmProvider {
 
             let region_str;
             if let Some(region) = credentials.get("region") {
+                validate_provider_arg(region, "aws-ssm region")?;
                 region_str = region.clone();
                 args.extend_from_slice(&["--region", &region_str]);
             }
@@ -159,6 +166,8 @@ impl SecretProvider for AwsSsmProvider {
         path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
+        validate_provider_arg(path, "aws-ssm path")?;
+        validate_secret_name(key)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -175,6 +184,7 @@ impl SecretProvider for AwsSsmProvider {
 
         let region_str;
         if let Some(region) = credentials.get("region") {
+            validate_provider_arg(region, "aws-ssm region")?;
             region_str = region.clone();
             args.extend_from_slice(&["--region", &region_str]);
         }
@@ -186,14 +196,16 @@ impl SecretProvider for AwsSsmProvider {
                 message: e.to_string(),
             })?;
 
-        json.get("Parameter")
+        let value = json
+            .get("Parameter")
             .and_then(|p| p.get("Value"))
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
             .ok_or_else(|| SecretsError::ParseError {
                 provider: "aws-ssm".to_string(),
                 message: "unexpected JSON structure".to_string(),
-            })
+            })?;
+        validate_provider_response_value("aws-ssm", value)?;
+        Ok(value.to_string())
     }
 
     fn list(
@@ -230,15 +242,21 @@ pub fn parse_ssm_output(
         })?;
 
     let prefix = format!("{}/", path_prefix.trim_end_matches('/'));
-    let mut result: Vec<(String, String)> = parameters
-        .iter()
-        .filter_map(|p| {
-            let name = p.get("Name")?.as_str()?;
-            let value = p.get("Value")?.as_str()?;
-            let key = name.strip_prefix(&prefix).unwrap_or(name);
-            Some((key.to_string(), value.to_string()))
-        })
-        .collect();
+    let mut result: Vec<(String, String)> = Vec::new();
+    for p in parameters {
+        let name = match p.get("Name").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let value = match p.get("Value").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let key = name.strip_prefix(&prefix).unwrap_or(name);
+        validate_provider_response_label("aws-ssm", key)?;
+        validate_provider_response_value("aws-ssm", value)?;
+        result.push((key.to_string(), value.to_string()));
+    }
 
     sort_secret_pairs(&mut result);
     Ok(result)

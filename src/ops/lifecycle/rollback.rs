@@ -1,5 +1,4 @@
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -149,13 +148,38 @@ fn mask_value(value: &str) -> String {
 }
 
 fn write_atomic_snapshot(path: &std::path::Path, content: &str) -> Result<(), OpError> {
-    use tempfile::NamedTempFile;
-    let parent = path
-        .parent()
-        .ok_or_else(|| OpError::Other("invalid snapshot path".into()))?;
-    let mut tmp = NamedTempFile::new_in(parent)?;
-    tmp.write_all(content.as_bytes())?;
-    tmp.persist(path)
-        .map_err(|e| OpError::Other(e.to_string()))?;
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let _ = (path, content);
+        return Err(OpError::Other(
+            "lifecycle snapshot writes require a unix-like OS for secure (0600) writes".into(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::NamedTempFile;
+
+        let parent = path
+            .parent()
+            .ok_or_else(|| OpError::Other("invalid snapshot path".into()))?;
+        let mut tmp = NamedTempFile::new_in(parent)?;
+
+        // Snapshots can hold plaintext secret values used by rollback.
+        // Restrict permissions BEFORE writing so contents are never
+        // observable with the default umask.
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))?;
+
+        tmp.write_all(content.as_bytes())?;
+        tmp.flush()?;
+        // fsync so a crash between rename and writeback doesn't leave a
+        // zero-length / torn snapshot.
+        tmp.as_file().sync_all()?;
+
+        tmp.persist(path)
+            .map_err(|e| OpError::Other(e.to_string()))?;
+        Ok(())
+    }
 }

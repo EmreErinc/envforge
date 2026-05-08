@@ -39,6 +39,37 @@ Comprehensive hardening pass closing 12 issues from internal audit (2 Critical, 
 - **L3 — Profile / project_id validation** (`src/ops/secrets/providers/keeper.rs`, `src/ops/secrets/providers/bitwarden.rs`): New `checked_profile` / `checked_project_id` helpers run `validate_provider_arg` over Keeper's `profile` and Bitwarden's `project_id` before they are passed positionally to `ksm` / `bws`. Hostile values stored in the credential file (e.g. `profile=--something`) now error before subprocess spawn.
 - **L4 — Env-var pair validation at the run-CLI boundary** (`src/ops/secrets/provider.rs`, plus the three direct `cmd.env` sites in `vault.rs`, `conjur.rs`, `pass.rs`): New `validate_env_pair(name, value)` enforces POSIX env name regex (`[A-Za-z_][A-Za-z0-9_]*`), rejects NUL bytes in name and value, and rejects `\n` / `\r` in value. Called from `run_cli` and `run_cli_with_stdin` (which covers `run_cli_with_tempfile` transitively) plus the direct-spawn paths in pass / vault / conjur.
 
+#### Follow-up rescan (10 additional findings — 2 High, 6 Medium, 2 Low)
+
+A second deep audit after the C / H / M / L pass surfaced fanout gaps and modules not previously covered. All closed.
+
+##### High
+
+- **N1 — Provider arg-flag injection across remaining providers** (`src/ops/secrets/providers/{aws_ssm,gcp,azure,doppler,infisical,akeyless,sops,conjur,pass,vault}.rs`): the H2 fix only covered 1Password. Same risk pattern (path / key / region / project_id / vault_name flowing into CLI args without validation, allowing leading-`-` or `=` smuggling) confirmed in 11 of 14 providers. Each `pull` / `push` / `get` / `list` now calls `validate_provider_arg` for paths and `validate_secret_name` for keys. Where the underlying CLI supports it, positional args are placed after `--`. Provider-specific helpers (`checked_project`, `checked_vault`, `checked_project_config`, `checked_env_project`) consolidate credential-field validation. The SOPS provider gained a stricter `validate_sops_path` (allows filesystem paths but blocks leading `-` and control chars) plus rejection of `"` / `\\` in keys (which are interpolated into a JSON-path expression for `--extract`).
+- **N2 — LSP root URI canonicalization + size cap** (`src/lsp/server.rs`): `load_schema_from_workspace` now `canonicalize`s the client-supplied `rootUri` before reading, requires the resolved schema path to remain inside the canonicalized root (defense-in-depth against `..` / symlink escape), and refuses to read schemas larger than 1 MiB. Without this, a malicious LSP client could point root at `~/.ssh/` or similar and have envforge read it.
+
+##### Medium
+
+- **N3 — Analytics events file mode at create time** (`src/ops/analytics/storage.rs`): event JSONL was created with default umask (often 0644 → world-readable) and only `chmod`'d to 0600 *after* open, with `.ok()` swallowing failures. Now uses `OpenOptions::mode(0o600)` so the file is never observable on disk with looser perms; the post-create defensive chmod no longer drops errors.
+- **N4 — Lifecycle snapshot 0600 + fsync** (`src/ops/lifecycle/rollback.rs`): rollback snapshots can hold plaintext secret values. The previous `write_atomic_snapshot` used `NamedTempFile` without setting permissions and without `sync_all` before persist. Now sets 0600 on the tempfile before the first write, fsyncs before atomic rename, and refuses to run on non-unix targets (consistent with H4).
+- **N5 — Cron min-interval guard** (`src/ops/lifecycle/trigger_engine.rs`): `Schedule::from_str` accepted any expression including 6-field `* * * * * *` (every second). New `MIN_CRON_INTERVAL_SECS = 60` floor; rules whose two consecutive next events are < 60 s apart are rejected, preventing local DoS / API quota exhaustion via tight rotation triggers.
+- **N6 — Response value validation on AWS / GCP / Azure parsers** (`src/ops/secrets/providers/{aws_ssm,gcp,azure}.rs`): M2 only covered 1Password / Keeper / Bitwarden. Now AWS SSM, GCP Secret Manager, and Azure Key Vault parsers also call `validate_provider_response_value` and `validate_provider_response_label` on every JSON-extracted secret, capping size at 64 KiB and rejecting NUL / control chars.
+- **N7 — `mcp_scan` size + recursion-depth caps** (`src/ops/mcp_scan.rs`): `scan_json_file` and `harden_mcp_config` now reject configs > 1 MiB before parsing; `walk_json` carries an explicit `depth` parameter and bails out at `MAX_JSON_DEPTH = 64` to defend against stack-overflow DoS via deeply-nested attacker-controlled JSON.
+- **N8 — Audit chain-state deletion detection** (`src/ops/audit/tamper.rs`): `load_chain_state` previously returned a fresh empty state if `.chain-state.json` was absent — silently masking earlier tampering when an attacker simply deleted the state file. Now refuses to silently re-initialize: if the state file is missing but `log_dir` already contains audit log files, returns `TamperError::InvalidState` requiring manual rotation or restore.
+
+##### Low
+
+- **N9 — Monitor event message redaction** (`src/ops/monitor/mod.rs`): `emit_event` now passes every `RuntimeEvent` through `redact_runtime_event`, which replaces high-entropy tokens (24+ chars of `[A-Za-z0-9_\-]`) in `message` with `[REDACTED]` before broadcast. Last-line safety net for callers that put a secret value into a runtime event message — subscribers (CLI streams, external integrations, log shippers) no longer see raw tokens.
+- **N10 — `cargo audit` / `cargo deny` already in CI**: confirmed `.github/workflows/security.yml` runs both via `EmbarkStudios/cargo-deny-action@v2`. Local install instructions could still be documented in the developer setup guide; tracked as docs-only follow-up.
+
+##### False positives ruled out
+
+- Parser `&s[1..]` panic in `parse_quoted_value` — only entered when `trimmed.starts_with('"' | '\'')`, so length is always ≥ 1 and the slice produces `""` not panic.
+- C2 BOM-prefixed prev-state bypass — envforge writes the file; we never emit BOM. BOM-prefixed lines from external tampering fail `is_safe_unload_line` and are silently skipped, which is correct (skipping ≠ executing).
+- C1 IDN / mixed-case host bypass — `to_ascii_lowercase` covers ASCII case folding; non-ASCII homoglyphs don't match `https://` etc. and fall through to scp-like check requiring `@`.
+- C1 URL `?` / `#` smuggling — git does not interpret URL query strings as CLI flags. `--upload-pack=` injection requires `-c` config or argv injection (already blocked).
+- `validate_env_pair` not applied to credentials — verified: every credential map flows `build_provider_env` → `env_refs_from_env` → `run_cli` / `run_cli_with_stdin` (or the three direct `cmd.env` sites in pass/vault/conjur), all of which call `validate_env_pair`. Coverage complete.
+
 ### Tests
 
 - New tests for `validate_remote_url` (accepts https / ssh / git / scp-like; rejects `ext::`, `file://`, leading dash, rsync, control chars).
@@ -50,6 +81,8 @@ Comprehensive hardening pass closing 12 issues from internal audit (2 Critical, 
 - **Cargo.toml**: bumped version to 0.7.5
 - **`SyncSettings`**: new field `verify_signatures: bool` (default `false` via serde). Added to all in-tree constructors.
 - **`read_all_credentials`**: doc-commented with explicit guidance to prefer `with_credentials` or new `read_all_credentials_zeroizing`.
+- New helpers exported from `src/ops/secrets/provider.rs`: `validate_provider_response_value`, `validate_provider_response_label`, `validate_provider_arg`, `validate_env_pair`, `MAX_PROVIDER_VALUE_LEN`, `MAX_PROVIDER_LABEL_LEN`.
+- `walk_json` in `src/ops/mcp_scan.rs` gained a required `depth: usize` parameter (private function; no public-API impact).
 
 ## [0.7.4] - 2026-05-07
 

@@ -1,9 +1,20 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name, validate_secret_value,
-    SecretProvider, SecretsError,
+    run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
+    validate_provider_response_label, validate_provider_response_value, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
+
+/// Validate `vault_name` from credentials before it is interpolated into a
+/// `--vault-name` flag. Refuses leading dash / control chars / `=` smuggling.
+fn checked_vault(credentials: &HashMap<String, String>) -> Result<String, SecretsError> {
+    let vault = credentials.get("vault_name").cloned().unwrap_or_default();
+    if !vault.is_empty() {
+        validate_provider_arg(&vault, "azure vault_name")?;
+    }
+    Ok(vault)
+}
 
 pub struct AzureKeyVaultProvider;
 
@@ -56,7 +67,7 @@ impl SecretProvider for AzureKeyVaultProvider {
         credentials: &HashMap<String, String>,
         _path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
-        let vault = credentials.get("vault_name").cloned().unwrap_or_default();
+        let vault = checked_vault(credentials)?;
 
         let vault_keys = self.list_vault_names(credentials)?;
         let mut result = Vec::new();
@@ -86,8 +97,10 @@ impl SecretProvider for AzureKeyVaultProvider {
                 })?;
 
             if let Some(value) = json.get("value").and_then(|v| v.as_str()) {
+                validate_provider_response_value("azure", value)?;
                 // Convert vault name (hyphens) back to env var style (underscores)
                 let env_key = from_vault_name(vault_key);
+                validate_provider_response_label("azure", &env_key)?;
                 result.push((env_key, value.to_string()));
             }
         }
@@ -102,7 +115,7 @@ impl SecretProvider for AzureKeyVaultProvider {
         _path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
-        let vault = credentials.get("vault_name").cloned().unwrap_or_default();
+        let vault = checked_vault(credentials)?;
 
         for (key, value) in secrets {
             validate_secret_name(key)?;
@@ -136,7 +149,8 @@ impl SecretProvider for AzureKeyVaultProvider {
         _path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
-        let vault = credentials.get("vault_name").cloned().unwrap_or_default();
+        validate_secret_name(key)?;
+        let vault = checked_vault(credentials)?;
         let vault_key = to_vault_name(key);
 
         let output = run_cli(
@@ -162,13 +176,15 @@ impl SecretProvider for AzureKeyVaultProvider {
                 message: e.to_string(),
             })?;
 
-        json.get("value")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .ok_or_else(|| SecretsError::ParseError {
-                provider: "azure".to_string(),
-                message: "no value field in response".to_string(),
-            })
+        let value =
+            json.get("value")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| SecretsError::ParseError {
+                    provider: "azure".to_string(),
+                    message: "no value field in response".to_string(),
+                })?;
+        validate_provider_response_value("azure", value)?;
+        Ok(value.to_string())
     }
 
     fn list(
@@ -193,7 +209,7 @@ impl AzureKeyVaultProvider {
         &self,
         credentials: &HashMap<String, String>,
     ) -> Result<Vec<String>, SecretsError> {
-        let vault = credentials.get("vault_name").cloned().unwrap_or_default();
+        let vault = checked_vault(credentials)?;
 
         let output = run_cli(
             "az",
@@ -216,14 +232,18 @@ impl AzureKeyVaultProvider {
                 message: e.to_string(),
             })?;
 
-        let mut names: Vec<String> = items
-            .iter()
-            .filter_map(|i| {
-                let id = i.get("id")?.as_str()?;
-                // Format: "https://myvault.vault.azure.net/secrets/MY-SECRET"
-                id.rsplit('/').next().map(String::from)
-            })
-            .collect();
+        let mut names: Vec<String> = Vec::new();
+        for i in &items {
+            let id = match i.get("id").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => continue,
+            };
+            // Format: "https://myvault.vault.azure.net/secrets/MY-SECRET"
+            if let Some(short) = id.rsplit('/').next() {
+                validate_provider_response_label("azure", short)?;
+                names.push(short.to_string());
+            }
+        }
 
         names.sort();
         Ok(names)

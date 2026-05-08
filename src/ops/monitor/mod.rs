@@ -178,8 +178,26 @@ pub fn emit_event(event: RuntimeEvent) {
         return;
     }
     if let Some(tx) = EVENT_BUS.get() {
-        let _ = tx.send(event);
+        let _ = tx.send(redact_runtime_event(event));
     }
+}
+
+/// Defensive redaction applied to every `RuntimeEvent` before it reaches
+/// subscribers (CLI streams, external integrations, log shippers).
+/// Replaces anything that looks like a high-entropy token (24+ chars of
+/// `[A-Za-z0-9_\-]`) in the message with `[REDACTED]`. Callers that know
+/// the exact secret value should still redact at the source — this is a
+/// last-line safety net.
+fn redact_runtime_event(mut event: RuntimeEvent) -> RuntimeEvent {
+    event.message = redact_message(&event.message);
+    event
+}
+
+fn redact_message(msg: &str) -> String {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE
+        .get_or_init(|| regex::Regex::new(r"[A-Za-z0-9_\-]{24,}").expect("static regex compiles"));
+    re.replace_all(msg, "[REDACTED]").into_owned()
 }
 
 pub fn subscribe_events() -> Option<broadcast::Receiver<RuntimeEvent>> {

@@ -78,9 +78,28 @@ pub fn evaluate_condition(
 
 // ─── Trigger Evaluators ─────────────────────────────────
 
+/// Minimum allowed interval between two consecutive cron events.
+/// Schedules tighter than this are rejected to prevent local DoS / cost
+/// amplification via tight rotation triggers (e.g. `* * * * * *` would
+/// fire every second). 60 s matches the historical UNIX cron resolution.
+pub const MIN_CRON_INTERVAL_SECS: i64 = 60;
+
 fn evaluate_cron(expression: &str, context: &EvaluationContext) -> Result<bool, OpError> {
     let schedule = Schedule::from_str(expression)
         .map_err(|e| OpError::Other(format!("invalid cron expression '{expression}': {e}")))?;
+
+    // Reject schedules whose minimum interval is below the floor. Without
+    // this, a rule with `* * * * * *` (every second) drives unbounded
+    // provider rotations and exhausts CPU / API quota.
+    let mut iter = schedule.upcoming(Utc);
+    if let (Some(a), Some(b)) = (iter.next(), iter.next()) {
+        let delta = (b - a).num_seconds();
+        if delta < MIN_CRON_INTERVAL_SECS {
+            return Err(OpError::Other(format!(
+                "cron expression '{expression}' fires every {delta}s; minimum allowed is {MIN_CRON_INTERVAL_SECS}s"
+            )));
+        }
+    }
 
     let now = context.current_time;
 

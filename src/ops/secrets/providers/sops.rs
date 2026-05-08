@@ -1,8 +1,36 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, sort_secret_pairs, validate_provider_arg,
+    validate_provider_response_label, validate_provider_response_value, validate_secret_name,
+    SecretProvider, SecretsError,
 };
+
+/// `path` is a filesystem path to a SOPS-encrypted file. We must reject
+/// values that would be interpreted as a flag by `sops` (leading `-`).
+/// Other characters are allowed since legitimate file paths can contain
+/// almost anything; the `--` separator is also used at every call site.
+fn validate_sops_path(path: &str) -> Result<(), SecretsError> {
+    if path.is_empty() {
+        return Err(SecretsError::ProviderError {
+            provider: "sops".to_string(),
+            message: "path must be a SOPS-encrypted file path".to_string(),
+        });
+    }
+    if path.starts_with('-') {
+        return Err(SecretsError::ProviderError {
+            provider: "sops".to_string(),
+            message: "sops path cannot start with '-' (CLI flag injection)".to_string(),
+        });
+    }
+    if path.contains('\0') || path.contains('\n') || path.contains('\r') {
+        return Err(SecretsError::ProviderError {
+            provider: "sops".to_string(),
+            message: "sops path contains control character".to_string(),
+        });
+    }
+    Ok(())
+}
 
 pub struct SopsProvider;
 
@@ -51,19 +79,14 @@ impl SecretProvider for SopsProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
-        if path.is_empty() {
-            return Err(SecretsError::ProviderError {
-                provider: "sops".to_string(),
-                message: "path must be a SOPS-encrypted file path".to_string(),
-            });
-        }
+        validate_sops_path(path)?;
 
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "sops",
-            &["decrypt", "--output-type", "json", path],
+            &["decrypt", "--output-type", "json", "--", path],
             &env_refs,
             "sops",
         )?;
@@ -76,11 +99,9 @@ impl SecretProvider for SopsProvider {
         path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
-        if path.is_empty() {
-            return Err(SecretsError::ProviderError {
-                provider: "sops".to_string(),
-                message: "path must be a SOPS-encrypted file path".to_string(),
-            });
+        validate_sops_path(path)?;
+        for (k, _) in secrets {
+            validate_secret_name(k)?;
         }
 
         let env_vars = self.build_provider_env(credentials);
@@ -89,7 +110,7 @@ impl SecretProvider for SopsProvider {
         // Step 1: Decrypt existing file
         let existing_output = run_cli(
             "sops",
-            &["decrypt", "--output-type", "json", path],
+            &["decrypt", "--output-type", "json", "--", path],
             &env_refs,
             "sops",
         );
@@ -153,6 +174,9 @@ impl SecretProvider for SopsProvider {
                         source: e,
                     })?;
                 public_key_str = extract_age_public_key(&key_content)?;
+                // Defend against a malicious key_file dropping a value that
+                // would be re-parsed as a CLI flag by `sops --age <value>`.
+                validate_provider_arg(&public_key_str, "sops age public key")?;
             } else {
                 return Err(SecretsError::CredentialError(
                     "age encryption requires 'key_file' credential".to_string(),
@@ -167,6 +191,7 @@ impl SecretProvider for SopsProvider {
             encrypt_args.extend_from_slice(&["--age", &public_key_str]);
         }
 
+        encrypt_args.push("--");
         encrypt_args.push(&temp_path_str);
         run_cli("sops", &encrypt_args, &env_refs, "sops")?;
 
@@ -198,10 +223,15 @@ impl SecretProvider for SopsProvider {
         path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
-        if path.is_empty() {
+        validate_sops_path(path)?;
+        validate_secret_name(key)?;
+        // The key is interpolated into a JSON-path string `["{}"]`. Reject
+        // quote characters and backslashes that could break out of the
+        // quoted path expression.
+        if key.contains(['"', '\\']) {
             return Err(SecretsError::ProviderError {
                 provider: "sops".to_string(),
-                message: "path must be a SOPS-encrypted file path".to_string(),
+                message: "sops key cannot contain '\"' or '\\\\'".to_string(),
             });
         }
 
@@ -211,12 +241,14 @@ impl SecretProvider for SopsProvider {
         let extract_path = format!("[\"{}\"]", key);
         let output = run_cli(
             "sops",
-            &["decrypt", "--extract", &extract_path, path],
+            &["decrypt", "--extract", &extract_path, "--", path],
             &env_refs,
             "sops",
         )?;
 
-        Ok(output.trim().to_string())
+        let value = output.trim();
+        validate_provider_response_value("sops", value)?;
+        Ok(value.to_string())
     }
 
     fn list(
@@ -242,17 +274,19 @@ pub fn parse_sops_output(output: &str) -> Result<Vec<(String, String)>, SecretsE
             message: e.to_string(),
         })?;
 
-    let mut secrets: Vec<(String, String)> = map
-        .into_iter()
-        .filter(|(k, _)| k != "sops") // Filter SOPS metadata
-        .map(|(k, v)| {
-            let value = match v {
-                serde_json::Value::String(s) => s,
-                other => other.to_string(),
-            };
-            (k, value)
-        })
-        .collect();
+    let mut secrets: Vec<(String, String)> = Vec::new();
+    for (k, v) in map {
+        if k == "sops" {
+            continue;
+        }
+        let value = match v {
+            serde_json::Value::String(s) => s,
+            other => other.to_string(),
+        };
+        validate_provider_response_label("sops", &k)?;
+        validate_provider_response_value("sops", &value)?;
+        secrets.push((k, value));
+    }
 
     sort_secret_pairs(&mut secrets);
     Ok(secrets)

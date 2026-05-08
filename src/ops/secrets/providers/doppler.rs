@@ -1,9 +1,32 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_tempfile_batch, sort_secret_pairs, SecretProvider,
-    SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile_batch, sort_secret_pairs,
+    validate_provider_arg, validate_provider_response_label, validate_provider_response_value,
+    SecretProvider, SecretsError,
 };
+
+/// Validate `project` and `config` credential fields before they are
+/// passed positionally to `doppler` as flag values.
+fn checked_project_config(
+    credentials: &HashMap<String, String>,
+) -> Result<(Option<String>, Option<String>), SecretsError> {
+    let project = match credentials.get("project") {
+        Some(p) => {
+            validate_provider_arg(p, "doppler project")?;
+            Some(p.clone())
+        }
+        None => None,
+    };
+    let config = match credentials.get("config") {
+        Some(c) => {
+            validate_provider_arg(c, "doppler config")?;
+            Some(c.clone())
+        }
+        None => None,
+    };
+    Ok((project, config))
+}
 
 pub struct DopplerProvider;
 
@@ -53,16 +76,12 @@ impl SecretProvider for DopplerProvider {
 
         let mut args = vec!["secrets", "download", "--format=json", "--no-file"];
 
-        let project_str;
-        if let Some(project) = credentials.get("project") {
-            project_str = project.clone();
-            args.extend_from_slice(&["--project", &project_str]);
+        let (project_str, config_str) = checked_project_config(credentials)?;
+        if let Some(p) = project_str.as_deref() {
+            args.extend_from_slice(&["--project", p]);
         }
-
-        let config_str;
-        if let Some(config) = credentials.get("config") {
-            config_str = config.clone();
-            args.extend_from_slice(&["--config", &config_str]);
+        if let Some(c) = config_str.as_deref() {
+            args.extend_from_slice(&["--config", c]);
         }
 
         let output = run_cli("doppler", &args, &env_refs, "doppler")?;
@@ -81,16 +100,12 @@ impl SecretProvider for DopplerProvider {
         // Doppler supports --file flag for batch secret upload (KEY=VALUE per line)
         let mut args: Vec<&str> = vec!["secrets", "set", "--file", "__TEMP__"];
 
-        let project_str;
-        if let Some(project) = credentials.get("project") {
-            project_str = project.clone();
-            args.extend_from_slice(&["--project", &project_str]);
+        let (project_str, config_str) = checked_project_config(credentials)?;
+        if let Some(p) = project_str.as_deref() {
+            args.extend_from_slice(&["--project", p]);
         }
-
-        let config_str;
-        if let Some(config) = credentials.get("config") {
-            config_str = config.clone();
-            args.extend_from_slice(&["--config", &config_str]);
+        if let Some(c) = config_str.as_deref() {
+            args.extend_from_slice(&["--config", c]);
         }
 
         run_cli_with_tempfile_batch("doppler", &args, secrets, &env_refs, "doppler")?;
@@ -133,10 +148,15 @@ pub fn parse_doppler_output(output: &str) -> Result<Vec<(String, String)>, Secre
             message: e.to_string(),
         })?;
 
-    let mut result: Vec<(String, String)> = map
-        .into_iter()
-        .filter(|(k, _)| !DOPPLER_SYSTEM_KEYS.contains(&k.as_str()))
-        .collect();
+    let mut result: Vec<(String, String)> = Vec::new();
+    for (k, v) in map {
+        if DOPPLER_SYSTEM_KEYS.contains(&k.as_str()) {
+            continue;
+        }
+        validate_provider_response_label("doppler", &k)?;
+        validate_provider_response_value("doppler", &v)?;
+        result.push((k, v));
+    }
     sort_secret_pairs(&mut result);
     Ok(result)
 }

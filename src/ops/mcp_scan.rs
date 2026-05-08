@@ -65,8 +65,28 @@ pub fn scanned_file_count() -> usize {
     mcp_config_paths().iter().filter(|p| p.is_file()).count()
 }
 
+/// Maximum size of an MCP config file we will parse. Larger files are
+/// skipped to defend against OOM / DoS via a malicious / corrupt config.
+const MAX_MCP_CONFIG_BYTES: u64 = 1024 * 1024;
+
+/// Maximum recursion depth allowed during JSON walking. Defends against
+/// stack-overflow DoS via deeply nested objects.
+const MAX_JSON_DEPTH: usize = 64;
+
 /// Scan a single JSON file for credential patterns.
 fn scan_json_file(path: &PathBuf) -> Vec<McpFinding> {
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() > MAX_MCP_CONFIG_BYTES {
+            eprintln!(
+                "mcp_scan: skipping {} (file is {} bytes; limit {})",
+                path.display(),
+                meta.len(),
+                MAX_MCP_CONFIG_BYTES
+            );
+            return Vec::new();
+        }
+    }
+
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
@@ -78,17 +98,22 @@ fn scan_json_file(path: &PathBuf) -> Vec<McpFinding> {
     };
 
     let mut findings = Vec::new();
-    walk_json(&value, "", path, &mut findings);
+    walk_json(&value, "", path, &mut findings, 0);
     findings
 }
 
 /// Recursively walk a JSON value tree, checking string values for credentials.
+/// Bails out at [`MAX_JSON_DEPTH`] to defend against stack-overflow DoS.
 fn walk_json(
     value: &serde_json::Value,
     json_path: &str,
     file: &PathBuf,
     findings: &mut Vec<McpFinding>,
+    depth: usize,
 ) {
+    if depth > MAX_JSON_DEPTH {
+        return;
+    }
     match value {
         serde_json::Value::Object(map) => {
             for (key, val) in map {
@@ -97,13 +122,13 @@ fn walk_json(
                 } else {
                     format!("{}.{}", json_path, key)
                 };
-                walk_json(val, &child_path, file, findings);
+                walk_json(val, &child_path, file, findings, depth + 1);
             }
         }
         serde_json::Value::Array(arr) => {
             for (idx, val) in arr.iter().enumerate() {
                 let child_path = format!("{}[{}]", json_path, idx);
-                walk_json(val, &child_path, file, findings);
+                walk_json(val, &child_path, file, findings, depth + 1);
             }
         }
         serde_json::Value::String(s) => {
@@ -385,6 +410,18 @@ pub fn harden_mcp_config(
     file_path: &Path,
     dry_run: bool,
 ) -> Result<(usize, Vec<String>, Option<PathBuf>), super::OpError> {
+    // Same size cap as scan_json_file. Don't OOM trying to "harden" a
+    // crafted huge config.
+    if let Ok(meta) = std::fs::metadata(file_path) {
+        if meta.len() > MAX_MCP_CONFIG_BYTES {
+            return Err(super::OpError::from(format!(
+                "mcp_scan: refusing to harden {} (file is {} bytes; limit {})",
+                file_path.display(),
+                meta.len(),
+                MAX_MCP_CONFIG_BYTES
+            )));
+        }
+    }
     let content = std::fs::read_to_string(file_path)?;
     let mut json: serde_json::Value = serde_json::from_str(&content)?;
 

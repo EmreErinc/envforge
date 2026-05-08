@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::super::provider::{
     env_refs_from_env, parse_json_secrets, run_cli, run_cli_with_stdin, validate_env_pair,
-    validate_secret_name, validate_secret_value, SecretProvider, SecretsError,
+    validate_provider_arg, validate_provider_response_value, validate_secret_name,
+    validate_secret_value, SecretProvider, SecretsError,
 };
 
 pub struct VaultProvider;
@@ -136,12 +137,13 @@ impl SecretProvider for VaultProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
+        validate_provider_arg(path, "vault path")?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "vault",
-            &["kv", "get", "-format=json", path],
+            &["kv", "get", "-format=json", "--", path],
             &env_refs,
             "vault",
         )?;
@@ -156,6 +158,7 @@ impl SecretProvider for VaultProvider {
         path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
+        validate_provider_arg(path, "vault path")?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -165,7 +168,7 @@ impl SecretProvider for VaultProvider {
             // Vault KV put supports reading value from stdin when key ends with "=-"
             run_cli_with_stdin(
                 "vault",
-                &["kv", "put", path, &format!("{}=-", key)],
+                &["kv", "put", "--", path, &format!("{}=-", key)],
                 value.as_bytes(),
                 &env_refs,
                 "vault",
@@ -180,18 +183,22 @@ impl SecretProvider for VaultProvider {
         path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
+        validate_provider_arg(path, "vault path")?;
+        validate_secret_name(key)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
         let field_flag = format!("-field={}", key);
         let output = run_cli(
             "vault",
-            &["kv", "get", &field_flag, path],
+            &["kv", "get", &field_flag, "--", path],
             &env_refs,
             "vault",
         )?;
 
-        Ok(output.trim().to_string())
+        let value = output.trim();
+        validate_provider_response_value("vault", value)?;
+        Ok(value.to_string())
     }
 
     fn list(
@@ -199,12 +206,13 @@ impl SecretProvider for VaultProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<String>, SecretsError> {
+        validate_provider_arg(path, "vault path")?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "vault",
-            &["kv", "list", "-format=json", path],
+            &["kv", "list", "-format=json", "--", path],
             &env_refs,
             "vault",
         )?;

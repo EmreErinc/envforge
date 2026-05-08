@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::super::provider::{
     env_refs_from_env, run_cli, run_cli_with_stdin, sort_secret_pairs, validate_env_pair,
+    validate_provider_arg, validate_provider_response_label, validate_provider_response_value,
     validate_secret_name, validate_secret_value, SecretProvider, SecretsError,
 };
 
@@ -133,6 +134,9 @@ impl SecretProvider for ConjurProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
+        if !path.is_empty() {
+            validate_provider_arg(path, "conjur path")?;
+        }
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -157,14 +161,18 @@ impl SecretProvider for ConjurProvider {
         // Get each variable value
         let mut secrets = Vec::new();
         for var_path in &filtered {
+            // var_path came from parse_conjur_list which validates labels.
             let output = run_cli(
                 "conjur",
-                &["variable", "get", "-i", var_path],
+                &["variable", "get", "-i", "--", var_path],
                 &env_refs,
                 "conjur",
             )?;
             let key = extract_conjur_key(var_path);
-            secrets.push((key, output.trim().to_string()));
+            let value = output.trim();
+            validate_provider_response_label("conjur", &key)?;
+            validate_provider_response_value("conjur", value)?;
+            secrets.push((key, value.to_string()));
         }
 
         sort_secret_pairs(&mut secrets);
@@ -187,7 +195,7 @@ impl SecretProvider for ConjurProvider {
             // Use stdin pipe to pass value instead of -v flag to avoid /proc leakage
             run_cli_with_stdin(
                 "conjur",
-                &["variable", "set", "-i", key],
+                &["variable", "set", "-i", "--", key],
                 value.as_bytes(),
                 &env_refs,
                 "conjur",
@@ -204,16 +212,19 @@ impl SecretProvider for ConjurProvider {
         _path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
+        validate_secret_name(key)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
         let output = run_cli(
             "conjur",
-            &["variable", "get", "-i", key],
+            &["variable", "get", "-i", "--", key],
             &env_refs,
             "conjur",
         )?;
-        Ok(output.trim().to_string())
+        let value = output.trim();
+        validate_provider_response_value("conjur", value)?;
+        Ok(value.to_string())
     }
 
     fn list(
@@ -221,6 +232,9 @@ impl SecretProvider for ConjurProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<String>, SecretsError> {
+        if !path.is_empty() {
+            validate_provider_arg(path, "conjur path")?;
+        }
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 

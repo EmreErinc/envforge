@@ -63,9 +63,42 @@ impl Backend {
         let root = self.workspace_root.read().ok().and_then(|r| r.clone());
         if let Some(root_url) = root {
             if let Ok(root_path) = root_url.to_file_path() {
+                // Canonicalize the client-supplied workspace root before
+                // reading from it. Without this, a malicious editor /
+                // LSP client could pass a `rootUri` containing `..` or
+                // a symlink that escapes the intended workspace and
+                // trick us into opening a file the user did not consent
+                // to load.
+                let root_path = match std::fs::canonicalize(&root_path) {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
                 let schema_path = root_path.join(".env.schema");
-                if schema_path.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&schema_path) {
+                // Resolve `schema_path` and require it stays under
+                // `root_path` (defense-in-depth — `.env.schema` join
+                // doesn't traverse, but we guard anyway).
+                let canonical_schema = match std::fs::canonicalize(&schema_path) {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+                if !canonical_schema.starts_with(&root_path) {
+                    eprintln!("LSP: refusing to read schema outside workspace root");
+                    return;
+                }
+                // Cap file size to defend against a 100 MB schema crashing the server.
+                const MAX_SCHEMA_BYTES: u64 = 1024 * 1024;
+                if let Ok(meta) = std::fs::metadata(&canonical_schema) {
+                    if meta.len() > MAX_SCHEMA_BYTES {
+                        eprintln!(
+                            "LSP: schema {} exceeds {}-byte limit; refusing to load",
+                            canonical_schema.display(),
+                            MAX_SCHEMA_BYTES
+                        );
+                        return;
+                    }
+                }
+                if canonical_schema.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&canonical_schema) {
                         let lines = schema_line_map(&content);
                         if let Ok(schema) = parse_schema_content(&content) {
                             if let Ok(mut w) = self.schema.write() {
@@ -80,7 +113,7 @@ impl Backend {
                             } else {
                                 eprintln!("LSP: Failed to acquire write lock on schema_lines (lock poisoned)");
                             }
-                            if let Ok(uri) = Url::from_file_path(&schema_path) {
+                            if let Ok(uri) = Url::from_file_path(&canonical_schema) {
                                 if let Ok(mut w) = self.schema_uri.write() {
                                     *w = Some(uri);
                                 } else {

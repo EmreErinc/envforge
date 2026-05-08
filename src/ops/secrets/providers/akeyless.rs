@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_secret_name,
+    env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
+    validate_provider_response_label, validate_provider_response_value, validate_secret_name,
     validate_secret_value, SecretProvider, SecretsError,
 };
 
@@ -51,6 +52,9 @@ impl SecretProvider for AkeylessProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<(String, String)>, SecretsError> {
+        if !path.is_empty() {
+            validate_provider_arg(path, "akeyless path")?;
+        }
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -80,6 +84,9 @@ impl SecretProvider for AkeylessProvider {
         path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
+        if !path.is_empty() {
+            validate_provider_arg(path, "akeyless path")?;
+        }
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -121,6 +128,10 @@ impl SecretProvider for AkeylessProvider {
         path: &str,
         key: &str,
     ) -> Result<String, SecretsError> {
+        if !path.is_empty() {
+            validate_provider_arg(path, "akeyless path")?;
+        }
+        validate_secret_name(key)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -140,6 +151,9 @@ impl SecretProvider for AkeylessProvider {
         credentials: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<String>, SecretsError> {
+        if !path.is_empty() {
+            validate_provider_arg(path, "akeyless path")?;
+        }
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -166,17 +180,24 @@ pub fn parse_akeyless_list(output: &str) -> Result<Vec<String>, SecretsError> {
             message: e.to_string(),
         })?;
 
-    let mut names: Vec<String> = arr
-        .iter()
-        .filter_map(|item| {
-            let item_type = item.get("item_type")?.as_str()?;
-            if item_type != "STATIC_SECRET" {
-                return None;
-            }
-            let name = item.get("item_name")?.as_str()?;
-            Some(name.to_string())
-        })
-        .collect();
+    let mut names: Vec<String> = Vec::new();
+    for item in &arr {
+        let item_type = match item.get("item_type").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        if item_type != "STATIC_SECRET" {
+            continue;
+        }
+        let name = match item.get("item_name").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        // Slashes are valid here (akeyless paths) — only reject control chars
+        // and length, not the alphabet of `validate_secret_name`.
+        validate_provider_response_label("akeyless", name.rsplit('/').next().unwrap_or(name))?;
+        names.push(name.to_string());
+    }
 
     names.sort();
     Ok(names)
@@ -193,6 +214,7 @@ pub fn parse_akeyless_value(output: &str, item_name: &str) -> Result<String, Sec
 
     // Try exact name match first
     if let Some(val) = json.get(item_name).and_then(|v| v.as_str()) {
+        validate_provider_response_value("akeyless", val)?;
         return Ok(val.to_string());
     }
 
@@ -201,6 +223,7 @@ pub fn parse_akeyless_value(output: &str, item_name: &str) -> Result<String, Sec
         if obj.len() == 1 {
             if let Some((_, val)) = obj.iter().next() {
                 if let Some(s) = val.as_str() {
+                    validate_provider_response_value("akeyless", s)?;
                     return Ok(s.to_string());
                 }
             }

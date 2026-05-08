@@ -1,9 +1,30 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_tempfile_batch, sort_secret_pairs, SecretProvider,
-    SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_tempfile_batch, sort_secret_pairs,
+    validate_provider_arg, validate_provider_response_label, validate_provider_response_value,
+    SecretProvider, SecretsError,
 };
+
+fn checked_env_project(
+    credentials: &HashMap<String, String>,
+) -> Result<(Option<String>, Option<String>), SecretsError> {
+    let env = match credentials.get("environment") {
+        Some(e) => {
+            validate_provider_arg(e, "infisical environment")?;
+            Some(e.clone())
+        }
+        None => None,
+    };
+    let project = match credentials.get("project_id") {
+        Some(p) => {
+            validate_provider_arg(p, "infisical project_id")?;
+            Some(p.clone())
+        }
+        None => None,
+    };
+    Ok((env, project))
+}
 
 pub struct InfisicalProvider;
 
@@ -53,16 +74,12 @@ impl SecretProvider for InfisicalProvider {
 
         let mut args = vec!["export", "--format=json"];
 
-        let env_str;
-        if let Some(environment) = credentials.get("environment") {
-            env_str = environment.clone();
-            args.extend_from_slice(&["--env", &env_str]);
+        let (env_str, project_str) = checked_env_project(credentials)?;
+        if let Some(e) = env_str.as_deref() {
+            args.extend_from_slice(&["--env", e]);
         }
-
-        let project_str;
-        if let Some(project_id) = credentials.get("project_id") {
-            project_str = project_id.clone();
-            args.extend_from_slice(&["--projectId", &project_str]);
+        if let Some(p) = project_str.as_deref() {
+            args.extend_from_slice(&["--projectId", p]);
         }
 
         let output = run_cli("infisical", &args, &env_refs, "infisical")?;
@@ -81,16 +98,12 @@ impl SecretProvider for InfisicalProvider {
         // Infisical supports --file flag for batch secret upload
         let mut args: Vec<&str> = vec!["secrets", "set", "--file", "__TEMP__"];
 
-        let env_str;
-        if let Some(environment) = credentials.get("environment") {
-            env_str = environment.clone();
-            args.extend_from_slice(&["--env", &env_str]);
+        let (env_str, project_str) = checked_env_project(credentials)?;
+        if let Some(e) = env_str.as_deref() {
+            args.extend_from_slice(&["--env", e]);
         }
-
-        let project_str;
-        if let Some(project_id) = credentials.get("project_id") {
-            project_str = project_id.clone();
-            args.extend_from_slice(&["--projectId", &project_str]);
+        if let Some(p) = project_str.as_deref() {
+            args.extend_from_slice(&["--projectId", p]);
         }
 
         run_cli_with_tempfile_batch("infisical", &args, secrets, &env_refs, "infisical")?;
@@ -130,14 +143,20 @@ pub fn parse_infisical_output(output: &str) -> Result<Vec<(String, String)>, Sec
             message: e.to_string(),
         })?;
 
-    let mut result: Vec<(String, String)> = items
-        .iter()
-        .filter_map(|item| {
-            let key = item.get("key")?.as_str()?;
-            let value = item.get("value")?.as_str()?;
-            Some((key.to_string(), value.to_string()))
-        })
-        .collect();
+    let mut result: Vec<(String, String)> = Vec::new();
+    for item in &items {
+        let key = match item.get("key").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let value = match item.get("value").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        validate_provider_response_label("infisical", key)?;
+        validate_provider_response_value("infisical", value)?;
+        result.push((key.to_string(), value.to_string()));
+    }
 
     sort_secret_pairs(&mut result);
     Ok(result)
