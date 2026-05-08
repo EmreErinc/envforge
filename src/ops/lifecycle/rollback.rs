@@ -72,6 +72,22 @@ pub fn rollback(snapshot_id: &Uuid) -> Result<RollbackResult, OpError> {
         return Err(OpError::Other(format!("snapshot not found: {snapshot_id}")));
     }
 
+    // Cap snapshot file size before reading. Snapshots are JSONL with a
+    // single `Snapshot` record holding key + value + metadata; legitimate
+    // content is small. A crafted oversized file (or symlink to
+    // `/dev/zero`) would otherwise OOM the rollback path before parse.
+    const MAX_SNAPSHOT_FILE_BYTES: u64 = 4 * 1024 * 1024;
+    if let Ok(meta) = fs::metadata(&path) {
+        if meta.len() > MAX_SNAPSHOT_FILE_BYTES {
+            return Err(OpError::Other(format!(
+                "snapshot file {} exceeds {}-byte size limit ({} bytes)",
+                path.display(),
+                MAX_SNAPSHOT_FILE_BYTES,
+                meta.len()
+            )));
+        }
+    }
+
     let content = fs::read_to_string(&path)?;
     let snapshot: Snapshot = serde_json::from_str(&content).map_err(OpError::Json)?;
     let key = snapshot.meta.key.clone();

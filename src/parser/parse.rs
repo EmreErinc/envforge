@@ -42,9 +42,28 @@ fn blank_regex() -> &'static Regex {
 
 /// Parse a shell configuration file into a ShellFile AST.
 ///
+/// Maximum size of a single shell file we will read and parse.
+/// `.zshrc` / `.bashrc` / `.envrc` files are typically a few KB; even
+/// large dotfiles top out at a few hundred KB. 10 MiB is generous and
+/// rejects crafted / accidentally-huge files (e.g. a symlink to
+/// `/dev/zero` or a multi-GB file in a user-pointed dir scanned by
+/// `envforge check` / `envforge doctor`). Without this cap, a single
+/// pathological file OOMs the process before parsing begins.
+pub const MAX_SHELL_FILE_BYTES: u64 = 10 * 1024 * 1024;
+
 /// Reads the file, computes its SHA-256 hash, and parses each line
 /// into the appropriate LineNode variant.
 pub fn parse_shell_file(path: &Path) -> Result<ShellFile, ParseError> {
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() > MAX_SHELL_FILE_BYTES {
+            return Err(ParseError::FileTooLarge {
+                path: path.to_path_buf(),
+                size: meta.len(),
+                limit: MAX_SHELL_FILE_BYTES,
+            });
+        }
+    }
+
     let content = std::fs::read_to_string(path).map_err(|e| ParseError::IoError {
         path: path.to_path_buf(),
         source: e,

@@ -49,6 +49,13 @@ impl Backend {
         }
     }
 
+    /// Maximum size of a single LSP document we will parse / store.
+    /// Editor clients normally ship single-digit-KB files; megabytes
+    /// here is a sign of a malicious or buggy client. Without this
+    /// cap, a 1 GiB `did_open` payload OOMs the parser. Mirrors
+    /// `MAX_SCHEMA_BYTES` in `load_schema_from_workspace`.
+    const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
+
     fn is_env_file(uri: &Url) -> bool {
         let path = uri.path();
         let fname = path.rsplit('/').next().unwrap_or("");
@@ -247,6 +254,18 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
 
+        // Cap document size before parsing. Without this, a malicious or
+        // buggy client can ship a multi-GB `text` and OOM us.
+        if params.text_document.text.len() > Self::MAX_DOCUMENT_BYTES {
+            eprintln!(
+                "LSP: refusing did_open for {} ({} bytes > {})",
+                uri,
+                params.text_document.text.len(),
+                Self::MAX_DOCUMENT_BYTES
+            );
+            return;
+        }
+
         if Self::is_schema_file(&uri) {
             let content = &params.text_document.text;
             let lines = schema_line_map(content);
@@ -283,6 +302,21 @@ impl LanguageServer for Backend {
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
+
+        // Same per-document cap as `did_open`. We process only the first
+        // content change (full-document sync mode), so it's the relevant
+        // one to size-check.
+        if let Some(change) = params.content_changes.first() {
+            if change.text.len() > Self::MAX_DOCUMENT_BYTES {
+                eprintln!(
+                    "LSP: refusing did_change for {} ({} bytes > {})",
+                    uri,
+                    change.text.len(),
+                    Self::MAX_DOCUMENT_BYTES
+                );
+                return;
+            }
+        }
 
         if Self::is_schema_file(&uri) {
             if let Some(change) = params.content_changes.first() {

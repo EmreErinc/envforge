@@ -13,4 +13,11 @@ pub enum ParseError {
 
     #[error("shell not detected: $SHELL environment variable not set")]
     ShellNotDetected,
+
+    #[error("file '{path}' exceeds {limit}-byte size limit ({size} bytes); refusing to parse")]
+    FileTooLarge {
+        path: PathBuf,
+        size: u64,
+        limit: u64,
+    },
 }

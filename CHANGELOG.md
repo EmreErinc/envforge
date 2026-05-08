@@ -222,6 +222,30 @@ Verified by reading code:
 - Q4 markdown_escape applied in violation rendering; T6 fixes the CSV side.
 - Q5 `O_NOFOLLOW_LOCAL` correct for Linux/macOS; `set_permissions` runs on the fd; `&File: Read` impl confirmed.
 
+#### Seventh rescan (5 fixes shipped + 5 false positives)
+
+Seventh deep audit covered remaining surfaces (cli/secrets_cmd full sweep, lsp/document + server handlers, parser/detect, ops/check + doctor + explain, ui/dialogs + render, audit/query_engine deeper, secrets/age, grouping, custody, lifecycle/rollback follow-up, lifecycle/trigger_engine follow-up, proxy approval, error display, Cargo.lock CVE check). All Q-fixes and T-fixes verified intact.
+
+##### Low
+
+- **V1 — `secret-sources.toml` world-readable** (`src/ops/secrets/age.rs::save_sources`): the metadata file recording which secrets came from which provider/path was created with default umask. Operational signal even without values. Now opens with `OpenOptions::mode(0o600)` on Unix at create time, plus defensive post-write chmod for files inherited from older versions. Mirrors V1's pattern with prior P3 / T3 / T4 fixes.
+- **V2 — LSP document size cap** (`src/lsp/server.rs::did_open / did_change`): handlers trusted client-supplied `params.text_document.text` of any size. A malicious or buggy LSP client could ship 1 GiB and OOM the parser. Added `Self::MAX_DOCUMENT_BYTES = 1 MiB` cap (matching the existing schema cap from N2); oversized payloads are rejected with a stderr notice and ignored.
+- **V3 — `secrets config --show` value preview leaked credential prefix** (`src/cli/secrets_cmd.rs:485-525`): both the JSON and human formatters emitted `format!("{}***", &value[..4])` — the first 4 chars of every credential. Common credentials carry type-identifying prefixes (`AKIA…` AWS, `sk-…` OpenAI/Stripe, `ghp_…` GitHub, `xoxb-…` Slack), so the preview narrowed an attacker's targeting search. Now shows only `***(<n> chars)` — confirms the credential is configured without revealing its kind.
+- **V4 — Shell file size cap on `parse_shell_file`** (`src/parser/parse.rs::parse_shell_file`, `src/model/error.rs::ParseError::FileTooLarge`): `envforge check` and `envforge doctor` parse user-pointed shell files (and so does the rest of the codebase). A symlink to `/dev/zero` or a crafted multi-GB dotfile would OOM the process before parsing. Added `MAX_SHELL_FILE_BYTES = 10 MiB` checked at the entry point of `parse_shell_file`; oversized files return a new `ParseError::FileTooLarge` variant. Centralizing the check at the parser fixes every caller (check.rs, doctor.rs, hook.rs, profile.rs, explain.rs, lifecycle/rollback.rs, etc.) in one place.
+- **V5 — Lifecycle snapshot file read cap** (`src/ops/lifecycle/rollback.rs::restore_snapshot`): `fs::read_to_string(&path)` was unbounded; a crafted oversized snapshot file (or symlink to `/dev/zero`) could OOM the rollback flow before `serde_json::from_str` ran. Cap added at 4 MiB pre-read. Mirrors O5 / T5 / V4.
+
+##### False positives ruled out
+
+- **Custody chain hash** — round-7 agent claimed `CustodyLink` lacks a hash field. Verified: `CustodyLink::from_event` carries `event_id` which references the `AuditEvent` whose `entry_hash` / `prev_hash` form the integrity-chain in `tamper.rs`. Custody integrity rests on event-log integrity (already chain-protected, plus 0.7.5 N8 detects state-file deletion). Not a finding.
+- **`secrets_cmd.rs --set X=Y` argv exposure** — known-and-documented design limitation since 0.7.4 hardening notes; users directed to stdin / config file for sensitive values. Repeat across rescans; not new.
+- **TUI edit dialog renders plaintext** — by design (the user asked to edit). Mitigated by 0.7.5 L2 clipboard auto-clear for sensitive keys. Not a vuln.
+- **Proxy approval prompt no stdin timeout** — by design (interactive synchronous approval). Process can be Ctrl-C'd. Not a vuln.
+- **`model/error.rs::IoError` includes absolute path** — standard Rust error reporting; user files live under `$HOME` and seeing `/Users/emre/...` in an error you ran is expected. Information disclosure surface is the user's own terminal. Not a vuln.
+
+##### Cargo.lock CVE re-check
+
+Verified: `time` 0.3.x (CVE-2020-26235 only affected 0.1.x), `tokio` 1.52 (advisory was <1.18.4), `regex` 1.12, `age` 0.11.3, `serde_json` 1.0.149, `tower-lsp` 0.20 — all clean. Cargo.lock committed. CI security workflow runs `cargo-audit` + `cargo-deny` daily.
+
 ### Tests
 
 - New tests for `validate_remote_url` (accepts https / ssh / git / scp-like; rejects `ext::`, `file://`, leading dash, rsync, control chars).
@@ -244,6 +268,7 @@ Verified by reading code:
 - New `markdown_escape` and `csv_field` public helpers in `audit/report_generator.rs`.
 - `ResolvedEntry` now uses a manual masked `Debug` impl (was `derive(Debug)` exposing plaintext).
 - New `MAX_RULE_FILE_BYTES` const in `lifecycle/rule_manager.rs`. New `MAX_SCANNER_INPUT_BYTES` (inline) cap in `external_scanner.rs`. Cache provider names sanitized like keys.
+- New public `parse::MAX_SHELL_FILE_BYTES` const + `ParseError::FileTooLarge` variant. New `LspBackend::MAX_DOCUMENT_BYTES` const. New `MAX_SNAPSHOT_FILE_BYTES` (inline) in `lifecycle/rollback.rs`. `secret-sources.toml` writes now create with mode 0600. `secrets config --show` value preview no longer reveals the first 4 chars of any credential.
 
 ## [0.7.4] - 2026-05-07
 

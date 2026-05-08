@@ -486,9 +486,16 @@ fn cmd_secrets_config(
                     let mut items: Vec<serde_json::Value> = Vec::new();
                     for (key, value) in &creds {
                         let ttl_info = credentials::get_ttl_remaining(provider, key).ok().flatten();
+                        // Don't leak the first 4 chars of the credential.
+                        // Many credentials carry a type-identifying prefix
+                        // (`AKIA…` AWS, `sk-…` OpenAI/Stripe, `ghp_…`
+                        // GitHub, `xoxb-…` Slack) — exposing that prefix
+                        // tells an attacker which kind of credential is
+                        // configured, narrowing the targeting search.
+                        // Show only the length instead.
                         let mut item = json!({
                             "key": key,
-                            "value_preview": format!("{}***", &value[..value.len().min(4)]),
+                            "value_preview": format!("***({} chars)", value.chars().count()),
                         });
                         if let Some((expires_at, remaining)) = ttl_info {
                             item["expires_at"] = json!(expires_at);
@@ -514,10 +521,12 @@ fn cmd_secrets_config(
                             }
                             None => String::new(),
                         };
+                        // Same redaction as the JSON path: don't expose
+                        // a credential-type-identifying prefix.
                         println!(
-                            "  {} = {}***{}",
+                            "  {} = ***({} chars){}",
                             key,
-                            &value[..value.len().min(4)],
+                            value.chars().count(),
                             ttl_display
                         );
                     }

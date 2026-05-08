@@ -48,6 +48,12 @@ pub fn load_sources() -> Result<SecretSources, SecretsError> {
 }
 
 /// Save secret sources to disk.
+///
+/// Writes with mode 0600 on Unix at create time. The file records which
+/// secrets came from which provider/path — operational metadata that
+/// reveals the user's secret topology. Default umask leaves it
+/// world-readable; this tightens it to owner-only. Mirrors the pattern
+/// in `analytics/storage.rs`, `changelog.rs`, and `lifecycle/orchestrator.rs`.
 pub fn save_sources(sources: &SecretSources) -> Result<(), SecretsError> {
     let path = sources_path()?;
     if let Some(parent) = path.parent() {
@@ -58,7 +64,41 @@ pub fn save_sources(sources: &SecretSources) -> Result<(), SecretsError> {
     }
     let content =
         toml::to_string_pretty(sources).map_err(|e| SecretsError::CacheError(e.to_string()))?;
-    std::fs::write(&path, content).map_err(|e| SecretsError::IoError { path, source: e })
+
+    #[cfg(not(unix))]
+    {
+        return std::fs::write(&path, content)
+            .map_err(|e| SecretsError::IoError { path, source: e });
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|e| SecretsError::IoError {
+                path: path.clone(),
+                source: e,
+            })?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| SecretsError::IoError {
+                path: path.clone(),
+                source: e,
+            })?;
+        // Defensive post-write chmod for files inherited from older
+        // envforge versions that wrote 0644.
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.permissions().mode() & 0o077 != 0 {
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Record that secrets were pulled from a provider.
