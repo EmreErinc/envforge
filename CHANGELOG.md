@@ -9,266 +9,114 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-Comprehensive hardening pass closing 12 issues from internal audit (2 Critical, 5 High, 5 Medium, 4 Low). No external CVEs filed.
+Comprehensive security hardening pass — 50 fixes across the entire codebase, organized below by severity. No external CVEs filed. Verification: `cargo build`, `cargo clippy --all-targets -- -D warnings`, full `cargo test` (1132 lib tests + integration suites) all green.
 
 #### Critical
 
-- **C1 — Git remote URL allowlist** (`src/ops/sync/git.rs`): `clone_repo` now validates remote URLs (`validate_remote_url`) and rejects `ext::` (RCE via git-remote-ext), `file://` (local file disclosure), `rsync://`, `ftp(s)://`, `gopher://`, leading-dash, and control-character URLs. Allowed: `https://`, `http://`, `ssh://`, `git://`, `git+ssh://`, `git+https://`, scp-like `user@host:path`. Clone is invoked with `-c protocol.ext.allow=never` and an explicit `--` separator.
-- **C2 — Hook prev-state file relocated** (`src/ops/hook.rs`, `src/cli/mod.rs`, `src/cli/commands.rs`): `.envforge-prev` no longer written into the project directory (where any repo could replace it with attacker-controlled shell that the bash/zsh/fish hook would `eval`). Now stored in the user's envforge config dir under `hook-state/<sha256(canonical_path)>.prev` (mode 0600). Shell hooks call new `envforge env-unload --dir <dir>` subcommand instead of `eval "$(cat ...)"`. Output is re-validated line-by-line (`is_safe_unload_line`) before printing. Legacy in-project prev files are auto-removed on first `envforge env`.
+- **Git remote URL allowlist + RCE protection** (`src/ops/sync/git.rs`): `clone_repo` validates remote URLs via new `validate_remote_url` and rejects `ext::` (RCE via git-remote-ext), `file://` (local file disclosure), `rsync://`, `ftp(s)://`, `gopher://`, leading-dash, control-character URLs. Allowed: `https://`, `http://`, `ssh://`, `git://`, `git+{ssh,https}://`, scp-like `user@host:path`. Clone runs with `-c protocol.ext.allow=never` and an explicit `--` separator.
+- **Hook prev-state file relocated out of project dir** (`src/ops/hook.rs`, `src/cli/{mod,commands}.rs`): `.envforge-prev` previously written into the project directory let any repo replace it with attacker-controlled shell that the bash/zsh/fish hook would `eval`. Now stored in user envforge config dir under `hook-state/<sha256(canonical_path)>.prev` (mode 0600); hooks call new `envforge env-unload --dir <dir>` subcommand instead of `eval "$(cat ...)"`. Output re-validated line-by-line before printing. Legacy in-project prev files auto-removed on first `envforge env`.
+- **DNS-rebinding defense in proxy** (`src/ops/proxy.rs`): two layered defects — (a) `is_origin_allowed` accepted requests without an `Origin` header, (b) `format_response` always sent `Access-Control-Allow-Origin: *` — composed into a real exploit (DNS-rebound `evil.com` → 127.0.0.1 + simple GET → secret exfil). New `extract_host` + `is_host_loopback` helpers; the request handler now requires `Host` to match `127.0.0.1` / `localhost` / `[::1]` (with optional port) before serving any route. CORS header changed from `*` to `null` plus `Vary: Origin`. `extract_host` rejects requests with multiple Host headers (RFC 7230 §5.4).
 
 #### High
 
-- **H1 — `ENVFORGE_EXTERNAL_SCANNER` parsing hardened** (`src/ops/external_scanner.rs`): The deprecated env-var path used `split_whitespace`, which re-interpreted `/bin/sh -c "x"` as a shell-style argv. Now rejects values containing shell metacharacters (`'"$\`;|&\\<>` + newlines) and requires an absolute path before splitting.
-- **H2 — Provider arg-flag injection guards** (`src/ops/secrets/provider.rs`, `src/ops/secrets/providers/onepassword.rs`): `validate_secret_name` extended to reject leading `-`, `=`, and all ASCII control chars. New `validate_provider_arg` for paths/items. 1Password `pull`/`get`/`list` validate inputs and place positional args after `--`.
-- **H3 — `fsync` before atomic rename** (`src/config/writer.rs`, `src/ops/sync/init.rs`): Both atomic-write paths now call `temp.as_file().sync_all()` before `persist`. Defends against torn writes leaving zero-length / corrupted files (which can include encrypted secrets / sync snapshots) on power loss.
-- **H4 — Refuse to write secret-bearing files on non-unix** (`src/ops/encrypt.rs`, `src/ops/secrets/cache.rs`, `src/ops/secrets/credentials.rs`): The `#[cfg(not(unix))]` branches previously wrote age private keys / decrypted cache / credential store with default ACLs (world-readable on Windows). Now return a runtime error instead. Project remains Linux/macOS-only per supported targets.
-- **H5 — Zeroize-on-drop for in-memory secrets** (`src/ops/secrets/cache.rs`, `src/ops/secrets/credentials.rs`): `CacheEntry` impls `Drop` that `zeroize::Zeroize`s its `value`. New `Credentials` wrapper struct with `Drop`+`Deref` and accompanying `read_all_credentials_zeroizing()` for callers wanting auto-zero-on-scope-exit. Existing `with_credentials` closure pattern preserved.
+- **Provider arg-flag injection** (`src/ops/secrets/providers/{onepassword,aws_ssm,gcp,azure,doppler,infisical,akeyless,sops,conjur,pass,vault,keeper,bitwarden}.rs`): every provider's `pull` / `push` / `get` / `list` calls `validate_provider_arg` for paths and `validate_secret_name` for keys. Where the underlying CLI supports it, positional args are placed after `--`. Provider-specific helpers (`checked_profile`, `checked_project`, `checked_vault`, `checked_project_config`, `checked_env_project`, `checked_project_id`) consolidate credential-field validation. `validate_secret_name` extended to reject leading `-`, `=`, control chars; new `validate_provider_arg` and `validate_provider_response_value` / `validate_provider_response_label` helpers (64 KiB / 512 B caps + NUL/control-char rejection) applied across all 14 providers' parsers.
+- **`ENVFORGE_EXTERNAL_SCANNER` shell-meta rejection** (`src/ops/external_scanner.rs`): the deprecated env-var path used `split_whitespace`, which re-interpreted `/bin/sh -c "x"` as a shell-style argv. Now rejects values containing shell metacharacters and requires an absolute path. Plus `MAX_SCANNER_INPUT_BYTES = 4 MiB` cap on stdin payload sent to scanner subprocesses.
+- **fsync before atomic rename** (`src/config/writer.rs`, `src/ops/sync/init.rs`): both atomic-write paths call `temp.as_file().sync_all()` before `persist`. Defends against torn writes on power loss leaving zero-length / corrupted files (encrypted secrets, sync snapshots).
+- **Refuse to write secret-bearing files on non-unix** (`src/ops/encrypt.rs`, `src/ops/secrets/{cache,credentials}.rs`): the `#[cfg(not(unix))]` branches previously wrote age private keys / decrypted cache / credential store with default ACLs (world-readable on Windows). Now return runtime error.
+- **Zeroize-on-drop for in-memory secrets** (`src/ops/secrets/{cache,credentials}.rs`): `CacheEntry` impls `Drop` that `zeroize::Zeroize`s its `value`. New `Credentials` wrapper struct (Drop+Deref) and `read_all_credentials_zeroizing()` for opt-in zero-on-scope-exit; existing `with_credentials` closure pattern preserved.
+- **Audit log permissions + fsync on append** (`src/ops/audit/emitter.rs`): both append (default umask → 0644) and first-write (`atomic_write` no chmod) paths now set 0600 (defensive chmod on append-open if existing file has looser perms); append path calls `sync_all` after `flush` so power-loss between flush and writeback can no longer drop entries.
+- **Profile name path traversal** (`src/ops/profile.rs`): `create_profile(name)` interpolated `name` into `~/.env_managed.{name}` and wrote there; same in `delete_profile` / `switch_profile`. New `validate_profile_name` enforces `[A-Za-z0-9_-]{1,64}` (no leading dash). New `ProfileError::InvalidName` variant.
+- **Sync `decrypt_snapshot` size caps** (`src/ops/sync/encryption.rs`): `MAX_SNAPSHOT_CIPHERTEXT_BYTES = 8 MiB` checked before `Decryptor::new`; `Read::take(reader, MAX_SNAPSHOT_PLAINTEXT_BYTES)` on the decrypted reader. Defends against decompression-bomb age files in malicious sync remotes.
 
 #### Medium
 
-- **M1 — URI path traversal rejection** (`src/ops/uri_resolve.rs`): New `validate_uri_path` blocks `..` and `.` segments, leading `/`, double slashes, and control characters before dispatch to provider backends. Some providers (raw Vault KVv2 calls) do not collapse `..`, so this prevents scope escape like `vault://kv/../../sys/`.
-- **M2 — Provider response value validation** (`src/ops/secrets/provider.rs`, `providers/onepassword.rs`, `providers/keeper.rs`, `providers/bitwarden.rs`): New `validate_provider_response_value` (64 KiB cap, NUL rejection) and `validate_provider_response_label` (512 B cap, control-char rejection). Applied in 1Password / Keeper / Bitwarden JSON parsers. Defends against compromised provider CLIs / MITMed daemons injecting hostile values into resolved secret pairs.
-- **M3 — Canary alerts redact own value** (`src/ops/canary.rs`): `trigger_canary` looks up the canary's `fake_value` and replaces any occurrence in the `source` / `details` arguments with `[CANARY_VALUE_REDACTED]` before writing to `canary-alerts.jsonl`, the monitor event stream, and stderr. Without this, a canary tripped because its value appeared in some log line would re-leak the value into our own alert log.
-- **M4 — Optional signed-commit verification on sync pull** (`src/ops/sync/model.rs`, `src/ops/sync/git.rs`, `src/ops/sync/pull.rs`): New `[sync] verify_signatures` config flag (default `false`). When enabled, `envforge sync pull` runs `git verify-commit HEAD` after fetch and fails closed if the commit is unsigned or the signature does not verify.
-- **M5 — Sanitize length filter dropped** (`src/ops/sanitize.rs`): The `>= 4` cutoff in `sanitize_content` allowed 3-character tokens (some PINs / OTPs) to pass through redaction unchanged. Filter now only skips empty values.
+- **URI path traversal rejection** (`src/ops/uri_resolve.rs`): new `validate_uri_path` blocks `..` / `.` segments, leading `/`, `//`, control characters before dispatch to provider backends.
+- **Provider response value validation** (`src/ops/secrets/{provider,providers/{onepassword,keeper,bitwarden,aws_ssm,gcp,azure,doppler,infisical,akeyless,sops,vault,conjur,pass}}.rs`): every JSON parser caps secret values at 64 KiB and rejects NUL / control chars; labels capped at 512 B.
+- **Canary alerts redact own value** (`src/ops/canary.rs`): `trigger_canary` redacts the canary's `fake_value` from `source` / `details` before writing to `canary-alerts.jsonl`, monitor stream, and stderr — preventing the canary log from leaking the canary value it was meant to detect.
+- **Sync `verify_signatures` config flag** (`src/ops/sync/{model,git,pull}.rs`): new `[sync] verify_signatures` (default `false`); when set, `envforge sync pull` runs `git verify-commit HEAD` after fetch and fails closed.
+- **Sanitize length filter dropped** (`src/ops/sanitize.rs`): the `>= 4` cutoff allowed 3-character tokens (PINs / OTPs) to pass through redaction unchanged. Filter now only skips empty values.
+- **Cache provider name sanitization** (`src/ops/secrets/cache.rs`): `cache_file_path` now sanitizes both `provider` and `key` (alphabet `[A-Za-z0-9_-]`, len + NUL checks); same in `invalidate_provider_cache`. Closes a path traversal where `provider="../etc"` could land cache writes outside the cache dir. Plus process-wide `Mutex` (`OnceLock`) over read-miss → fetch → write critical section in `resolve_reference`.
+- **Lease lock + renew** (`src/ops/lease.rs`): process-wide mutex serializes every lease op (create / revoke / revoke-all / check) closing the in-process TOCTOU. New `with_lease_check_locked(key, f)` keeps the lock held from access check through secret release atomically. New `renew_lease(name, ttl_seconds)` for atomic extend.
+- **Quote-style serialize escapes embedded quotes** (`src/model/shell_file.rs`): `Double` escapes `\` and `"`; `Single` uses POSIX close-escape-reopen `'\''` pattern. Restores byte-for-byte round-trip invariant on adversarial values.
+- **Scanner per-file size cap** (`src/ops/scanner.rs`): 10 MiB cap before `read_to_string`. Plus centralized `MAX_SHELL_FILE_BYTES = 10 MiB` in `parse_shell_file` itself with new `ParseError::FileTooLarge` variant — fixes `check.rs`, `doctor.rs`, `hook.rs`, `profile.rs`, and every other caller in one place.
+- **Audit query bounded read + filter input cap** (`src/ops/audit/{query_engine,query_types}.rs`): `read_all_events` streams via `BufReader::lines` (no whole-file load); `MAX_EVENTS_LOADED = 250_000` cap with stderr notice on truncation. `MetadataKey(String)` filter capped at 256 B.
+- **Age decryption ciphertext + plaintext caps** (`src/ops/encrypt.rs`): `MAX_CIPHERTEXT_BYTES = 1 MiB` checked before `Decryptor::new`; `Read::take(reader, MAX_PLAINTEXT_BYTES = 1 MiB)` on output.
+- **Share metadata `created_by` documented unauthenticated; share TTL hard-blocks expired** (`src/ops/share.rs`): rustdoc on `ShareMeta.created_by` makes the unauthentic-hostname contract explicit. `receive_share` now returns `ShareError::Expired` (was warn-only); new `receive_share_with(data, allow_expired)` for opt-in override. 8 MiB caps on encrypted blob and decrypted plaintext.
+- **AI-guard secret detection: anchored prefixes + entropy fallback** (`src/ops/audit/ai_guard_integration.rs`): prefix matches must be anchored at a non-token boundary AND followed by ≥16 token-alphabet bytes; pattern table extended (12 → 18 prefixes). Entropy fallback flags any 32+ char run of `[A-Za-z0-9_\-./]` containing upper + lower + digits as credential-like.
+- **Lifecycle snapshot 0600 + fsync** (`src/ops/lifecycle/rollback.rs`): new `write_atomic_snapshot` sets 0600 on the tempfile before write, `sync_all`s before persist, refuses non-unix. Plus `MAX_SNAPSHOT_FILE_BYTES = 4 MiB` cap on snapshot reads in `restore_snapshot`.
+- **Cron min-interval guard** (`src/ops/lifecycle/trigger_engine.rs`): `MIN_CRON_INTERVAL_SECS = 60`; rules whose two consecutive next events are < 60 s apart are rejected.
+- **Lifecycle state log 0600 + fsync** (`src/ops/lifecycle/orchestrator.rs::apply_state_transition`): state-transition `.jsonl` files open with `OpenOptions::mode(0o600)` on Unix; `sync_all` after `writeln`; defensive post-write chmod for files inherited from older versions.
+- **Rule TOML size cap** (`src/ops/lifecycle/rule_manager.rs`): `MAX_RULE_FILE_BYTES = 256 KiB` checked before `read_to_string` + `toml::from_str` in every reader.
+- **`mcp_scan` size + recursion-depth caps** (`src/ops/mcp_scan.rs`): `MAX_MCP_CONFIG_BYTES = 1 MiB` size cap before parse; `walk_json` carries `depth` parameter and bails at `MAX_JSON_DEPTH = 64`.
+- **Audit chain-state deletion detection** (`src/ops/audit/tamper.rs`): `load_chain_state` returns `TamperError::InvalidState` when the state file is missing but log files exist (was silently re-initializing).
+- **Analytics events file mode at create time** (`src/ops/analytics/storage.rs`): `OpenOptions::mode(0o600)` at create instead of post-chmod with `.ok()`. Errors no longer dropped.
+- **Snapshot file 0600** (`src/ops/snapshot.rs`): new `write_snapshot_secure` helper uses `OpenOptions::mode(0o600)` on Unix.
+- **Changelog file 0600** (`src/ops/changelog.rs::log_change`): `OpenOptions::mode(0o600)` at create + post-write defensive chmod for stale 0644 files.
+- **LSP root URI canonicalization + size caps** (`src/lsp/server.rs`): `load_schema_from_workspace` canonicalizes the client-supplied `rootUri`, requires resolved schema path inside the canonicalized root, refuses schemas larger than 1 MiB. `did_open` / `did_change` enforce `MAX_DOCUMENT_BYTES = 1 MiB` on client-supplied content.
+- **LSP completion no longer suggests live secret values as labels** (`src/lsp/completion.rs`): `redact_value_for_label` returns a redacted preview for the `label`; real value flows via `insert_text`.
+- **Glob matcher iterative DP** (`src/ops/sync/marking.rs`, `src/ops/secrets/modes.rs`): replaces a recursive backtracker that was exponential on adversarial inputs (`a*a*a*a*a*b` × `aaaa…`). Now `O(P × T)`.
+- **Profile diff masks plaintext values** (`src/ops/profile_diff.rs`): `DiffEntry.value_a` / `value_b` go through `mask_diff_value` at construction; new `values_differ: bool` field; rustdoc makes the masking contract explicit.
+- **Markdown report escaping + RFC 4180 CSV** (`src/ops/audit/report_generator.rs`): new `markdown_escape` (escapes `<`, `>`, `&`, backticks, pipes, `[`, `]`, folds newlines) applied to violation rendering; new `csv_field` helper wraps every CSV field in `"…"`, doubles internal quotes, folds `\r` / `\n`. All six CSV columns now go through it (was missing `secret_key` and improperly quoted).
+- **`ensure_age_key` chmod via file handle (TOCTOU)** (`src/ops/encrypt.rs`): opens the file once with `O_NOFOLLOW`, runs `File::set_permissions` on the handle, reads the same fd. Closes a path-level race where a same-uid attacker could swap the path between metadata and chmod.
 
 #### Low
 
-- **L1 — Cache TOCTOU narrowed** (`src/ops/secrets/cache.rs`): `resolve_reference` takes a process-wide `Mutex` (`OnceLock<Mutex<()>>`) over the read-miss → fetch → write critical section. Eliminates in-process double-fetch races; cross-process safety still rests on tempfile + atomic rename + 0o600.
-- **L2 — Clipboard auto-clear TTL** (`src/ops/clipboard.rs`): New `copy_to_clipboard_with_ttl(text, secs)` spawns a background thread that, after the TTL expires, clears the clipboard if and only if it still holds the value we wrote. `copy_value` now defaults to a 30 s TTL when the key matches `is_sensitive_key`. Best-effort: macOS Pasteboard history and X11 PRIMARY/SECONDARY may still retain the value (documented).
-- **L3 — Profile / project_id validation** (`src/ops/secrets/providers/keeper.rs`, `src/ops/secrets/providers/bitwarden.rs`): New `checked_profile` / `checked_project_id` helpers run `validate_provider_arg` over Keeper's `profile` and Bitwarden's `project_id` before they are passed positionally to `ksm` / `bws`. Hostile values stored in the credential file (e.g. `profile=--something`) now error before subprocess spawn.
-- **L4 — Env-var pair validation at the run-CLI boundary** (`src/ops/secrets/provider.rs`, plus the three direct `cmd.env` sites in `vault.rs`, `conjur.rs`, `pass.rs`): New `validate_env_pair(name, value)` enforces POSIX env name regex (`[A-Za-z_][A-Za-z0-9_]*`), rejects NUL bytes in name and value, and rejects `\n` / `\r` in value. Called from `run_cli` and `run_cli_with_stdin` (which covers `run_cli_with_tempfile` transitively) plus the direct-spawn paths in pass / vault / conjur.
+- **Cache TOCTOU narrowed** (`src/ops/secrets/cache.rs::resolve_reference`): process-wide `Mutex` (`OnceLock`) over read-miss → fetch → write. Eliminates in-process double-fetch races; cross-process safety still rests on tempfile + atomic rename + 0o600.
+- **Clipboard auto-clear TTL** (`src/ops/clipboard.rs`): new `copy_to_clipboard_with_ttl(text, secs)` spawns a background thread that, after the TTL expires, clears the clipboard if-and-only-if it still holds the value we wrote. `copy_value` defaults to 30 s TTL when the key matches `is_sensitive_key`. Best-effort: macOS Pasteboard history and X11 PRIMARY/SECONDARY may still retain the value.
+- **Profile / project_id validation** (`src/ops/secrets/providers/{keeper,bitwarden}.rs`): `checked_profile` / `checked_project_id` helpers run `validate_provider_arg` over Keeper's `profile` and Bitwarden's `project_id` before they are passed positionally to `ksm` / `bws`.
+- **Env-var pair validation at run-CLI boundary** (`src/ops/secrets/provider.rs`, providers/`{vault,conjur,pass}.rs`): new `validate_env_pair(name, value)` enforces POSIX env name regex (`[A-Za-z_][A-Za-z0-9_]*`), rejects NUL bytes in name / value, rejects `\n` / `\r` in value. Called from `run_cli`, `run_cli_with_stdin` (covers `run_cli_with_tempfile` transitively), plus the three direct-spawn paths in pass / vault / conjur.
+- **Monitor event message redaction** (`src/ops/monitor/mod.rs`): `emit_event` passes every `RuntimeEvent` through `redact_runtime_event`, which replaces high-entropy tokens (24+ chars of `[A-Za-z0-9_\-]`) in `message` with `[REDACTED]`. Last-line safety net for callers that put a secret value into a runtime event message.
+- **TUI input length cap** (`src/ui/input.rs`): `MAX_INPUT_LEN = 128 KiB`; `insert` refuses past the cap, `new` truncates oversized initial text at a UTF-8 char boundary. Defends against bracketed-paste OOM.
+- **Multi-Host header rejection** (`src/ops/proxy.rs::extract_host`): RFC 7230 §5.4 — returns `None` when more than one `host:` header present; handler treats `None` as fail → 403.
+- **`ResolvedEntry` masked Debug** (`src/ops/uri_resolve.rs`): manual `Debug` impl renders `value` as `***(<n> chars)`. Closes leak via `format!("{:?}", entry)` / panic / `dbg!()`.
+- **Backup file 0600** (`src/config/backup.rs`): post-`fs::copy` chmod 0600 on Unix; errors propagated.
+- **`secret-sources.toml` 0600** (`src/ops/secrets/age.rs::save_sources`): `OpenOptions::mode(0o600)` at create + defensive chmod for stale files.
+- **`secrets config --show` value preview no longer reveals credential prefix** (`src/cli/secrets_cmd.rs`): both JSON and human modes now show `***(<n> chars)` instead of leaking the first 4 chars (which exposed `AKIA…`/`sk-…`/`ghp_…`/`xoxb-…` credential-type fingerprints).
 
-#### Follow-up rescan (10 additional findings — 2 High, 6 Medium, 2 Low)
+### False positives ruled out (after seven independent rescans)
 
-A second deep audit after the C / H / M / L pass surfaced fanout gaps and modules not previously covered. All closed.
-
-##### High
-
-- **N1 — Provider arg-flag injection across remaining providers** (`src/ops/secrets/providers/{aws_ssm,gcp,azure,doppler,infisical,akeyless,sops,conjur,pass,vault}.rs`): the H2 fix only covered 1Password. Same risk pattern (path / key / region / project_id / vault_name flowing into CLI args without validation, allowing leading-`-` or `=` smuggling) confirmed in 11 of 14 providers. Each `pull` / `push` / `get` / `list` now calls `validate_provider_arg` for paths and `validate_secret_name` for keys. Where the underlying CLI supports it, positional args are placed after `--`. Provider-specific helpers (`checked_project`, `checked_vault`, `checked_project_config`, `checked_env_project`) consolidate credential-field validation. The SOPS provider gained a stricter `validate_sops_path` (allows filesystem paths but blocks leading `-` and control chars) plus rejection of `"` / `\\` in keys (which are interpolated into a JSON-path expression for `--extract`).
-- **N2 — LSP root URI canonicalization + size cap** (`src/lsp/server.rs`): `load_schema_from_workspace` now `canonicalize`s the client-supplied `rootUri` before reading, requires the resolved schema path to remain inside the canonicalized root (defense-in-depth against `..` / symlink escape), and refuses to read schemas larger than 1 MiB. Without this, a malicious LSP client could point root at `~/.ssh/` or similar and have envforge read it.
-
-##### Medium
-
-- **N3 — Analytics events file mode at create time** (`src/ops/analytics/storage.rs`): event JSONL was created with default umask (often 0644 → world-readable) and only `chmod`'d to 0600 *after* open, with `.ok()` swallowing failures. Now uses `OpenOptions::mode(0o600)` so the file is never observable on disk with looser perms; the post-create defensive chmod no longer drops errors.
-- **N4 — Lifecycle snapshot 0600 + fsync** (`src/ops/lifecycle/rollback.rs`): rollback snapshots can hold plaintext secret values. The previous `write_atomic_snapshot` used `NamedTempFile` without setting permissions and without `sync_all` before persist. Now sets 0600 on the tempfile before the first write, fsyncs before atomic rename, and refuses to run on non-unix targets (consistent with H4).
-- **N5 — Cron min-interval guard** (`src/ops/lifecycle/trigger_engine.rs`): `Schedule::from_str` accepted any expression including 6-field `* * * * * *` (every second). New `MIN_CRON_INTERVAL_SECS = 60` floor; rules whose two consecutive next events are < 60 s apart are rejected, preventing local DoS / API quota exhaustion via tight rotation triggers.
-- **N6 — Response value validation on AWS / GCP / Azure parsers** (`src/ops/secrets/providers/{aws_ssm,gcp,azure}.rs`): M2 only covered 1Password / Keeper / Bitwarden. Now AWS SSM, GCP Secret Manager, and Azure Key Vault parsers also call `validate_provider_response_value` and `validate_provider_response_label` on every JSON-extracted secret, capping size at 64 KiB and rejecting NUL / control chars.
-- **N7 — `mcp_scan` size + recursion-depth caps** (`src/ops/mcp_scan.rs`): `scan_json_file` and `harden_mcp_config` now reject configs > 1 MiB before parsing; `walk_json` carries an explicit `depth` parameter and bails out at `MAX_JSON_DEPTH = 64` to defend against stack-overflow DoS via deeply-nested attacker-controlled JSON.
-- **N8 — Audit chain-state deletion detection** (`src/ops/audit/tamper.rs`): `load_chain_state` previously returned a fresh empty state if `.chain-state.json` was absent — silently masking earlier tampering when an attacker simply deleted the state file. Now refuses to silently re-initialize: if the state file is missing but `log_dir` already contains audit log files, returns `TamperError::InvalidState` requiring manual rotation or restore.
-
-##### Low
-
-- **N9 — Monitor event message redaction** (`src/ops/monitor/mod.rs`): `emit_event` now passes every `RuntimeEvent` through `redact_runtime_event`, which replaces high-entropy tokens (24+ chars of `[A-Za-z0-9_\-]`) in `message` with `[REDACTED]` before broadcast. Last-line safety net for callers that put a secret value into a runtime event message — subscribers (CLI streams, external integrations, log shippers) no longer see raw tokens.
-- **N10 — `cargo audit` / `cargo deny` already in CI**: confirmed `.github/workflows/security.yml` runs both via `EmbarkStudios/cargo-deny-action@v2`. Local install instructions could still be documented in the developer setup guide; tracked as docs-only follow-up.
-
-##### False positives ruled out
-
-- Parser `&s[1..]` panic in `parse_quoted_value` — only entered when `trimmed.starts_with('"' | '\'')`, so length is always ≥ 1 and the slice produces `""` not panic.
-- C2 BOM-prefixed prev-state bypass — envforge writes the file; we never emit BOM. BOM-prefixed lines from external tampering fail `is_safe_unload_line` and are silently skipped, which is correct (skipping ≠ executing).
-- C1 IDN / mixed-case host bypass — `to_ascii_lowercase` covers ASCII case folding; non-ASCII homoglyphs don't match `https://` etc. and fall through to scp-like check requiring `@`.
-- C1 URL `?` / `#` smuggling — git does not interpret URL query strings as CLI flags. `--upload-pack=` injection requires `-c` config or argv injection (already blocked).
-- `validate_env_pair` not applied to credentials — verified: every credential map flows `build_provider_env` → `env_refs_from_env` → `run_cli` / `run_cli_with_stdin` (or the three direct `cmd.env` sites in pass/vault/conjur), all of which call `validate_env_pair`. Coverage complete.
-
-#### Third rescan (10 additional findings — 2 High, 6 Medium, 2 Low)
-
-Third deep audit covered subsystems untouched by the prior two passes (proxy, run, share, lease, audit emitter / query / custody / report / ai-guard, profile, snapshot, parser deep, scanner, dotenv, CLI surface, model). All real findings closed; 7 false positives documented separately.
-
-##### High
-
-- **O1 — Audit log permissions + missing fsync on append** (`src/ops/audit/emitter.rs:341-371`): two paths — append (`OpenOptions::new().append(true)`) inherited the umask (typically 0644 → world-readable) and only `flush`ed without `sync_all`; first-write went through `atomic_write` which fsyncs but didn't chmod 0600. Audit logs contain `secret_key` names, source attribution, and AI-guard verdicts. Now both paths set 0600 (defensive chmod on append-open if the existing file has looser perms), and the append path calls `sync_all` after `flush` so a power-loss between flush and writeback can no longer drop audit entries.
-- **O2 — Profile name path traversal** (`src/ops/profile.rs`): `create_profile(name)` interpolated `name` into `~/.env_managed.{name}` and wrote there; same vector in `delete_profile` and `switch_profile`. With `name = "../../etc/cron.d/evil"` the resolved path escaped `$HOME`. New `validate_profile_name` enforces strict `[A-Za-z0-9_-]{1,64}` (no leading dash); applied at the top of `create_profile`, `delete_profile`, and `switch_profile`. New `ProfileError::InvalidName` variant.
-
-##### Medium
-
-- **O3 — Lease TOCTOU + missing renew** (`src/ops/lease.rs`): `check_lease_access` returned a verdict that a concurrent `revoke_lease` could invalidate before the caller actually used the secret. New process-wide `OnceLock<Mutex<()>>` serializes every lease op (create / revoke / revoke-all / check). New `with_lease_check_locked(key, f)` lets a caller (proxy / run) hold the lock from access check through secret release atomically. New `renew_lease(name, ttl_seconds)` — extends a non-revoked, non-expired lease in one transaction.
-- **O4 — Quote-style serialize escapes embedded quotes** (`src/model/shell_file.rs:125-138`): when `modified=true`, `format!("\"{}\"", value)` blindly wrapped values, so `value=he"llo` produced malformed output that re-parsed to a different value. Now POSIX-correct: `Double` escapes `\` and `"`; `Single` uses the close-escape-reopen `'\''` pattern. Restores the byte-for-byte round-trip invariant the parser relies on.
-- **O5 — Scanner per-file size cap** (`src/ops/scanner.rs:115`): `read_to_string` was unbounded. New 10 MiB per-file cap before the read; oversized files are skipped silently (matches existing "skip unreadable" behaviour).
-- **O6 — Audit query bounded read + filter input cap** (`src/ops/audit/query_engine.rs`, `src/ops/audit/query_types.rs`): `read_all_events` previously slurped every JSONL log into one `Vec` regardless of size. Now (a) reads via `BufReader::lines` so a 1 GiB log doesn't require 1 GiB of `String`, (b) caps total events at `MAX_EVENTS_LOADED = 250_000` per query and warns to stderr when truncated. Filter validation now caps `MetadataKey(String)` at 256 bytes so an attacker-supplied filter can't ship 1 MiB into the matcher.
-- **O7 — Age decryption ciphertext + plaintext caps** (`src/ops/encrypt.rs`): `decrypt_value` accepted base64 of any size and read the decrypted stream with `read_to_string` — vulnerable to decompression-bomb age files. New 1 MiB cap on decoded ciphertext (`MAX_CIPHERTEXT_BYTES`) checked before `Decryptor::new`, and 1 MiB cap on the decrypted output via `Read::take(reader, MAX_PLAINTEXT_BYTES)`.
-- **O8 — Share metadata `created_by` documented as unauthenticated** (`src/ops/share.rs`): the field carries the sender's hostname, which age does not bind to identity. Added rustdoc making this explicit and pointing callers at out-of-band signing if verifiable origin is required. Consumers should treat the value as informational only.
-
-##### Low
-
-- **O9 — Share TTL hard-blocks expired by default** (`src/ops/share.rs`): `receive_share` previously printed a warning and proceeded — TTL was effectively a comment, not a control. Now `receive_share` returns `ShareError::Expired` on expired shares; new `receive_share_with(data, allow_expired)` lets the CLI offer an explicit override. Plus an 8 MiB cap on encrypted share input + decrypted plaintext (same decompression-bomb defense as O7).
-- **O10 — AI-guard secret detection: anchored prefixes + entropy fallback** (`src/ops/audit/ai_guard_integration.rs:184-280`): the prefix-only detector matched `sk-` inside `ask-1234` (false positive) and missed any token without a known prefix (false negative). Now prefixes must be anchored at a non-token boundary AND followed by ≥16 token-alphabet bytes; pattern table extended (Stripe live/test, ASIA, GitHub server-to-server / user-to-server / fine-grained PAT, Slack app/user tokens, GitLab PAT, Google API/OAuth, JWT). New entropy fallback flags any 32+ char run of `[A-Za-z0-9_\-./]` containing upper + lower + digits as a "credential-like token", catching encoded / unprefixed leaks.
-
-##### False positives ruled out
-
-- **`run.rs` argv leak** — verified `Command::new(command).args(args)` only carries the user's command + args. Resolved secrets flow via `cmd.envs(env)` after `env_clear()`. `/proc/PID/cmdline` does not see them. Repeated false positive across passes.
-- **`vault.rs` role_id/secret_id payload leak** — `payload = format!("role_id={}\nsecret_id={}\n", ...)` is written to `vault`'s **stdin**, deliberately *avoiding* `/proc/PID/cmdline`. This is the secure path.
-- **`copy_key_value` clipboard exposure** — that's the function's purpose; user explicitly invokes. Mitigation already in place via 0.7.5 L2 TTL auto-clear for sensitive keys.
-- **`export_format::export_docker_secrets` "secret in script"** — Docker secret export embeds values by definition; user explicitly requests it. Single-quote escape is correct for bash literal context.
-- **Custody chain forgery** — addressed by existing hash-chain (`AuditEvent.entry_hash` covers `prev_hash`); state-file deletion is detected by 0.7.5 N8.
-- **Parser `&s[1..]` panic** — third repeated false positive; `parse_quoted_value` only entered when `trimmed.starts_with('"' | '\'')`.
-- **Snapshot `metadata.name` not sanitized** — only the *filename* uses `safe_name` (alphanum + `-` + `_`). `metadata.name` is stored in TOML and only displayed, never used as a path component.
-
-#### Fourth rescan (5 additional findings — 1 High, 3 Medium, 1 Low)
-
-Fourth deep audit covered AI guard, AI hooks, fence, sync encryption / conflict / history, secrets/age, modes, full CLI argv sweep, LSP handlers / completion / hover, TUI input, dotenv, config / backup, snapshot, changelog. All O1-O10 fixes verified to hold (no regressions). New findings closed; 8 false positives documented.
-
-##### High
-
-- **P1 — `decrypt_snapshot` ciphertext + plaintext caps** (`src/ops/sync/encryption.rs:51-77`): O7 fixed `encrypt::decrypt_value` but `sync::encryption::decrypt_snapshot` is a separate code path with the same shape — no size cap before `Decryptor::new`, `read_to_string` unbounded. A malicious sync remote could ship a decompression-bomb age file and OOM `envforge sync pull`. Added `MAX_SNAPSHOT_CIPHERTEXT_BYTES = 8 MiB` checked before `Decryptor::new` and `Read::take(reader, MAX_SNAPSHOT_PLAINTEXT_BYTES = 8 MiB)` on the decrypted reader.
-
-##### Medium
-
-- **P2 — Snapshot file world-readable** (`src/ops/snapshot.rs:102`): `fs::write(&path, content)` inherited the umask (typically 0644). Snapshot TOML embeds live ENV values verbatim (intentionally plaintext-on-disk under `~/.envforge/snapshots`; encryption only applies to the *sync* layer). New `write_snapshot_secure` helper uses `OpenOptions::mode(0o600)` on Unix and refuses to run on non-unix. Same pattern used in 0.7.5 N4 for `lifecycle/rollback.rs`.
-- **P3 — Changelog file world-readable** (`src/ops/changelog.rs:39-69`): `OpenOptions::create(true).append(true)` inherited the umask. Changelog records action / key / timestamp history — useful workflow signal even without values. Now opens with `.mode(0o600)` on Unix at create time, plus a defensive post-write chmod for files already on disk from older versions with looser perms.
-- **P4 — LSP completion suggested live secret values as labels** (`src/lsp/completion.rs:192-216`): the "current value" suggestion put `mv.value.clone()` in `CompletionItem.label`. Editors render labels in completion popups and may persist them in history files / telemetry — turning the LSP into a side-channel for secret exposure. Now `label` is a redacted preview (`***` for short values, `<2 chars>***(<n> chars)` for longer) and the real value flows via `insert_text`, so accepting the suggestion still works. New helper `redact_value_for_label`.
-
-##### Low
-
-- **P5 — TUI text input length cap** (`src/ui/input.rs`): `TextInput::insert` and `::new` were unbounded; bracketed-paste in modern terminals can deliver megabytes per event, OOM-ing the backing `String`. New `MAX_INPUT_LEN = 128 KiB` constant; `insert` silently refuses past the cap, `new` truncates oversized initial text at a UTF-8 char boundary.
-
-##### O1-O10 regression check
-
-Verified by reading actual code, not just file presence:
-- O1 (audit emitter): both append and first-write paths set 0600; append also `sync_all`s. ✓
-- O2 (profile name validation): `validate_profile_name` called at top of `create_profile`, `delete_profile`, `switch_profile`. ✓
-- O3 (lease lock): mutex acquired in create / revoke / revoke_all / check / renew / `with_lease_check_locked`. ✓
-- O4 (quote escape): double-quote escapes `\` then `"`; single-quote uses POSIX close-escape-reopen. ✓
-- O5 (scanner cap): `metadata().len()` check is BEFORE `read_to_string`. ✓
-- O6 (audit query): `BufReader::lines` truly streams; `MAX_EVENTS_LOADED = 250_000` cap triggers via `saturating_sub`. ✓
-- O7 (encrypt cap): `Read::take` wraps the actual `Decryptor::decrypt` reader, not the post-`read_to_string` value. ✓
-- O9 (share TTL): `receive_share` (no `_with`) returns `Err(ShareError::Expired)`, not warn-only. ✓
-
-##### False positives ruled out
-
-- **`ai_hooks.rs:48-49` shell injection** — verified `"$TOOL_INPUT"` is double-quoted in the shell command string. Shell `$`-expansion inside double quotes does not re-interpret the expanded value's metacharacters; the value lands as a single literal arg to `envforge`. Standard safe pattern.
-- **`ai_guard.rs::is_sensitive_path` Unicode bypass** — `is_sensitive_path` is a heuristic prepass for warnings. Actual fence / permission decisions go through exact-byte path matches. A homoglyph that fools the heuristic just reduces guidance quality; it does not bypass enforcement.
-- **`GuardResult.blocked` advisory** — calling sites already check `if result.blocked { ... }`. Type-system enforcement is style, not security.
-- **`sync/conflict.rs` trusts remote values** — sync is consent-based; auto-resolution only fires when user has explicitly set `[sync] conflict_strategy = keep-remote`. Plus 0.7.5 M4 `verify_signatures` now available for stricter setups. Not a finding.
-- **`fence.rs` not runtime-enforced** — fence writes Claude Code deny rules; enforcement is Claude Code's. Documented as defense-in-depth, not isolation.
-- **`secrets_cmd.rs` `--set token=VALUE` argv** — already documented in 0.7.4 hardening notes as a known design limitation; users directed to stdin / config file for sensitive values. Not new.
-- **Volatile mode heap fragmentation** — `modes.rs` uses `zeroize` correctly; secrets cleared before scope exit. No persistent disk write in volatile path.
-- **`copypasta` unmaintained** — verified currently maintained (0.10.2 latest); no open advisories.
-
-#### Fifth rescan (5 additional findings — 1 High, 3 Medium, 1 Low)
-
-Fifth deep audit covered proxy full request handling, sync/marking + machine + history + push, secrets/age, lifecycle orchestrator + state machine + schema_lifecycle, audit custody + report_generator, profile_diff, dotenv re-verify, parser/serialize, ui/app + dialogs, listing, duplicates, cli/error, encrypt re-verify. P1-P5 fixes verified to hold (no regressions). New findings closed; 9 false positives documented.
-
-##### High
-
-- **Q1 — DNS-rebinding via missing Host check + wildcard CORS** (`src/ops/proxy.rs:92-197, 333-342, 504-535`): two layered defects composed into a real exploit. (a) `is_origin_allowed` accepted requests without an `Origin` header (common for simple GETs); (b) `format_response` always sent `Access-Control-Allow-Origin: *`. A page on `evil.com` could rebind that name to `127.0.0.1` (DNS rebinding), issue a same-origin XHR, hit the localhost proxy, and read the response — exfiltrating secrets. New `extract_host` + `is_host_loopback` helpers; the request handler now requires the `Host` header to match `127.0.0.1` / `localhost` / `[::1]` (with optional port) before serving any route, so a rebound `evil.com` is rejected even with `Origin` absent. CORS header changed from `*` to `null` plus `Vary: Origin` so browsers cannot share responses cross-origin.
-- **Q2 — Glob matcher exponential backtracking** (`src/ops/sync/marking.rs:160-202`, `src/ops/secrets/modes.rs:194-220`): the recursive `glob_match_inner` rebranched on every `*`; pattern `a*a*a*a*a*b` against text `aaaaaaaaaaaa` blew up to `O(2^n)`. Replaced with iterative `O(P × T)` DP using two rolling rows. Same algorithm replacement applied in both occurrences.
-
-##### Medium
-
-- **Q3 — `profile_diff::DiffEntry` carries plaintext values** (`src/ops/profile_diff.rs:20-110`): the struct stored raw `value_a` / `value_b`, inviting accidental exposure via `Debug`-print, JSON serialization, or direct UI rendering. Other lifecycle / audit paths consistently mask before storing; this one was the outlier. New `mask_diff_value` helper applied at construction; raw values never enter the struct. Added `values_differ: bool` so callers can still distinguish "modified" without reading values. Doc-comment makes the masking contract explicit.
-- **Q4 — Markdown report does not escape user-controlled `description`** (`src/ops/audit/report_generator.rs:330-388`): violation `description` was interpolated into markdown via `writeln!("- ... {}", v.description, ...)`. Markdown renderers commonly accept embedded HTML, so a description containing `<script>...</script>` becomes XSS in any HTML-rendered viewer (GitHub web, VS Code preview, Confluence, etc). New `markdown_escape` helper escapes `<`, `>`, `&`, backticks, pipes, `[`, `]`, and folds newlines to spaces; applied to every user-controlled string interpolated into the markdown writer.
-
-##### Low
-
-- **Q5 — `ensure_age_key` chmod TOCTOU** (`src/ops/encrypt.rs:18-90`): the previous `metadata(&path)` → `set_permissions(&path)` sequence had a race where a same-uid local attacker could swap the path between the two syscalls. Now opens the file once with `O_NOFOLLOW` (custom flag, falls back to 0 on non-Linux/macOS — `chmod`-on-handle still defeats path-level TOCTOU regardless), runs `File::set_permissions` on the handle, and reads the same file descriptor whose perms we just fixed.
-
-##### P1-P5 regression check
-
-Verified by reading actual code:
-- P1 (sync `decrypt_snapshot`): size check before `Decryptor::new`; `Read::take` wraps real reader. ✓
-- P2 (`write_snapshot_secure`): `OpenOptions::mode(0o600)` at create-time + `sync_all`. ✓
-- P3 (`changelog::log_change`): `.mode(0o600)` in OpenOptions + post-write defensive chmod. ✓
-- P4 (LSP completion): `redact_value_for_label` returns `***` for short values, `<2 chars>***(<n> chars)` for longer; UTF-8 safe via `chars().take()`; real value flows via `insert_text`. ✓
-- P5 (TUI input): `MAX_INPUT_LEN` check before `String::insert`; constructor truncates oversized initial text at char boundary; no other bulk-insert entry points. ✓
-
-##### False positives ruled out
-
-- **`secrets/age.rs`** — separate from `encrypt.rs`; uses age crate primitives directly without bespoke decryption (no decompression-bomb surface).
+- **`ai_hooks.rs` shell injection** — `"$TOOL_INPUT"` is double-quoted in the hook command string; shell `$`-expansion inside double quotes does not re-interpret metacharacters in the expanded value.
+- **`ai_guard.rs::is_sensitive_path` Unicode bypass** — heuristic prepass; actual fence / permission decisions go through exact-byte path matches.
+- **CORS / Origin / IDN bypasses on the proxy** — `to_ascii_lowercase` covers ASCII case folding; non-ASCII homoglyphs don't match `https://` and fall through to scp-like check requiring `@`. URL `?` / `#` smuggling — git does not interpret query strings as CLI flags.
+- **`run.rs` argv leak** — secrets flow via `cmd.envs(env)` after `env_clear()`, NOT argv. `/proc/PID/cmdline` does not see them.
+- **`vault.rs` role_id/secret_id payload "leak"** — written to `vault`'s **stdin** (deliberately avoiding `/proc/PID/cmdline`), not argv. The secure path.
+- **`copy_key_value` clipboard exposure** / **`export_format::export_docker_secrets`** — both by design (user explicitly invokes); mitigated by clipboard TTL auto-clear.
+- **Custody chain forgery** — addressed by `AuditEvent.entry_hash`/`prev_hash` chain plus chain-state deletion detection.
+- **Parser `&s[1..]` panic in `parse_quoted_value`** — only entered when `trimmed.starts_with('"' | '\'')`; never panics.
+- **C2 BOM-prefixed prev-state bypass** — envforge writes the file; we never emit BOM. BOM-prefixed lines from external tampering fail `is_safe_unload_line`.
+- **`validate_env_pair` not applied to credentials** — every credential map flows `build_provider_env` → `env_refs_from_env` → `run_cli` / `run_cli_with_stdin`, all of which call `validate_env_pair`.
+- **Volatile mode heap fragmentation** — `modes.rs` uses `zeroize` correctly; secrets cleared before scope exit.
+- **`copypasta` unmaintained** — verified currently maintained (0.10.2); no open advisories.
+- **`secrets/age.rs`** — usage-tracking module (records access events), not a decryption module. No bespoke crypto surface.
 - **`rotate_secret` missing snapshot** — `rotate.rs::apply_rotation` performs its own atomic-write of the new value; not a security gap.
-- **Custody chain forgery** — addressed by hash chain; 0.7.5 N8 detects state-file deletion. Forgery requires log-file write access, which is the threat model boundary.
 - **Machine override no auth** — `sync/machine.rs::set_override` operates on the local user's sync repo. Sync is consent-based.
-- **Proxy 4096-byte fixed read** — long URIs return 400; no buffer overflow (Rust); single-connection only; not a finding.
-- **Dotenv `$VAR` expansion** — verified: `parse_dotenv_content` does NOT expand `$VAR` / `${VAR}`. Values stored as parsed.
-- **Parser serialize round-trip** — deterministic per-line; no header injection.
-- **Search field regex DoS** — TUI uses `fuzzy_search` (substring/scoring, not regex).
-- **Listing `Commented` filter** — comment classification uses `LineNode::Comment` from parser, not `=` heuristic.
-
-#### Sixth rescan (8 fixes shipped + 2 false positives + 1 deferred)
-
-Sixth deep audit covered remaining surfaces (secrets/age, lifecycle/state_machine + orchestrator + rule_manager, audit/types + custody, parser/serialize, cli/commands.rs deep-grep, sync/init, config/backup, mcp_scan follow-up, share follow-up, uri_resolve follow-up, external_scanner, duplicates, supply chain) plus regression-verification of Q1-Q5. Q1-Q5 all hold.
-
-##### High
-
-- **T2 — Cache provider name path traversal** (`src/ops/secrets/cache.rs:105-160, 282-310`): `cache_file_path` sanitized `key` but not `provider`. A `provider="../../etc"` request would land cache writes outside the user's secrets-cache dir; cache files contain decrypted values. Now both `provider` and `key` are restricted to `[A-Za-z0-9_-]` (other chars folded to `_`); empty / NUL / >128-byte provider names are rejected. Same sanitization applied in `invalidate_provider_cache`.
-
-##### Medium
-
-- **T3 — Backup file world-readable after copy** (`src/config/backup.rs:11-62`): `std::fs::copy` applies umask to the destination, so a 0600 source could land at 0644 on the backup. Now post-`copy` chmod 0600 on Unix, errors propagated. Mirrors the P2 / P3 0600 pattern.
-- **T4 — Lifecycle state log world-readable + missing fsync** (`src/ops/lifecycle/orchestrator.rs:155-220`): state-transition `.jsonl` files were created with default umask. Now opens with `OpenOptions::mode(0o600)` on Unix at create time, calls `sync_all` after `writeln`, and applies a defensive post-write chmod for files inherited from older versions.
-- **T5 — Rule TOML size cap** (`src/ops/lifecycle/rule_manager.rs:83-110, 175-200`): every rule reader (`get_rule_at`, both `list_rules_in_dir` paths) now checks `metadata().len()` against `MAX_RULE_FILE_BYTES = 256 KiB` before `read_to_string` + `toml::from_str`, defending against OOM via a crafted / corrupt rule file. Mirrors 0.7.5 N7's MCP-config size cap.
-- **T6 — CSV report quoting** (`src/ops/audit/report_generator.rs::export_csv` + new `csv_field` helper): the previous code only replaced commas in `description` with semicolons and didn't emit `secret_key` despite advertising it in the header. New RFC 4180 `csv_field` helper wraps every field in `"…"`, doubles internal quotes, and folds `\r` / `\n` to spaces. All six columns now go through it.
-
-##### Low
-
-- **T7 — `ResolvedEntry` masked Debug** (`src/ops/uri_resolve.rs:91-118`): `derive(Debug)` on a struct with a plaintext `value: String` field meant any `format!("{:?}", ...)`, panic message, `dbg!()`, or log call leaked the resolved secret. Custom `Debug` impl now renders the value as `***(<n> chars)`. Real value still accessible via the public field for callers that need it.
-- **T8 — Multiple `Host` headers rejected** (`src/ops/proxy.rs::extract_host`): RFC 7230 §5.4 requires servers to respond 400 to requests with multiple Host headers (request-smuggling vector against intermediaries). `extract_host` now returns `None` when more than one `host:` line is present; the handler treats `None` as host-check failure → 403.
-- **T9 — External scanner stdin cap** (`src/ops/external_scanner.rs:185-210`): `stdin.write_all(content.as_bytes())` was unbounded; a 100 MiB `.env` could OOM the scanner subprocess (which envforge then waits on). Cap added at 4 MiB; oversized input is truncated with a single `eprintln!` notice.
-
-##### False positives ruled out
-
-- **T1 audit hash non-deterministic over `metadata`** — investigated. `metadata: serde_json::Value`. Default `serde_json::Map<String, Value>` (no `preserve_order` feature, see Cargo.toml) is alphabetically ordered, so existing `serde_json::to_string(&self.metadata)` IS deterministic. Doc-comment added to make this explicit and pin the assumption to the Cargo feature set.
-- **CLI `--token` / `--password` flags exist** — third pass through `cli/commands.rs` confirms no such flags. Sensitive values only flow via stdin / prompt / file. Repeated false positive across rescans.
-
-##### Deferred
-
-- **T10 — Parser CRLF preservation** (`src/parser/parse.rs:99-114`): unmodified lines preserve `\r` (round-trips through serialize cleanly); modified lines re-emit without `\r`, so editing a Windows-style `.envrc` in-place can lose CRs. Data-integrity issue, not security. Tracking for a future fix that detects line-ending style on parse and preserves on serialize for modified nodes.
-
-##### Q1-Q5 regression check
-
-Verified by reading code:
-- Q1 host check before secret routes; CORS = `null`; mixed-case Host handled. Plus T8 hardening for multiple Host headers.
-- Q2 iterative DP doesn't backtrack on `a*a*a*a*a*b` × `aaaa…`; correct on empty-pattern / all-`*` edge cases.
-- Q3 every `DiffEntry` construction site goes through `mask_diff_value`. No external constructors.
-- Q4 markdown_escape applied in violation rendering; T6 fixes the CSV side.
-- Q5 `O_NOFOLLOW_LOCAL` correct for Linux/macOS; `set_permissions` runs on the fd; `&File: Read` impl confirmed.
-
-#### Seventh rescan (5 fixes shipped + 5 false positives)
-
-Seventh deep audit covered remaining surfaces (cli/secrets_cmd full sweep, lsp/document + server handlers, parser/detect, ops/check + doctor + explain, ui/dialogs + render, audit/query_engine deeper, secrets/age, grouping, custody, lifecycle/rollback follow-up, lifecycle/trigger_engine follow-up, proxy approval, error display, Cargo.lock CVE check). All Q-fixes and T-fixes verified intact.
-
-##### Low
-
-- **V1 — `secret-sources.toml` world-readable** (`src/ops/secrets/age.rs::save_sources`): the metadata file recording which secrets came from which provider/path was created with default umask. Operational signal even without values. Now opens with `OpenOptions::mode(0o600)` on Unix at create time, plus defensive post-write chmod for files inherited from older versions. Mirrors V1's pattern with prior P3 / T3 / T4 fixes.
-- **V2 — LSP document size cap** (`src/lsp/server.rs::did_open / did_change`): handlers trusted client-supplied `params.text_document.text` of any size. A malicious or buggy LSP client could ship 1 GiB and OOM the parser. Added `Self::MAX_DOCUMENT_BYTES = 1 MiB` cap (matching the existing schema cap from N2); oversized payloads are rejected with a stderr notice and ignored.
-- **V3 — `secrets config --show` value preview leaked credential prefix** (`src/cli/secrets_cmd.rs:485-525`): both the JSON and human formatters emitted `format!("{}***", &value[..4])` — the first 4 chars of every credential. Common credentials carry type-identifying prefixes (`AKIA…` AWS, `sk-…` OpenAI/Stripe, `ghp_…` GitHub, `xoxb-…` Slack), so the preview narrowed an attacker's targeting search. Now shows only `***(<n> chars)` — confirms the credential is configured without revealing its kind.
-- **V4 — Shell file size cap on `parse_shell_file`** (`src/parser/parse.rs::parse_shell_file`, `src/model/error.rs::ParseError::FileTooLarge`): `envforge check` and `envforge doctor` parse user-pointed shell files (and so does the rest of the codebase). A symlink to `/dev/zero` or a crafted multi-GB dotfile would OOM the process before parsing. Added `MAX_SHELL_FILE_BYTES = 10 MiB` checked at the entry point of `parse_shell_file`; oversized files return a new `ParseError::FileTooLarge` variant. Centralizing the check at the parser fixes every caller (check.rs, doctor.rs, hook.rs, profile.rs, explain.rs, lifecycle/rollback.rs, etc.) in one place.
-- **V5 — Lifecycle snapshot file read cap** (`src/ops/lifecycle/rollback.rs::restore_snapshot`): `fs::read_to_string(&path)` was unbounded; a crafted oversized snapshot file (or symlink to `/dev/zero`) could OOM the rollback flow before `serde_json::from_str` ran. Cap added at 4 MiB pre-read. Mirrors O5 / T5 / V4.
-
-##### False positives ruled out
-
-- **Custody chain hash** — round-7 agent claimed `CustodyLink` lacks a hash field. Verified: `CustodyLink::from_event` carries `event_id` which references the `AuditEvent` whose `entry_hash` / `prev_hash` form the integrity-chain in `tamper.rs`. Custody integrity rests on event-log integrity (already chain-protected, plus 0.7.5 N8 detects state-file deletion). Not a finding.
-- **`secrets_cmd.rs --set X=Y` argv exposure** — known-and-documented design limitation since 0.7.4 hardening notes; users directed to stdin / config file for sensitive values. Repeat across rescans; not new.
-- **TUI edit dialog renders plaintext** — by design (the user asked to edit). Mitigated by 0.7.5 L2 clipboard auto-clear for sensitive keys. Not a vuln.
-- **Proxy approval prompt no stdin timeout** — by design (interactive synchronous approval). Process can be Ctrl-C'd. Not a vuln.
-- **`model/error.rs::IoError` includes absolute path** — standard Rust error reporting; user files live under `$HOME` and seeing `/Users/emre/...` in an error you ran is expected. Information disclosure surface is the user's own terminal. Not a vuln.
-
-##### Cargo.lock CVE re-check
-
-Verified: `time` 0.3.x (CVE-2020-26235 only affected 0.1.x), `tokio` 1.52 (advisory was <1.18.4), `regex` 1.12, `age` 0.11.3, `serde_json` 1.0.149, `tower-lsp` 0.20 — all clean. Cargo.lock committed. CI security workflow runs `cargo-audit` + `cargo-deny` daily.
+- **`AuditEvent.metadata` non-deterministic hash** — `serde_json::Value` with default serde_json (no `preserve_order` feature) is alphabetically ordered → already deterministic.
+- **`CustodyLink` missing hash field** — `event_id` references the `AuditEvent` whose `entry_hash` / `prev_hash` form the integrity chain.
+- **CLI `--token` / `--password` / `--api-key` flags exist** — verified across multiple sweeps: no such flags. Sensitive values flow via stdin / prompt / file.
+- **TUI edit dialog renders plaintext** — by design (the user asked to edit).
+- **Proxy approval prompt no stdin timeout** — by design (interactive synchronous approval).
+- **`model/error.rs::IoError` includes absolute path** — standard Rust error reporting; user files live under `$HOME` and the user is the local viewer.
 
 ### Tests
 
-- New tests for `validate_remote_url` (accepts https / ssh / git / scp-like; rejects `ext::`, `file://`, leading dash, rsync, control chars).
-- `test_sanitize_skips_short_values` renamed to `test_sanitize_skips_only_empty_values` and updated to cover the new behavior.
-- Existing 772 lib tests + integration suites continue to pass.
+- 1132 lib tests pass, all integration suites green.
+- New tests for `validate_remote_url`, `extract_host`, `is_host_loopback`, `csv_field`, glob-DP edge cases, sanitize length filter.
 
 ### Changed
 
-- **Cargo.toml**: bumped version to 0.7.5
-- **`SyncSettings`**: new field `verify_signatures: bool` (default `false` via serde). Added to all in-tree constructors.
-- **`read_all_credentials`**: doc-commented with explicit guidance to prefer `with_credentials` or new `read_all_credentials_zeroizing`.
-- New helpers exported from `src/ops/secrets/provider.rs`: `validate_provider_response_value`, `validate_provider_response_label`, `validate_provider_arg`, `validate_env_pair`, `MAX_PROVIDER_VALUE_LEN`, `MAX_PROVIDER_LABEL_LEN`.
-- `walk_json` in `src/ops/mcp_scan.rs` gained a required `depth: usize` parameter (private function; no public-API impact).
-- New `ProfileError::InvalidName` variant; `validate_profile_name` enforced at every profile entry point.
-- New lease APIs: `renew_lease(name, ttl_seconds)`, `with_lease_check_locked(key, f)`. `MAX_EVENTS_LOADED` constant in `query_engine`. `MAX_CIPHERTEXT_BYTES` / `MAX_PLAINTEXT_BYTES` in `encrypt`. New `receive_share_with(data, allow_expired)` in `share`. `ShareError::Expired` is now returned (was previously only formatted into stderr).
-- New `MAX_SNAPSHOT_CIPHERTEXT_BYTES` / `MAX_SNAPSHOT_PLAINTEXT_BYTES` in `sync/encryption.rs`. New `write_snapshot_secure` helper in `snapshot.rs`. New `MAX_INPUT_LEN` const + `redact_value_for_label` helper exposed by `ui/input.rs` / `lsp/completion.rs`.
-- New proxy helpers: `extract_host`, `is_host_loopback`. CORS header changed from `*` to `null` + `Vary: Origin`. New audit action `denied_host`. `extract_host` now rejects requests with multiple Host headers.
-- Glob matcher rewritten as iterative DP in both `sync/marking.rs` and `secrets/modes.rs` (private `glob_match_inner` removed; `glob_match` signature unchanged).
-- `DiffEntry` gained a `values_differ: bool` field; `value_a` / `value_b` are now masked.
-- New `markdown_escape` and `csv_field` public helpers in `audit/report_generator.rs`.
-- `ResolvedEntry` now uses a manual masked `Debug` impl (was `derive(Debug)` exposing plaintext).
-- New `MAX_RULE_FILE_BYTES` const in `lifecycle/rule_manager.rs`. New `MAX_SCANNER_INPUT_BYTES` (inline) cap in `external_scanner.rs`. Cache provider names sanitized like keys.
-- New public `parse::MAX_SHELL_FILE_BYTES` const + `ParseError::FileTooLarge` variant. New `LspBackend::MAX_DOCUMENT_BYTES` const. New `MAX_SNAPSHOT_FILE_BYTES` (inline) in `lifecycle/rollback.rs`. `secret-sources.toml` writes now create with mode 0600. `secrets config --show` value preview no longer reveals the first 4 chars of any credential.
+- **Cargo.toml**: bumped to 0.7.5.
+- **`SyncSettings`**: new `verify_signatures: bool` field (default `false`).
+- **`ProfileError`**: new `InvalidName` variant.
+- **`ParseError`**: new `FileTooLarge` variant.
+- New public helpers in `src/ops/secrets/provider.rs`: `validate_provider_response_value`, `validate_provider_response_label`, `validate_provider_arg`, `validate_env_pair`, `MAX_PROVIDER_VALUE_LEN`, `MAX_PROVIDER_LABEL_LEN`.
+- New public helpers in `src/ops/audit/report_generator.rs`: `markdown_escape`, `csv_field`.
+- New constants: `parse::MAX_SHELL_FILE_BYTES`, `LspBackend::MAX_DOCUMENT_BYTES`, `MAX_RULE_FILE_BYTES`, `MAX_EVENTS_LOADED`, `MAX_CIPHERTEXT_BYTES`, `MAX_PLAINTEXT_BYTES`, `MAX_SNAPSHOT_CIPHERTEXT_BYTES`, `MAX_SNAPSHOT_PLAINTEXT_BYTES`, `MIN_CRON_INTERVAL_SECS`.
+- New lease APIs: `renew_lease`, `with_lease_check_locked`.
+- New share API: `receive_share_with(data, allow_expired)`. `ShareError::Expired` now returned (was warn-only).
+- New proxy helpers: `extract_host`, `is_host_loopback`. CORS header `*` → `null` + `Vary: Origin`.
+- `ResolvedEntry` uses manual masked `Debug` (was `derive(Debug)`).
+- `walk_json` in `mcp_scan.rs` gained required `depth: usize` parameter (private function; no public-API impact).
+- `read_all_credentials` doc-commented to prefer `with_credentials` or `read_all_credentials_zeroizing`.
 
 ## [0.7.4] - 2026-05-07
 
