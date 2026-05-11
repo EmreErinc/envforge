@@ -53,10 +53,6 @@ cron = "0.15"
 zeroize = "1"
 libc = "0.2"
 
-[features]
-default = []
-sigstore = []
-
 [lints.rust]
 future-incompatible = "warn"
 nonstandard_style = { level = "deny", priority = 1 }

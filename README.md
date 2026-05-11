@@ -91,7 +91,7 @@ envforge revoke --all
 |----------|-----------|
 | **AI Safety** | 25 tools: canary (v1+v2 forensic), approval flow, guard, leases (incl. JIT/PID-bound), killswitch, proxy, fence, MCP harden, deps |
 | **CI Defense** | `envforge ci-trust` — fork-PR / external-comment / pull_request_target classifier + secret quarantine |
-| **Compliance** | `envforge envbom` — SPDX-style env Bill of Materials + Sigstore attestation (`--features sigstore`) |
+| **Compliance** | `envforge envbom` — SPDX-style env Bill of Materials |
 | **Check** | `envforge check` — unified health check (doctor + validate + scan + age + drift) |
 | **Snapshots** | Backup/restore active profile state, diff, auto-prune |
 | **Explain** | `envforge explain KEY` — X-ray view across all subsystems |

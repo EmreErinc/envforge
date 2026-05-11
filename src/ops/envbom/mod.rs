@@ -1,26 +1,21 @@
-//! ENV-BOM (Environment Bill of Materials) — signed manifest of env keys.
+//! ENV-BOM (Environment Bill of Materials) — manifest of env keys.
 //!
-//! See `memory-bank/bolts/074-envbom-attestation/` for the design docs and ADRs:
-//! - ADR-011: Sigstore behind `--features sigstore` Cargo feature (default off)
-//! - ADR-012: Custom predicate URL `https://envforge.dev/envbom/v1`
+//! Ship surface:
+//! - `envforge envbom emit` — deterministic SPDX-shaped BOM with custom predicate
+//! - `envforge envbom verify` — structural validation + optional diff vs current state
 //!
-//! Phase-1 ship surface (default build):
-//! - `envforge envbom emit` (unsigned)
-//! - `envforge envbom verify` (structural + diff)
-//! - `envforge envbom verify --airgap` (offline cert + Rekor proof against bundled root)
+//! Predicate URL: `https://envforge.dev/envbom/v1` (custom; SPDX shape with
+//! EnvForge-specific extensions for `keys` field + `audit_summary` aggregation).
 //!
-//! Phase-2 ship surface (with `--features sigstore`): adds keyless Cosign signing.
+//! Note: Signing was removed in intent 033 (commit-pending). Consumers who need
+//! signed BOMs can pipe the output of `envforge envbom emit` through `cosign
+//! sign-blob` externally.
 
-pub mod airgap;
 pub mod builder;
 pub mod differ;
 pub mod serializer;
 pub mod verifier;
 
-#[cfg(feature = "sigstore")]
-pub mod sigstore;
-
-pub use airgap::{AirgapTrustRoot, TrustRootSource};
 pub use builder::{
     build_bom, AuditSummary, Classification, ClassifiedCounts, CreationInfo, EnvBom, EnvBomKey,
     PathKind, PathRef, ValueState,
@@ -42,12 +37,6 @@ pub enum EnvbomError {
     AttestationParse(String),
     #[error("verification failed: {0}")]
     VerificationFailed(String),
-    #[error("sigstore feature not enabled (rebuild with --features sigstore)")]
-    SigstoreUnavailable,
-    #[error("oidc resolution failed: {0}")]
-    OidcResolution(String),
-    #[error("trust root: {0}")]
-    TrustRoot(String),
     #[error("op error: {0}")]
     OpError(#[from] super::OpError),
 }

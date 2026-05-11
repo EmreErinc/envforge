@@ -6682,11 +6682,8 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
         super::EnvbomAction::Emit {
             profile,
             output,
-            sign,
             reproducible_now,
         } => {
-            // Phase-1: gather key pairs from current shell env. A future intent
-            // wires this to ops::secrets / ops::schema for richer per-key metadata.
             let project_id = std::env::current_dir()
                 .ok()
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
@@ -6706,26 +6703,6 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
             let bytes = envbom::canonical_json(&bom)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
-            if *sign {
-                #[cfg(feature = "sigstore")]
-                {
-                    let _signed = envbom::sigstore::sign_bom(
-                        &bytes,
-                        envbom::sigstore::SignOptions::default(),
-                    )
-                    .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
-                    // Phase-1 stub returns SigstoreUnavailable; the line above
-                    // already errored out before reaching here.
-                }
-                #[cfg(not(feature = "sigstore"))]
-                {
-                    eprintln!(
-                        "error: --sign requires the `sigstore` feature; rebuild with --features sigstore"
-                    );
-                    std::process::exit(8);
-                }
-            }
-
             match output {
                 Some(p) => {
                     std::fs::write(p, &bytes)?;
@@ -6740,14 +6717,10 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
         super::EnvbomAction::Verify {
             path,
             against_current,
-            identity,
-            airgap,
             strict_schema,
             strict_current,
-            require_signed,
             json,
         } => {
-            // Build a current-state BOM if --against-current is set
             let current = if *against_current {
                 let project_id = std::env::current_dir()
                     .ok()
@@ -6764,11 +6737,8 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
 
             let opts = envbom::VerifyOptions {
                 against_current: current,
-                identity_glob: identity.clone(),
-                airgap: *airgap,
                 strict_schema: *strict_schema,
                 strict_current: *strict_current,
-                require_signed: *require_signed,
             };
 
             let report = match envbom::verify(path, &opts) {
@@ -6781,12 +6751,6 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
                     eprintln!("verify failed: {msg}");
                     std::process::exit(2);
                 }
-                Err(envbom::EnvbomError::SigstoreUnavailable) => {
-                    eprintln!(
-                        "error: signed verification requires the `sigstore` feature; rebuild with --features sigstore"
-                    );
-                    std::process::exit(8);
-                }
                 Err(e) => return Err(e.to_string().into()),
             };
 
@@ -6797,9 +6761,6 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
                     "structural: {}",
                     if report.structural_ok { "ok" } else { "fail" }
                 );
-                if let Some(s) = report.signature_ok {
-                    println!("signature:  {}", if s { "ok" } else { "fail" });
-                }
                 if let Some(d) = &report.diff {
                     println!(
                         "diff:       added={} removed={} changed={} unchanged={}",
@@ -6814,7 +6775,6 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
                 }
             }
 
-            // strict-current gate
             if *strict_current {
                 if let Some(d) = &report.diff {
                     if !d.added.is_empty() || !d.removed.is_empty() || !d.changed.is_empty() {
@@ -6822,11 +6782,6 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
                     }
                 }
             }
-        }
-        super::EnvbomAction::UpdateTrustRoot { path } => {
-            envbom::AirgapTrustRoot::install(path)
-                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
-            eprintln!("trust root installed from {}", path.display());
         }
     }
     Ok(())

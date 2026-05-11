@@ -1005,43 +1005,26 @@ pub enum EnvbomAction {
         /// Output file (default: stdout)
         #[arg(long, short = 'o')]
         output: Option<std::path::PathBuf>,
-        /// Sign with Sigstore Cosign keyless OIDC (requires --features sigstore)
-        #[arg(long)]
-        sign: bool,
         /// Fix `generated_at` to this timestamp for reproducible builds
         #[arg(long)]
         reproducible_now: Option<String>,
     },
-    /// Verify an ENV-BOM (signed or unsigned)
+    /// Verify an ENV-BOM
     Verify {
-        /// Path to BOM file or attestation bundle
+        /// Path to BOM file
         path: std::path::PathBuf,
         /// Compare against current project state and emit a diff
         #[arg(long)]
         against_current: bool,
-        /// Require signature subject to match this identity glob
-        #[arg(long)]
-        identity: Option<String>,
-        /// Verify offline against bundled / user-installed trust root
-        #[arg(long)]
-        airgap: bool,
         /// Fail on any unknown / forward-compat schema fields
         #[arg(long)]
         strict_schema: bool,
         /// Fail on any diff vs current project state
         #[arg(long)]
         strict_current: bool,
-        /// Require BOM to be signed (fail on unsigned)
-        #[arg(long)]
-        require_signed: bool,
         /// JSON output
         #[arg(long)]
         json: bool,
-    },
-    /// Update the user-installed Sigstore trust root
-    UpdateTrustRoot {
-        /// Path to a trust-root JSON file
-        path: std::path::PathBuf,
     },
 }
 

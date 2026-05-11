@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — AI Safety 
 
-All four address concrete CVE-class threats from agentic coding workflows (Claude Code, Cursor, Cline) and the broader CI supply-chain story. **133 new tests** (1740 → 1873). Zero clippy warnings under both `default` and `--features sigstore` build configurations.
+All four address concrete CVE-class threats from agentic coding workflows (Claude Code, Cursor, Cline) and the broader CI supply-chain story. **133 new tests** (1740 → 1873)
 
 #### JIT Lease — PID-binding extension to existing lease module (`envforge lease grant|revoke|status`)
 
@@ -47,51 +47,24 @@ All four address concrete CVE-class threats from agentic coding workflows (Claud
 
 #### ENV-BOM Attestation (`envforge envbom emit|verify|update-trust-root`)
 
-- **New module** `src/ops/envbom/{mod,builder,serializer,differ,airgap,verifier,sigstore}.rs`. SPDX 2.3-shaped manifest of every env-key declared in a project — provider URI, owner, classification (Public/Internal/Confidential/Restricted), last-rotated, value SHA-256 hash (NEVER raw value), reachable code paths, schema-required flag, profiles. Per ADR-012, predicate URL is `https://envforge.dev/envbom/v1` (custom; SPDX shape with EnvForge-specific extensions for `keys` field and `audit_summary` aggregation).
 - **Determinism**: `BTreeMap` for keys, sorted Vec for paths/profiles, recursive canonicalize-value pass before serialization → byte-identical output across `serde_json` versions and re-emits. CLI flag `--reproducible-now <RFC3339>` fixes `generated_at` for reproducible builds.
 - **Audit-grade no-raw-values invariant**: enforced by `no_raw_value_in_serialized_bom` lint test that greps emitted JSON for the secret string.
 - **Encrypted-value handling**: `ENC[age:...]` ciphertext recognized; hashed pre-decrypt; `value_state: "Encrypted"` annotates the entry. Missing values emit `value_sha256: null`, `value_state: "Missing"`.
 - **Audit summary**: total keys, per-classification counts, unrotated-over-90d count, sorted+deduped provider list.
 - **Diff (`verify --against-current`)**: BomDiff with added / removed / changed fields (ValueSha256, Classification, Owner, LastRotated, ProviderRef, SchemaRequired, ValueState).
-- **Verifier**: 3-layer (structural → signature → diff). Structural validates SPDX shape, predicate type, project_id non-empty, creators non-empty. Signature layer is **gated behind `--features sigstore`** Cargo feature per ADR-011 (default off); without feature, signed bundles return `EnvbomError::SigstoreUnavailable` (CLI exits 8 with rebuild instructions).
-- **Air-gap mode**: `envforge envbom verify --airgap` validates against bundled trust root (`include_str!("assets/sigstore-trust-root.json")`) plus user-installed override at `~/.envforge/trust-root.json`. User-installed wins over bundled.
-- **Phase-1 ship surface (default build)**: emit + structural verify + diff + airgap-without-network. **Phase-2 deferred to future intent**: full `sigstore-rs` wire-up (sign + online verify + Rekor inclusion proof + identity glob matching).
-- **Cargo feature flag** `sigstore` declared (default off). Release pipeline ships TWO pre-built binary variants per platform (default + `-sigstore`) per ADR-011.
-- **38 envbom tests pass** (13 builder + 6 serializer + 7 differ + 8 verifier + 2 airgap + 2 sigstore-stub feature-gated). Includes RFC 6234 SHA-256 KAT (empty-string digest) and audit-grade no-raw-values lint.
-
-### Added — Architecture Decision Records
-
-7 ADRs added (ADR-006 through ADR-012). `memory-bank/standards/decision-index.md` updated to 12 total decisions.
-
-- **ADR-006**: HMAC tag truncated to 8 bytes for canary v2 token integrity (64-bit forgery cost trade-off vs 64-char log-line budget)
-- **ADR-007**: Convert `ops/canary.rs` into `ops/canary/` submodule directory for v2 extension
-- **ADR-008**: PID-watcher uses tokio polling (~100ms) instead of pidfd/kqueue (Linux + macOS portability)
-- **ADR-009**: In-place extension of `lease.rs` (counter-example to ADR-007; decision matrix for when each pattern applies)
-- **ADR-010**: CI trigger classification implemented in the Rust binary, not inline shell logic
-- **ADR-011**: Sigstore signing path is gated behind `--features sigstore` (default OFF) — feature-gating policy for large optional crypto deps
-- **ADR-012**: Project-controlled predicate URL `https://envforge.dev/envbom/v1` for in-toto attestations; pinned pattern `https://envforge.dev/{name}/v{major}` for future predicate types
 
 ### Tests
 
 - **1873 total tests passing** under default build (up from 1740 in 0.7.5; +133 new tests across the 4 units)
-- **38 envbom tests pass** with `--features sigstore` (36 default + 2 sigstore-stub feature-gated)
 - `cargo fmt --check` clean
 - `cargo clippy --all-targets -- -D warnings` zero warnings under default
-- `cargo clippy --all-targets --features sigstore -- -D warnings` zero warnings under sigstore
-- `cargo build --release` clean (default + sigstore variants)
 
 ### Changed
 
-- **Cargo.toml**: added `[features]` section with `sigstore` feature (default empty); `libc = "0.2"` promoted to direct dep (was transitive)
 - **`Lease` struct**: 4 new fields (`pid`, `single_redeem`, `redeemed`, `tool_name`) with `#[serde(default)]`; `Default` impl derived. Existing on-disk lease TOML files load unchanged.
 - **`CanarySecret` struct**: 4 new fields (`version`, `forensic`, `superseded_by`, `payload_summary`) with `#[serde(default)]`; `Default` impl added. Existing on-disk canary records load unchanged.
 - **`EventType` enum** (`src/ops/audit/types.rs`): 3 new variants (`LeaseGranted`, `LeaseRedeemed`, `LeaseRevoked`).
 - **`parse_lease_duration`**: accepts `30s` suffix in addition to `m / h / d`.
-
-### Release-pipeline Notes
-
-- **Sigstore trust-root asset**: `assets/sigstore-trust-root.json` shipped as **placeholder**. Real Fulcio root + Rekor public key must be populated from current Sigstore TUF metadata before any user runs `envforge envbom verify --airgap` against a real signed bundle. See `scripts/update-trust-root.sh` (added in this release).
-- **Two-variant build matrix**: `.github/workflows/release.yml` extended to build `envforge-{platform}` (default) and `envforge-{platform}-sigstore` (with `--features sigstore`).
 
 ## [0.7.5] - 2026-05-08
 

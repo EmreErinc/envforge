@@ -1,6 +1,0 @@
-{
-  "fulcio_root_pem": "-----BEGIN CERTIFICATE-----\nMIICGjCCAaGgAwIBAgIUALnVPRldRPRoBXGI3JABlyrCM2EwCgYIKoZIzj0EAwMw\nKjEVMBMGA1UEChMMc2lnc3RvcmUuZGV2MREwDwYDVQQDEwhzaWdzdG9yZTAeFw0y\nMjEyMDUwMDAwMDBaFw0zMjEyMDQwMDAwMDBaMCoxFTATBgNVBAoTDHNpZ3N0b3Jl\nLmRldjERMA8GA1UEAxMIc2lnc3RvcmUwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATU\nplaceholder-build-time-asset-replace-with-real-fulcio-root-on-release\n-----END CERTIFICATE-----\n",
-  "rekor_pubkey_pem": "-----BEGIN PUBLIC KEY-----\nplaceholder-rekor-pubkey-replace-on-release\n-----END PUBLIC KEY-----\n",
-  "bundled_at": "2026-05-08T00:00:00Z",
-  "source": "Bundled"
-}
