@@ -845,7 +845,7 @@ checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "env-forge-tui"
-version = "0.7.5"
+version = "0.7.6"
 dependencies = [
  "age",
  "base64 0.22.1",
@@ -862,6 +862,7 @@ dependencies = [
  "hex",
  "hostname",
  "insta",
+ "libc",
  "log",
  "rand 0.10.1",
  "ratatui",

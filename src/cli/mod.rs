@@ -543,6 +543,17 @@ pub enum Commands {
         action: ScannerAction,
     },
 
+    #[command(name = "ci-trust")]
+    CiTrust {
+        #[command(subcommand)]
+        action: CiTrustAction,
+    },
+
+    Envbom {
+        #[command(subcommand)]
+        action: EnvbomAction,
+    },
+
     /// Real-time monitoring: health checks, event stream
     Monitor {
         #[command(subcommand)]
@@ -800,7 +811,7 @@ pub enum LeaseAction {
         /// Lease name (default: auto-generated)
         #[arg(long)]
         name: Option<String>,
-        /// Time-to-live (e.g., "1h", "30m", "8h", "24h", "7d")
+        /// Time-to-live (e.g., "30s", "1h", "30m", "8h", "24h", "7d")
         #[arg(long)]
         ttl: String,
         /// Restrict to specific keys (comma-separated)
@@ -811,6 +822,39 @@ pub enum LeaseAction {
     List,
     /// Clean up expired leases
     Cleanup,
+    /// Mint a JIT lease bound to a single subprocess PID + TTL
+    Grant {
+        /// Key name (e.g. STRIPE_KEY)
+        key: String,
+        /// Target PID (the subprocess that will use the secret)
+        #[arg(long)]
+        pid: u32,
+        /// TTL e.g. "30s", "5m", "1h"
+        #[arg(long)]
+        ttl: String,
+        /// Tool/agent name for audit log
+        #[arg(long, default_value = "unknown")]
+        tool: String,
+        /// Disable single-redeem (allow multiple redemptions)
+        #[arg(long)]
+        multi_redeem: bool,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke a lease by name
+    Revoke {
+        /// Lease name
+        name: String,
+    },
+    /// Show detailed status for one lease
+    Status {
+        /// Lease name
+        name: String,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -850,6 +894,60 @@ pub enum CanaryAction {
         /// Position: top, middle, bottom, random
         #[arg(long, default_value = "bottom")]
         position: String,
+    },
+    /// Mint a v2 forensic canary token (HMAC-encoded, decodable)
+    MintV2 {
+        /// Canary registry key (e.g. STRIPE_KEY)
+        key: String,
+        /// Tool name to embed in payload (e.g. claude-code, cursor)
+        #[arg(long, default_value = "unknown")]
+        tool: String,
+        /// PID to embed (defaults to current process)
+        #[arg(long)]
+        pid: Option<u32>,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Decode a v2 canary token; returns origin tuple
+    Decode {
+        /// Token string
+        token: String,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Scan a file or stdin for canary tokens
+    Scan {
+        /// File path; "-" for stdin
+        input: String,
+        /// Strict mode: exit 1 if any tokens found
+        #[arg(long)]
+        strict: bool,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Rotate the HMAC key (prior keys retained for verify)
+    RotateKey {
+        /// Show planned action without executing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Migrate v1 canary records to v2
+    Migrate {
+        /// Show planned migrations without executing
+        #[arg(long)]
+        dry_run: bool,
+        /// Migrate a specific v1 record by key (else all eligible)
+        #[arg(long)]
+        replace: Option<String>,
+        /// Migrate every eligible v1 record
+        #[arg(long, conflicts_with = "replace")]
+        bulk: bool,
+        /// Tool name to embed in new v2 payloads
+        #[arg(long, default_value = "envforge-migrate")]
+        tool: String,
     },
 }
 
@@ -895,6 +993,84 @@ pub enum ScannerAction {
         /// Scanner name
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum EnvbomAction {
+    /// Build and emit an ENV-BOM for the current project
+    Emit {
+        /// Profile to use (defaults to active profile)
+        #[arg(long)]
+        profile: Option<String>,
+        /// Output file (default: stdout)
+        #[arg(long, short = 'o')]
+        output: Option<std::path::PathBuf>,
+        /// Sign with Sigstore Cosign keyless OIDC (requires --features sigstore)
+        #[arg(long)]
+        sign: bool,
+        /// Fix `generated_at` to this timestamp for reproducible builds
+        #[arg(long)]
+        reproducible_now: Option<String>,
+    },
+    /// Verify an ENV-BOM (signed or unsigned)
+    Verify {
+        /// Path to BOM file or attestation bundle
+        path: std::path::PathBuf,
+        /// Compare against current project state and emit a diff
+        #[arg(long)]
+        against_current: bool,
+        /// Require signature subject to match this identity glob
+        #[arg(long)]
+        identity: Option<String>,
+        /// Verify offline against bundled / user-installed trust root
+        #[arg(long)]
+        airgap: bool,
+        /// Fail on any unknown / forward-compat schema fields
+        #[arg(long)]
+        strict_schema: bool,
+        /// Fail on any diff vs current project state
+        #[arg(long)]
+        strict_current: bool,
+        /// Require BOM to be signed (fail on unsigned)
+        #[arg(long)]
+        require_signed: bool,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Update the user-installed Sigstore trust root
+    UpdateTrustRoot {
+        /// Path to a trust-root JSON file
+        path: std::path::PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CiTrustAction {
+    /// Print the trust verdict for the current GitHub Actions invocation
+    Classify {
+        /// JSON output (one object)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Scrub the current environment per quarantine rules; emits `KEY=VALUE`
+    /// lines suitable for `eval` in a parent shell
+    Quarantine {
+        /// Force apply regardless of verdict
+        #[arg(long)]
+        force: bool,
+        /// Skip quarantine even if verdict is Untrusted
+        #[arg(long, conflicts_with = "force")]
+        off: bool,
+        /// Allow specific keys through (repeatable, comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        allow_key: Vec<String>,
+        /// Emit JSON ScrubReport instead of env-var lines
+        #[arg(long)]
+        json: bool,
+    },
+    /// Render Step Summary markdown for the latest verdict + last scrub report
+    Summary,
 }
 
 #[derive(Subcommand)]

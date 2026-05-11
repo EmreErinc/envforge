@@ -1,6 +1,6 @@
 [package]
 name = "env-forge-tui"
-version = "0.7.5"
+version = "0.7.6"
 edition = "2021"
 rust-version = "1.75"
 description = "Terminal environment variable manager with TUI and CLI"
@@ -51,6 +51,11 @@ dashmap = "5.5"
 uuid = { version = "1", features = ["v4", "serde"] }
 cron = "0.15"
 zeroize = "1"
+libc = "0.2"
+
+[features]
+default = []
+sigstore = []
 
 [lints.rust]
 future-incompatible = "warn"

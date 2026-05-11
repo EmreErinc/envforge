@@ -5,6 +5,16 @@ use std::path::PathBuf;
 
 use super::OpError;
 
+pub mod hmac_store;
+pub mod migration;
+pub mod scanner;
+pub mod v2;
+
+pub use hmac_store::{rotate_key, HmacKeyManager, HmacKeyRegistry};
+pub use migration::{MigrationPlan, MigrationReport, MigrationService};
+pub use scanner::{scan_reader, scan_text, TokenMatch, TokenScanner};
+pub use v2::{decode_token, encode_token, DecodedCanary, V2Payload, V2_PREFIX, VERSION_BYTE_V2};
+
 const CANARY_FILE: &str = "canaries.toml";
 const CANARY_LOG: &str = "canary-alerts.jsonl";
 
@@ -18,10 +28,51 @@ pub struct CanarySecret {
     pub trigger_count: usize,
     #[serde(default = "default_rotate_after_days")]
     pub rotate_after_days: u32,
+    // v2 extension fields (additive; serde-default for backward compat). See ADR-007.
+    #[serde(default = "default_version")]
+    pub version: u8,
+    #[serde(default)]
+    pub forensic: bool,
+    #[serde(default)]
+    pub superseded_by: Option<String>,
+    #[serde(default)]
+    pub payload_summary: Option<PayloadSummary>,
+}
+
+impl Default for CanarySecret {
+    fn default() -> Self {
+        Self {
+            key: String::new(),
+            fake_value: String::new(),
+            created_at: String::new(),
+            pattern: "generic".into(),
+            triggered: false,
+            trigger_count: 0,
+            rotate_after_days: 14,
+            version: 1,
+            forensic: false,
+            superseded_by: None,
+            payload_summary: None,
+        }
+    }
 }
 
 fn default_rotate_after_days() -> u32 {
     14
+}
+
+fn default_version() -> u8 {
+    1
+}
+
+/// Stored snapshot of v2 payload metadata at mint time.
+/// Never includes the HMAC tag or raw token; used for `list` display only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayloadSummary {
+    pub tool_name: String,
+    pub minted_at: String,
+    pub key_version: u8,
+    pub token_prefix: String, // first 8 chars of token for grep correlation
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,7 +158,7 @@ pub fn load_canaries() -> Result<CanaryStore, OpError> {
 }
 
 /// Save canary store.
-fn save_canaries(store: &CanaryStore) -> Result<(), OpError> {
+pub(crate) fn save_canaries(store: &CanaryStore) -> Result<(), OpError> {
     let path = canary_store_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -129,12 +180,70 @@ pub fn create_canary(key: &str, pattern: &str) -> Result<CanarySecret, OpError> 
         triggered: false,
         trigger_count: 0,
         rotate_after_days: 14,
+        version: 1,
+        forensic: false,
+        superseded_by: None,
+        payload_summary: None,
     };
 
     store.canaries.insert(key.to_string(), canary.clone());
     save_canaries(&store)?;
 
     Ok(canary)
+}
+
+/// Mint a v2 forensic canary token bound to (tool, key, pid, machine).
+/// Returns (record, token_string). Existing canary at the same key is preserved
+/// only if it's a v1 record being superseded — caller wires `superseded_by`.
+pub fn mint_v2(key: &str, tool_name: &str, pid: u32) -> Result<(CanarySecret, String), OpError> {
+    let mut store = load_canaries()?;
+
+    let key_mgr = HmacKeyManager::load_or_init()?;
+    let active = key_mgr.active_key();
+    let machine_id = stable_machine_id();
+    let payload = V2Payload::new(machine_id, pid, chrono::Utc::now(), tool_name, key);
+    let token = encode_token(&payload, active.bytes());
+
+    let token_prefix: String = token.chars().take(12).collect();
+    let summary = PayloadSummary {
+        tool_name: tool_name.to_string(),
+        minted_at: chrono::Utc::now().to_rfc3339(),
+        key_version: active.version(),
+        token_prefix,
+    };
+
+    let canary = CanarySecret {
+        key: key.to_string(),
+        fake_value: token.clone(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        pattern: "v2_forensic".to_string(),
+        triggered: false,
+        trigger_count: 0,
+        rotate_after_days: 14,
+        version: 2,
+        forensic: true,
+        superseded_by: None,
+        payload_summary: Some(summary),
+    };
+
+    store.canaries.insert(key.to_string(), canary.clone());
+    save_canaries(&store)?;
+
+    Ok((canary, token))
+}
+
+/// Stable per-machine identifier (8 bytes). SHA-256 of hostname truncated to 8 bytes.
+/// Falls back to a zero array if hostname is unavailable.
+fn stable_machine_id() -> [u8; 8] {
+    use sha2::{Digest, Sha256};
+    let host = hostname::get()
+        .ok()
+        .and_then(|s| s.into_string().ok())
+        .unwrap_or_default();
+    let h = Sha256::digest(host.as_bytes());
+    let mut out = [0u8; 8];
+    out.copy_from_slice(&h[..8]);
+    out
 }
 
 /// List all canaries.
@@ -472,6 +581,7 @@ mod tests {
             triggered: false,
             trigger_count: 0,
             rotate_after_days: 14,
+            ..Default::default()
         };
         store.canaries.insert("TEST_KEY".to_string(), canary);
         std::fs::write(&store_path, toml::to_string_pretty(&store).unwrap()).unwrap();
@@ -502,6 +612,7 @@ mod tests {
                     triggered: false,
                     trigger_count: 0,
                     rotate_after_days: 14,
+                    ..Default::default()
                 },
             )]),
         };
@@ -543,6 +654,7 @@ mod tests {
                 triggered: false,
                 trigger_count: 0,
                 rotate_after_days: 14,
+                ..Default::default()
             },
         );
         std::fs::write(&store_path, toml::to_string_pretty(&store).unwrap()).unwrap();
@@ -604,6 +716,7 @@ mod tests {
                         triggered: false,
                         trigger_count: 0,
                         rotate_after_days: 14,
+                        ..Default::default()
                     },
                 ),
                 (
@@ -616,6 +729,7 @@ mod tests {
                         triggered: true,
                         trigger_count: 3,
                         rotate_after_days: 14,
+                        ..Default::default()
                     },
                 ),
                 (
@@ -628,6 +742,7 @@ mod tests {
                         triggered: false,
                         trigger_count: 0,
                         rotate_after_days: 14,
+                        ..Default::default()
                     },
                 ),
             ]),

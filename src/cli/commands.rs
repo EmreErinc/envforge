@@ -222,6 +222,8 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Canary { action } => cmd_canary(action, json),
         Commands::Hardening { action } => cmd_hardening(action),
         Commands::Scanner { action } => cmd_scanner(action),
+        Commands::CiTrust { action } => cmd_ci_trust(action),
+        Commands::Envbom { action } => cmd_envbom(action),
         Commands::Monitor { action } => cmd_monitor(action),
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref(), json),
         Commands::Deps { key, source } => cmd_deps(key, *source, json),
@@ -4371,6 +4373,176 @@ fn cmd_canary(action: &super::CanaryAction, json: bool) -> Result<(), Box<dyn st
                 false => println!("Canary {} already placed in {}", key, file),
             }
         }
+        // ─── v2 forensic canaries ────────────────
+        super::CanaryAction::MintV2 {
+            key,
+            tool,
+            pid,
+            json: emit_json,
+        } => {
+            let actual_pid = pid.unwrap_or_else(std::process::id);
+            let (record, token) = canary::mint_v2(key, tool, actual_pid)?;
+            if *emit_json {
+                let obj = serde_json::json!({
+                    "version": 2,
+                    "key": record.key,
+                    "token": token,
+                    "tool": tool,
+                    "pid": actual_pid,
+                    "minted_at": record.created_at,
+                });
+                println!("{}", serde_json::to_string_pretty(&obj)?);
+            } else {
+                println!("{}", token);
+            }
+        }
+        super::CanaryAction::Decode { token, json: j } => {
+            // v1 fast path: token doesn't start with v2 prefix.
+            if !token.starts_with(canary::V2_PREFIX) {
+                if *j {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "opaque": true,
+                            "hmac_valid": false,
+                        }))?
+                    );
+                } else {
+                    println!("v1 token: opaque (no decodable payload)");
+                }
+                return Ok(());
+            }
+            let mgr = canary::HmacKeyManager::load_or_init()?;
+            let registry = mgr.registry();
+            let candidates = registry.verify_iter();
+            match canary::decode_token(token, candidates.iter().map(|(v, k)| (*v, *k))) {
+                Ok(decoded) => {
+                    if *j {
+                        let payload_obj = decoded.payload.as_ref().map(|p| {
+                            serde_json::json!({
+                                "machine_id_hex": hex::encode(p.machine_id),
+                                "pid": p.pid,
+                                "timestamp_unix": p.timestamp_unix(),
+                                "agent_name_hash_hex": hex::encode(p.agent_name_hash),
+                                "key_name_hash_hex": hex::encode(p.key_name_hash),
+                            })
+                        });
+                        let obj = serde_json::json!({
+                            "version": decoded.version,
+                            "hmac_valid": decoded.hmac_valid,
+                            "key_version_used": decoded.key_version_used,
+                            "age_seconds": decoded.age_seconds,
+                            "payload": payload_obj,
+                        });
+                        println!("{}", serde_json::to_string_pretty(&obj)?);
+                    } else {
+                        let banner = if decoded.hmac_valid {
+                            "✅ HMAC valid"
+                        } else {
+                            "⚠ HMAC INVALID — token may be forged or from rotated key"
+                        };
+                        println!("{banner}");
+                        if let Some(p) = &decoded.payload {
+                            println!("  machine_id: {}", hex::encode(p.machine_id));
+                            println!("  pid:        {}", p.pid);
+                            println!("  ts_unix:    {}", p.timestamp_unix());
+                            println!("  agent_hash: {}", hex::encode(p.agent_name_hash));
+                            println!("  key_hash:   {}", hex::encode(p.key_name_hash));
+                            if let Some(age) = decoded.age_seconds {
+                                println!("  age_secs:   {}", age);
+                            }
+                            if let Some(v) = decoded.key_version_used {
+                                println!("  hmac_key_v: {}", v);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("decode error: {e}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        super::CanaryAction::Scan {
+            input,
+            strict,
+            json: j,
+        } => {
+            let matches: Vec<canary::TokenMatch> = if input == "-" {
+                canary::scan_reader(std::io::stdin().lock())
+            } else {
+                let f = std::fs::File::open(input)?;
+                canary::scan_reader(f)
+            };
+            if *j {
+                let arr: Vec<_> = matches
+                    .iter()
+                    .map(|m| {
+                        serde_json::json!({
+                            "token": m.token,
+                            "byte_offset": m.byte_offset,
+                            "line_number": m.line_number,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&arr)?);
+            } else {
+                for m in &matches {
+                    let line = m
+                        .line_number
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "-".into());
+                    println!("line {line}: {}", m.token);
+                }
+                if matches.is_empty() {
+                    println!("(no canary tokens found)");
+                }
+            }
+            if *strict && !matches.is_empty() {
+                std::process::exit(1);
+            }
+        }
+        super::CanaryAction::RotateKey { dry_run } => {
+            if *dry_run {
+                println!("dry-run: would rotate canary HMAC key (active version → +1; oldest retired key evicted if cap reached)");
+            } else {
+                let (new_v, kept) = canary::rotate_key()?;
+                println!(
+                    "rotated: new active key version {new_v}; retired versions kept: {kept:?}"
+                );
+            }
+        }
+        super::CanaryAction::Migrate {
+            dry_run,
+            replace,
+            bulk,
+            tool,
+        } => {
+            if !*bulk && replace.is_none() {
+                eprintln!("specify --replace <key> or --bulk");
+                std::process::exit(2);
+            }
+            let plan = canary::MigrationService::plan(replace.as_deref())?;
+            if plan.steps.is_empty() {
+                println!("(nothing to migrate)");
+            } else {
+                for s in &plan.steps {
+                    println!("  {} -> {:?}: {}", s.original_key, s.action, s.reason);
+                }
+            }
+            let report = canary::MigrationService::execute(&plan, *dry_run, tool)?;
+            println!(
+                "planned={} executed={} skipped={} failures={}",
+                report.planned,
+                report.executed,
+                report.skipped,
+                report.failures.len()
+            );
+            for (k, e) in &report.failures {
+                eprintln!("  FAIL {k}: {e}");
+            }
+        }
     }
 
     Ok(())
@@ -4948,6 +5120,94 @@ fn cmd_lease(action: &LeaseAction, json: bool) -> Result<(), Box<dyn std::error:
         LeaseAction::Cleanup => {
             let removed = lease::cleanup_expired()?;
             eprintln!("Cleaned up {} expired/revoked lease(s).", removed);
+        }
+        LeaseAction::Grant {
+            key,
+            pid,
+            ttl,
+            tool,
+            multi_redeem,
+            json: emit_json,
+        } => {
+            let ttl_secs_i64 = lease::parse_lease_duration(ttl)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            let ttl_secs = u64::try_from(ttl_secs_i64)
+                .map_err(|_| -> Box<dyn std::error::Error> { "ttl must be positive".into() })?;
+            let req = lease::GrantRequest {
+                key: key.clone(),
+                pid: *pid,
+                ttl_secs,
+                tool_name: tool.clone(),
+                single_redeem: !multi_redeem,
+            };
+            let handle = lease::jit_grant(req)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+            if *emit_json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "uuid": handle.uuid,
+                        "lease_name": handle.lease_name,
+                    }))?
+                );
+            } else {
+                // Two-line shell-friendly output: capture with `eval` or `read`.
+                println!("{}", handle.uuid);
+                println!("{}", handle.lease_name);
+            }
+        }
+        LeaseAction::Revoke { name } => {
+            let did = lease::jit_revoke(name, lease::RevokeReason::Explicit)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+            if did {
+                eprintln!("revoked lease: {name}");
+            } else {
+                eprintln!("lease not found: {name}");
+                std::process::exit(1);
+            }
+        }
+        LeaseAction::Status {
+            name,
+            json: emit_json,
+        } => {
+            let leases = lease::list_leases()?;
+            let s = match leases.into_iter().find(|l| &l.name == name) {
+                Some(s) => s,
+                None => {
+                    eprintln!("lease not found: {name}");
+                    std::process::exit(1);
+                }
+            };
+            if *emit_json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "name": s.name,
+                        "expires_at": s.expires_at,
+                        "remaining_seconds": s.remaining_seconds,
+                        "expired": s.expired,
+                        "revoked": s.revoked,
+                        "key_count": s.key_count,
+                        "pid": s.pid,
+                        "redeemed": s.redeemed,
+                    }))?
+                );
+            } else {
+                let pid_s = s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
+                println!("name:      {}", s.name);
+                println!("expires:   {}", s.expires_at);
+                println!("remaining: {} secs", s.remaining_seconds);
+                println!("expired:   {}", s.expired);
+                println!("revoked:   {}", s.revoked);
+                println!("redeemed:  {}", s.redeemed);
+                println!("pid:       {}", pid_s);
+                println!(
+                    "keys:      {}",
+                    s.key_count
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "(all)".into())
+                );
+            }
         }
     }
 
@@ -6320,5 +6580,254 @@ fn cmd_project_env(
         }
     }
 
+    Ok(())
+}
+
+fn cmd_ci_trust(action: &super::CiTrustAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::ci_trust;
+
+    match action {
+        super::CiTrustAction::Classify { json } => {
+            let v = ci_trust::cached_or_compute();
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&v)?);
+            } else {
+                let level = match v.level {
+                    ci_trust::TrustLevel::Trusted => "Trusted",
+                    ci_trust::TrustLevel::Suspicious => "Suspicious",
+                    ci_trust::TrustLevel::Untrusted => "Untrusted",
+                };
+                println!("level={level}");
+                println!("reason={:?}", v.reason);
+            }
+        }
+        super::CiTrustAction::Quarantine {
+            force,
+            off,
+            allow_key,
+            json,
+        } => {
+            let verdict = ci_trust::cached_or_compute();
+            let apply = if *off {
+                false
+            } else if *force {
+                true
+            } else {
+                matches!(verdict.level, ci_trust::TrustLevel::Untrusted)
+            };
+            let source = if *force {
+                ci_trust::DecisionSource::Cli
+            } else if *off {
+                ci_trust::DecisionSource::Off
+            } else {
+                ci_trust::DecisionSource::Auto
+            };
+            let decision = ci_trust::QuarantineDecision {
+                apply,
+                allow_keys: allow_key.clone(),
+                source,
+            };
+            let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+            let (scrubbed_env, report) = ci_trust::apply(&env, &decision);
+
+            // Cache the report alongside the verdict so `summary` can pick it up.
+            if let Some(p) = std::env::var_os("RUNNER_TEMP") {
+                let path = std::path::PathBuf::from(p).join("envforge-scrub-report.json");
+                let _ = std::fs::write(
+                    &path,
+                    serde_json::to_string_pretty(&report).unwrap_or_default(),
+                );
+            }
+
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else if apply {
+                // Emit `unset KEY` for scrubbed keys plus `export KEY='VALUE'` for
+                // preserved keys so `eval "$(envforge ci-trust quarantine)"` in a
+                // parent shell installs the scrubbed environment in place.
+                for k in &report.scrubbed_keys {
+                    println!("unset {k}");
+                }
+                let mut sorted: Vec<_> = scrubbed_env.iter().collect();
+                sorted.sort_by(|a, b| a.0.cmp(b.0));
+                for (k, v) in sorted {
+                    let q = v.replace('\'', "'\\''");
+                    println!("export {k}='{q}'");
+                }
+            }
+        }
+        super::CiTrustAction::Summary => {
+            let v = ci_trust::cached_or_compute();
+            let report: Option<ci_trust::ScrubReport> =
+                if let Some(p) = std::env::var_os("RUNNER_TEMP") {
+                    let path = std::path::PathBuf::from(p).join("envforge-scrub-report.json");
+                    std::fs::read_to_string(&path)
+                        .ok()
+                        .and_then(|s| serde_json::from_str(&s).ok())
+                } else {
+                    None
+                };
+            let s = ci_trust::render_step_summary(&v, report.as_ref());
+            print!("{s}");
+            ci_trust::emit_action_outputs(&v, report.as_ref())?;
+        }
+    }
+    Ok(())
+}
+
+fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::envbom;
+
+    match action {
+        super::EnvbomAction::Emit {
+            profile,
+            output,
+            sign,
+            reproducible_now,
+        } => {
+            // Phase-1: gather key pairs from current shell env. A future intent
+            // wires this to ops::secrets / ops::schema for richer per-key metadata.
+            let project_id = std::env::current_dir()
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "envforge-project".into());
+
+            let pairs: Vec<(String, Option<String>)> =
+                std::env::vars().map(|(k, v)| (k, Some(v))).collect();
+
+            let bom = envbom::build_bom(
+                &project_id,
+                profile.as_deref(),
+                pairs,
+                reproducible_now.as_deref(),
+            )
+            .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+            let bytes = envbom::canonical_json(&bom)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+            if *sign {
+                #[cfg(feature = "sigstore")]
+                {
+                    let _signed = envbom::sigstore::sign_bom(
+                        &bytes,
+                        envbom::sigstore::SignOptions::default(),
+                    )
+                    .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+                    // Phase-1 stub returns SigstoreUnavailable; the line above
+                    // already errored out before reaching here.
+                }
+                #[cfg(not(feature = "sigstore"))]
+                {
+                    eprintln!(
+                        "error: --sign requires the `sigstore` feature; rebuild with --features sigstore"
+                    );
+                    std::process::exit(8);
+                }
+            }
+
+            match output {
+                Some(p) => {
+                    std::fs::write(p, &bytes)?;
+                    eprintln!("wrote BOM to {}", p.display());
+                }
+                None => {
+                    use std::io::Write;
+                    std::io::stdout().write_all(&bytes)?;
+                }
+            }
+        }
+        super::EnvbomAction::Verify {
+            path,
+            against_current,
+            identity,
+            airgap,
+            strict_schema,
+            strict_current,
+            require_signed,
+            json,
+        } => {
+            // Build a current-state BOM if --against-current is set
+            let current = if *against_current {
+                let project_id = std::env::current_dir()
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "envforge-project".into());
+                let pairs: Vec<(String, Option<String>)> =
+                    std::env::vars().map(|(k, v)| (k, Some(v))).collect();
+                let bom = envbom::build_bom(&project_id, None, pairs, None)
+                    .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+                Some(bom)
+            } else {
+                None
+            };
+
+            let opts = envbom::VerifyOptions {
+                against_current: current,
+                identity_glob: identity.clone(),
+                airgap: *airgap,
+                strict_schema: *strict_schema,
+                strict_current: *strict_current,
+                require_signed: *require_signed,
+            };
+
+            let report = match envbom::verify(path, &opts) {
+                Ok(r) => r,
+                Err(envbom::EnvbomError::InvalidBom(msg)) => {
+                    eprintln!("structural fail: {msg}");
+                    std::process::exit(1);
+                }
+                Err(envbom::EnvbomError::VerificationFailed(msg)) => {
+                    eprintln!("verify failed: {msg}");
+                    std::process::exit(2);
+                }
+                Err(envbom::EnvbomError::SigstoreUnavailable) => {
+                    eprintln!(
+                        "error: signed verification requires the `sigstore` feature; rebuild with --features sigstore"
+                    );
+                    std::process::exit(8);
+                }
+                Err(e) => return Err(e.to_string().into()),
+            };
+
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "structural: {}",
+                    if report.structural_ok { "ok" } else { "fail" }
+                );
+                if let Some(s) = report.signature_ok {
+                    println!("signature:  {}", if s { "ok" } else { "fail" });
+                }
+                if let Some(d) = &report.diff {
+                    println!(
+                        "diff:       added={} removed={} changed={} unchanged={}",
+                        d.added.len(),
+                        d.removed.len(),
+                        d.changed.len(),
+                        d.unchanged_count
+                    );
+                }
+                for w in &report.warnings {
+                    eprintln!("warning: {w}");
+                }
+            }
+
+            // strict-current gate
+            if *strict_current {
+                if let Some(d) = &report.diff {
+                    if !d.added.is_empty() || !d.removed.is_empty() || !d.changed.is_empty() {
+                        std::process::exit(4);
+                    }
+                }
+            }
+        }
+        super::EnvbomAction::UpdateTrustRoot { path } => {
+            envbom::AirgapTrustRoot::install(path)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+            eprintln!("trust root installed from {}", path.display());
+        }
+    }
     Ok(())
 }

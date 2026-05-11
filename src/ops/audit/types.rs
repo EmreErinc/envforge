@@ -72,6 +72,9 @@ pub enum EventType {
     SyncPull,
     ConfigChange,
     IntegrityAlert,
+    LeaseGranted,
+    LeaseRedeemed,
+    LeaseRevoked,
 }
 
 /// Which subsystem produced this event.
