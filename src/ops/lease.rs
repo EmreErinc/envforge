@@ -846,7 +846,7 @@ mod tests {
         assert!(parse_lease_duration("").is_err());
         assert!(parse_lease_duration("10x").is_err());
     }
-    
+
     #[test]
     fn test_parse_lease_duration_seconds() {
         assert_eq!(parse_lease_duration("30s").unwrap(), 30);
