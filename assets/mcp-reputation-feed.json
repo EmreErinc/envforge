@@ -1,0 +1,43 @@
+{
+  "feed_version": "2026-05-12",
+  "last_updated": "2026-05-12T00:00:00Z",
+  "expires_at": "2026-08-12T00:00:00Z",
+  "pubkey_id": "envforge-feed-2026",
+  "entries": [
+    {
+      "name": "@modelcontextprotocol/server-github",
+      "tier": "known-good",
+      "vendor": "Anthropic",
+      "volatile": false,
+      "known_good_hashes": []
+    },
+    {
+      "name": "@modelcontextprotocol/server-filesystem",
+      "tier": "known-good",
+      "vendor": "Anthropic",
+      "volatile": false,
+      "known_good_hashes": []
+    },
+    {
+      "name": "@modelcontextprotocol/server-postgres",
+      "tier": "known-good",
+      "vendor": "Anthropic",
+      "volatile": false,
+      "known_good_hashes": []
+    },
+    {
+      "name": "@modelcontextprotocol/server-puppeteer",
+      "tier": "known-good",
+      "vendor": "Anthropic",
+      "volatile": false,
+      "known_good_hashes": []
+    },
+    {
+      "name": "@modelcontextprotocol/server-slack",
+      "tier": "known-good",
+      "vendor": "Anthropic",
+      "volatile": false,
+      "known_good_hashes": []
+    }
+  ]
+}

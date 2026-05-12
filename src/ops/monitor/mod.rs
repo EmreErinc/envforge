@@ -287,3 +287,107 @@ pub enum MonitorError {
     #[error("invalid configuration: {0}")]
     InvalidConfig(String),
 }
+
+const MCP_REVERIFY_TTL_ENV: &str = "ENVFORGE_MCP_REVERIFY_TTL";
+const MCP_REVERIFY_TTL_DEFAULT_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Per-process re-verify state. Persisted by callers; the function is pure.
+#[derive(Debug, Clone, Default)]
+pub struct McpReverifyState {
+    pub last_verify_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_known_bad: Vec<String>,
+}
+
+/// Outcome of one re-verify tick.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpReverifyOutcome {
+    Skipped,
+    Ok { server_count: usize },
+    NewKnownBad { servers: Vec<String> },
+    Failed { error_kind: String },
+    NoLockfile,
+}
+
+/// Read TTL from env (`ENVFORGE_MCP_REVERIFY_TTL`); default 7 days.
+pub fn mcp_reverify_ttl() -> std::time::Duration {
+    std::env::var(MCP_REVERIFY_TTL_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(std::time::Duration::from_secs)
+        .unwrap_or_else(|| std::time::Duration::from_secs(MCP_REVERIFY_TTL_DEFAULT_SECS))
+}
+
+/// Run one re-verify tick. Returns outcome; updates `state`.
+///
+/// Caller is responsible for persisting `state` across process restarts.
+/// Pure modulo filesystem reads.
+pub fn mcp_reverify_tick(
+    now: chrono::DateTime<chrono::Utc>,
+    state: &mut McpReverifyState,
+) -> McpReverifyOutcome {
+    use crate::ops::mcp_pin::resolver::ReputationLookup;
+    use crate::ops::mcp_pin::{FsLockfileRepository, LockfileRepository};
+    use crate::ops::mcp_reputation::{
+        FsUserOverrideRepository, Tier, TierLookup, UserOverrideRepository,
+    };
+    use std::sync::Arc;
+
+    let ttl = mcp_reverify_ttl();
+    let should_run = state
+        .last_verify_at
+        .map(|t| (now - t).to_std().unwrap_or(std::time::Duration::ZERO) >= ttl)
+        .unwrap_or(true);
+
+    if !should_run {
+        return McpReverifyOutcome::Skipped;
+    }
+
+    let path = std::path::PathBuf::from(".envforge/mcp.lock");
+    let repo = FsLockfileRepository;
+    if !repo.exists(&path) {
+        state.last_verify_at = Some(now);
+        return McpReverifyOutcome::NoLockfile;
+    }
+
+    let lockfile = match repo.load(&path) {
+        Ok(l) => l,
+        Err(_) => {
+            return McpReverifyOutcome::Failed {
+                error_kind: "lockfile_load_error".into(),
+            };
+        }
+    };
+    let override_repo: Arc<dyn UserOverrideRepository> =
+        Arc::new(FsUserOverrideRepository::at_default());
+    let tier_lookup = match TierLookup::new(override_repo) {
+        Ok(t) => t,
+        Err(_) => {
+            return McpReverifyOutcome::Failed {
+                error_kind: "feed_decode_error".into(),
+            };
+        }
+    };
+
+    let current_known_bad: Vec<String> = lockfile
+        .servers
+        .iter()
+        .filter(|p| matches!(tier_lookup.lookup(&p.name), Tier::KnownBad { .. }))
+        .map(|p| p.name.clone())
+        .collect();
+
+    let new_bad: Vec<String> = current_known_bad
+        .iter()
+        .filter(|s| !state.last_known_bad.contains(s))
+        .cloned()
+        .collect();
+
+    state.last_verify_at = Some(now);
+    let server_count = lockfile.servers.len();
+    state.last_known_bad = current_known_bad;
+
+    if !new_bad.is_empty() {
+        McpReverifyOutcome::NewKnownBad { servers: new_bad }
+    } else {
+        McpReverifyOutcome::Ok { server_count }
+    }
+}

@@ -3,6 +3,7 @@ mod audit_cmd;
 mod commands;
 mod error;
 mod lifecycle_cmd;
+mod mcp_pin_cmd;
 mod project_cmd;
 mod secrets_cmd;
 mod sync_cmd;
@@ -387,6 +388,13 @@ pub enum Commands {
         /// Show detailed output for each check
         #[arg(long)]
         verbose: bool,
+        /// Include UNKNOWN-tier MCP servers in the report (default: KnownBad only)
+        #[arg(long)]
+        all: bool,
+        /// Exit non-zero if the named subsystem has critical findings.
+        /// Currently supported: "mcp"
+        #[arg(long, value_name = "SUBSYSTEM")]
+        fail_on: Option<String>,
     },
 
     /// Run all checks: doctor + validate + scan + age + drift
@@ -754,6 +762,87 @@ pub enum McpAction {
     Harden,
     /// Check if any MCP config files contain plaintext secrets
     Status,
+    /// Pin configured MCP servers to a lockfile (.envforge/mcp.lock)
+    Pin {
+        /// Require KNOWN_GOOD reputation tier for all pinned servers
+        #[arg(long)]
+        strict: bool,
+        /// Run MCP `initialize` handshake to capture tool-list hashes
+        #[arg(long)]
+        inspect: bool,
+        /// Override default lockfile path (.envforge/mcp.lock)
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+        /// Refresh existing lockfile: re-resolve all servers
+        #[arg(long)]
+        refresh: bool,
+        /// Apply refresh after reviewing diff (mandatory with --refresh outside CI)
+        #[arg(long)]
+        accept: bool,
+        /// CI bypass: apply refresh without diff review (audit-logged)
+        #[arg(long)]
+        yes: bool,
+        /// Resolve git merge-conflict markers in lockfile: ours | theirs
+        #[arg(long, value_name = "STRATEGY")]
+        resolve_conflicts: Option<String>,
+    },
+    /// Verify resolved state matches lockfile
+    Verify {
+        /// Emit machine-readable JSON report
+        #[arg(long)]
+        json: bool,
+        /// Also fail on UNKNOWN-tier servers
+        #[arg(long)]
+        strict: bool,
+        /// Override default lockfile path
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+    },
+    /// Show human-readable diff between lockfile and resolved state
+    Diff {
+        /// Limit diff to a single server
+        #[arg(long)]
+        server: Option<String>,
+        /// Override default lockfile path
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+    },
+    /// Record a USER_TRUSTED reputation override for a server
+    Trust {
+        /// Server name (npm package or alias)
+        name: String,
+        /// Required: reason for trusting this server
+        #[arg(long)]
+        reason: String,
+    },
+    /// Remove a USER_TRUSTED override for a server
+    Untrust {
+        /// Server name
+        name: String,
+    },
+    /// Render annotated lockfile for PR review
+    Explain {
+        /// Render the lockfile (currently the only mode)
+        #[arg(long)]
+        lock: bool,
+        /// Output format: text | markdown
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Override default lockfile path
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+    },
+    /// Verify the lockfile, then exec an IDE (atomic verify+launch)
+    Launch {
+        /// IDE name: claude-code | claude | cursor
+        ide: String,
+        /// Override default lockfile path
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+        /// Extra args passed through to the IDE
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]

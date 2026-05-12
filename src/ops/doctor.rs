@@ -104,6 +104,95 @@ pub fn run_doctor() -> HealthReport {
     HealthReport { checks }
 }
 
+#[derive(Debug, Clone)]
+pub struct McpHealthSection {
+    pub lockfile_exists: bool,
+    pub lockfile_path: Option<std::path::PathBuf>,
+    pub pinned_server_count: usize,
+    pub known_bad_count: usize,
+    pub unknown_count: usize,
+    pub feed_stale: bool,
+    pub feed_version: String,
+    pub known_bad_servers: Vec<String>,
+    pub unknown_servers: Vec<String>,
+}
+
+impl McpHealthSection {
+    /// `--fail-on mcp` exits non-zero iff any KnownBad is present.
+    pub fn has_critical_findings(&self) -> bool {
+        self.known_bad_count > 0
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DoctorOpts {
+    /// If true, include UNKNOWN-tier servers in the MCP section.
+    pub include_unknown: bool,
+}
+
+/// Build the MCP health section. Reads `.envforge/mcp.lock` from cwd
+/// and consults the reputation feed via `TierLookup`.
+pub fn build_mcp_section(opts: &DoctorOpts) -> Option<McpHealthSection> {
+    use crate::ops::mcp_pin::{FsLockfileRepository, LockfileRepository};
+    use crate::ops::mcp_reputation::{
+        FsUserOverrideRepository, Tier, TierLookup, UserOverrideRepository,
+    };
+    use std::sync::Arc;
+
+    let path = std::path::PathBuf::from(".envforge/mcp.lock");
+    let repo = FsLockfileRepository;
+    if !repo.exists(&path) {
+        return Some(McpHealthSection {
+            lockfile_exists: false,
+            lockfile_path: None,
+            pinned_server_count: 0,
+            known_bad_count: 0,
+            unknown_count: 0,
+            feed_stale: false,
+            feed_version: String::new(),
+            known_bad_servers: Vec::new(),
+            unknown_servers: Vec::new(),
+        });
+    }
+
+    let lockfile = match repo.load(&path) {
+        Ok(l) => l,
+        Err(_) => return None,
+    };
+    let override_repo: Arc<dyn UserOverrideRepository> =
+        Arc::new(FsUserOverrideRepository::at_default());
+    let tier_lookup = match TierLookup::new(override_repo) {
+        Ok(t) => t,
+        Err(_) => return None,
+    };
+
+    let feed_stale = tier_lookup.is_feed_stale();
+    let feed_version = tier_lookup.feed_version().to_string();
+
+    let mut known_bad_servers = Vec::new();
+    let mut unknown_servers = Vec::new();
+    for pin in &lockfile.servers {
+        use crate::ops::mcp_pin::resolver::ReputationLookup;
+        match tier_lookup.lookup(&pin.name) {
+            Tier::KnownBad { .. } => known_bad_servers.push(pin.name.clone()),
+            Tier::Unknown if opts.include_unknown => unknown_servers.push(pin.name.clone()),
+            _ => {}
+        }
+    }
+
+    Some(McpHealthSection {
+        lockfile_exists: true,
+        lockfile_path: Some(path),
+        pinned_server_count: lockfile.servers.len(),
+        known_bad_count: known_bad_servers.len(),
+        unknown_count: unknown_servers.len(),
+        feed_stale,
+        feed_version,
+        known_bad_servers,
+        unknown_servers,
+    })
+}
+
 // ─── Individual Checks ───────────────────────────────────────
 
 fn check_config() -> HealthCheck {

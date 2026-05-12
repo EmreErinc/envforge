@@ -154,7 +154,11 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Hook { shell } => cmd_hook(shell),
         Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()).map_err(|e| e.into()),
         Commands::EnvUnload { dir } => crate::ops::hook::cmd_env_unload(dir).map_err(|e| e.into()),
-        Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
+        Commands::Doctor {
+            verbose,
+            all,
+            fail_on,
+        } => cmd_doctor(*verbose, *all, fail_on.as_deref(), json),
         Commands::Check { only } => cmd_check(only.as_deref(), json),
         Commands::Snapshot { action } => cmd_snapshot(action, dry_run, json),
         Commands::Share { action } => cmd_share(action, dry_run),
@@ -1246,9 +1250,47 @@ fn cmd_mcp(
     dry_run: bool,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::cli::mcp_pin_cmd;
     match action {
         McpAction::Harden => cmd_mcp_harden(dry_run, json),
         McpAction::Status => cmd_mcp_status(json),
+        McpAction::Pin {
+            strict,
+            inspect,
+            lockfile,
+            refresh,
+            accept,
+            yes,
+            resolve_conflicts,
+        } => mcp_pin_cmd::cmd_pin(
+            *strict,
+            *inspect,
+            lockfile.as_ref(),
+            *refresh,
+            *accept,
+            *yes,
+            resolve_conflicts.as_deref(),
+        ),
+        McpAction::Verify {
+            json,
+            strict,
+            lockfile,
+        } => mcp_pin_cmd::cmd_verify(*json, *strict, lockfile.as_ref()),
+        McpAction::Diff { server, lockfile } => {
+            mcp_pin_cmd::cmd_diff(server.as_deref(), lockfile.as_ref())
+        }
+        McpAction::Trust { name, reason } => mcp_pin_cmd::cmd_trust(name, reason),
+        McpAction::Untrust { name } => mcp_pin_cmd::cmd_untrust(name),
+        McpAction::Explain {
+            lock,
+            format,
+            lockfile,
+        } => mcp_pin_cmd::cmd_explain(*lock, format, lockfile.as_ref()),
+        McpAction::Launch {
+            ide,
+            lockfile,
+            args,
+        } => mcp_pin_cmd::cmd_launch(ide, args, lockfile.as_ref()),
     }
 }
 
@@ -2728,10 +2770,19 @@ fn cmd_check(only: Option<&str>, json: bool) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::ops::doctor::{run_doctor, CheckStatus};
+fn cmd_doctor(
+    verbose: bool,
+    all: bool,
+    fail_on: Option<&str>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::doctor::{build_mcp_section, run_doctor, CheckStatus, DoctorOpts};
 
     let report = run_doctor();
+    let mcp_opts = DoctorOpts {
+        include_unknown: all,
+    };
+    let mcp_section = build_mcp_section(&mcp_opts);
 
     if json {
         let checks: Vec<serde_json::Value> = report
@@ -2793,6 +2844,48 @@ fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error
         report.error_count()
     );
 
+    // MCP supply-chain section (Bolt 081 / Intent 034)
+    if let Some(mcp) = &mcp_section {
+        if !json {
+            println!();
+            println!("MCP supply-chain:");
+            if !mcp.lockfile_exists {
+                println!("  no lockfile (.envforge/mcp.lock) — run `envforge mcp pin` to enable");
+            } else {
+                println!(
+                    "  pinned servers: {} ({} KnownBad, {} UNKNOWN shown)",
+                    mcp.pinned_server_count, mcp.known_bad_count, mcp.unknown_count,
+                );
+                if mcp.feed_stale {
+                    println!(
+                        "  feed STALE (version {}; upgrade binary for fresh reputation)",
+                        mcp.feed_version
+                    );
+                }
+                for name in &mcp.known_bad_servers {
+                    println!("  ✗ KnownBad: {name}");
+                }
+                if all {
+                    for name in &mcp.unknown_servers {
+                        println!("  ? UNKNOWN: {name}");
+                    }
+                }
+            }
+        }
+    }
+
+    // --fail-on subsystem exit-code (Bolt 081 / Story 002)
+    if let Some(subsystem) = fail_on {
+        if subsystem == "mcp" {
+            if let Some(mcp) = &mcp_section {
+                if mcp.has_critical_findings() {
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+
+    let _ = verbose;
     Ok(())
 }
 

@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.6] - 2026-05-08
 
+### Added — MCP Supply-Chain Integrity
+
+First env-management tool to combine pin + reputation + tool-poisoning detection for Model Context Protocol (MCP) servers consumed by Claude Code and Cursor. Closes 10 documented attack classes against AI tooling. **200 new tests** (1873 → 2073 total).
+
+#### New CLI commands
+
+- `envforge mcp pin [--strict] [--inspect] [--lockfile PATH]` — pin all configured MCP servers to a lockfile at `.envforge/mcp.lock`. Captures package-manager integrity (npm `sha512-...`, pip `sha256:...`), binary SHA-256 (realpath-canonicalized, with symlink target recording), canonical-JSON hash of each server's config section, TLS SPKI hash for remote SSE/HTTP servers, and (with `--inspect`) the MCP `initialize` handshake response hash. `--strict` requires `KNOWN_GOOD` reputation tier.
+- `envforge mcp verify [--json] [--strict] [--lockfile PATH]` — re-resolve and compare against lockfile. Exit 0 on clean match, 1 on mismatch, 2 on input error.
+- `envforge mcp diff [--server NAME] [--lockfile PATH]` — human-readable per-server diff with reputation-tier annotations.
+- `envforge mcp trust NAME --reason TEXT` / `envforge mcp untrust NAME` — manage `USER_TRUSTED` reputation overrides for community MCP servers not yet in the curated feed. Reason text is required (audit-bound).
+- `envforge mcp explain --lock [--format text|markdown] [--lockfile PATH]` — render annotated lockfile suitable for PR review. Markdown format produces a GitHub-friendly table.
+- `envforge mcp launch <ide> [args...]` — atomic verify-then-exec for Claude Code or Cursor. Uses `execvp` on Unix (process replacement, no TOCTOU gap) and spawn+wait on Windows. Refuses to exec if any pinned server's reputation has flipped to `KNOWN_BAD`.
+- `envforge mcp pin --refresh --accept` / `--refresh --yes` — refresh existing lockfile after diff review (`--accept`) or CI-bypass mode (`--yes`, audit-logged).
+- `envforge mcp pin --resolve-conflicts ours|theirs` — resolve git merge markers in `.envforge/mcp.lock` from one side.
+
+#### Doctor extensions
+
+- `envforge doctor --all` — include `UNKNOWN`-tier MCP servers in the report (default shows only `KNOWN_BAD`).
+- `envforge doctor --fail-on mcp` — exit 2 if any pinned MCP server is `KNOWN_BAD`; CI-gating friendly.
+
+#### Reputation feed
+
+- Bundled gzip-compressed reputation feed shipped inside the binary. Five tier classifications: `KNOWN_GOOD`, `UNKNOWN`, `KNOWN_BAD`, `USER_TRUSTED`, `VOLATILE`. Lookup precedence is locked: `KNOWN_BAD` always wins (security floor — user trust cannot override a known-malicious package). `expires_at` field surfaces stale-feed warnings.
+- User-trust overrides persist at `~/.config/envforge/mcp-trust.json` (or platform-equivalent via `dirs::config_dir`), atomic write, `0600` perms on Unix.
+
+#### Tool-poisoning detection
+
+- Pattern-based scanner for prompt-injection content embedded in MCP tool descriptions, input schemas (e.g. overly-permissive `env` / `shell` / `eval` parameters), and concatenated cross-tool description blobs. 7-step canonicalization pipeline catches common evasion techniques: NFKC normalization, leetspeak fold (`1gn0re` → `ignore`), zero-width character stripping, whitespace collapse, line-separator normalization (U+2028 / U+2029 / CRLF), bidi-control detection (U+202A-E, U+2066-9), unicode-tag-smuggling detection (U+E0000-E007F).
+- 17 detection patterns covering critical exfil/role-injection/tool-call-smuggling vectors.
+- All findings carry SHA-256 of the matched payload only — never the raw matched text — so the audit log cannot be re-read by an LLM to re-trigger the same injection.
+
+#### TUI
+
+- New `!M` marker in the env table header when any `KNOWN_BAD`-pinned MCP server is present in the lockfile. Inline only; no new popup.
+
+#### JSON output
+
+- `envforge mcp scan --json` output extended with a top-level `mcp_pin_status` field: `lockfile_exists`, `pinned_count`, `known_bad_count`, `unknown_count`, `feed_version`, `feed_stale`, `known_bad_servers[]`. Field is additive; existing consumers using only `findings`, `files_scanned`, `credentials_found` remain backward-compatible.
+
+#### Hooks
+
+- `envforge ai-hook install --tool claude-code` now installs a third hook stage (`SessionStart`) that invokes `envforge mcp verify --json` automatically when a Claude Code session opens. Existing `PreToolUse` + `PostToolUse` stages unchanged.
+- `envforge ai-hook install --tool cursor` extends the `.cursor/rules` template with an MCP-pin advisory block. Cursor lacks a pre-load hook surface; hard enforcement is wrapper-only.
+
+#### Periodic re-verify
+
+- `ENVFORGE_MCP_REVERIFY_TTL` environment variable (in seconds) controls the cadence at which `ops/monitor` re-checks the lockfile against the resolution + reputation state. Default 7 days. Emits new audit events on tier flips.
+
+#### New audit event types
+
+`McpPinned`, `McpVerifyFailed`, `McpReverifyOk`, `McpReverifyFailed`, `McpPoisonDetected`, `McpFeedFlippedKnownBad`, `McpUserTrustGranted`, `McpUserTrustRevoked`, `McpLaunchBlocked`, `McpFeedStale`. All events carry SHA-256 hashes + identifiers only — no raw payload text.
+
+### Threat-Model Coverage
+
+Ten attack classes addressed:
+
+1. Supply-chain swap — package-manager integrity or binary hash changed between releases
+2. Tool description poisoning — prompt-injection inside MCP `tools/list` response
+3. Tool schema poisoning — overly-permissive `env` / `shell` / `eval` input parameters
+4. Typosquat / namespace-squat — reputation tier flags near-match package names
+5. Config drift — canonical-JSON hash of the per-server MCP config section
+6. TOCTOU between verify and IDE launch — atomic `execvp` wrapper closes the race
+7. Self-updating server — `volatile` flag falls back to package-manager integrity as the anchor
+8. Remote (SSE/HTTP) server compromise — SPKI (Subject Public Key Info) pinning survives Let's Encrypt cert rotation while detecting key swaps
+9. Mid-session feed flip — periodic re-verify emits a dedicated event on transitions
+10. Cross-tool injection — concatenated blob scan catches payloads split across adjacent tool descriptions
+
+### Dependencies
+
+- New: `rustls 0.23`, `webpki-roots 0.26`, `x509-cert 0.2` (TLS handshake + SPKI extraction for remote MCP servers)
+- New: `flate2 1` (gzip decompression of the bundled reputation feed)
+- New: `unicode-normalization 0.1` (NFKC for tool-description canonicalization)
+
+All pure-Rust; ~3 MB combined binary-size increase. Verified clean against `cargo audit` (RustSec advisory database, 0 vulnerabilities across 447 transitive dependencies).
+
+### Known limitations
+
+- Detection patterns are English-only in this release; multilingual coverage is planned for a future release.
+- Cursor lacks a pre-load hook surface; hard enforcement of pin verification on Cursor requires using the `envforge mcp launch cursor` wrapper. The `.cursor/rules` block is advisory only.
+- The bundled reputation feed is shipped unsigned and refreshed via binary release; an externally-signed update channel is planned for a future release.
+- Detection is deterministic (pattern-based), not ML-classifier-based; novel evasion techniques may bypass the v1 pattern set until patterns are updated.
+
 ### Added — AI Safety 
 
 All four address concrete CVE-class threats from agentic coding workflows (Claude Code, Cursor, Cline) and the broader CI supply-chain story. **133 new tests** (1740 → 1873)
