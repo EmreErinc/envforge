@@ -36,7 +36,8 @@
               fieldName="INSTANCE"
               language="EnvForgeEnv"
               extensions="env"
-              fileNames=".env;.env.local;.env.development;.env.production;.env.test;.env.schema"/>
+              fileNames=".env"
+              patterns=".env.*;*.env"/>
     <lang.parserDefinition language="EnvForgeEnv"
                            implementationClass="com.envforge.intellij.EnvParserDefinition"/>
     <toolWindow id="EnvForge"
