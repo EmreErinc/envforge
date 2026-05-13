@@ -115,7 +115,7 @@ export class EnvTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       const results = await new Promise<SearchResult[]>((resolve, reject) => {
         cp.execFile(
           getEnvforgePath(),
-          ['search', query, '--json'],
+          ['search', query, '--json', '--reveal'],
           { cwd: workDir, timeout: 10000 },
           (err, stdout) => {
             if (err || !stdout?.trim()) {
@@ -157,7 +157,7 @@ export class EnvTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     cp.execFile(
       getEnvforgePath(),
-      ['list', '--json'],
+      ['list', '--json', '--reveal'],
       { cwd, timeout: 10000 },
       (err, stdout) => {
         if (err || !stdout?.trim()) {

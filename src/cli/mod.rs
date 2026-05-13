@@ -59,6 +59,10 @@ pub enum Commands {
         /// Reverse sort order
         #[arg(long)]
         reverse: bool,
+
+        /// Reveal raw values without masking sensitive entries (opt-in for tooling)
+        #[arg(long)]
+        reveal: bool,
     },
 
     /// Get the value of a specific variable
@@ -470,6 +474,9 @@ pub enum Commands {
         /// Use fuzzy matching (default is substring)
         #[arg(long)]
         fuzzy: bool,
+        /// Reveal raw values without masking sensitive entries (opt-in for tooling)
+        #[arg(long)]
+        reveal: bool,
     },
 
     /// Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code)

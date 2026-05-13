@@ -19,12 +19,14 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             group,
             sort,
             reverse,
+            reveal,
         } => cmd_list(
             json,
             filter.as_deref(),
             group.as_deref(),
             sort.as_str(),
             *reverse,
+            *reveal,
         ),
         Commands::Get { key } => cmd_get(key, json),
         Commands::Set { assignment } => cmd_set(assignment, dry_run),
@@ -187,7 +189,11 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         ),
         Commands::AuditTrail { action } => super::audit_cmd::execute_audit_trail(action, json)
             .map_err(|e| -> Box<dyn std::error::Error> { e.into() }),
-        Commands::Search { query, fuzzy } => cmd_search(query, json, *fuzzy),
+        Commands::Search {
+            query,
+            fuzzy,
+            reveal,
+        } => cmd_search(query, json, *fuzzy, *reveal),
         Commands::Fence { status } => {
             if *status {
                 cmd_fence_status(json)
@@ -277,6 +283,7 @@ fn cmd_list(
     group: Option<&str>,
     sort: &str,
     reverse: bool,
+    reveal: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (config, shell_files) = load_context()?;
     let mut entries = collect_all_entries(&shell_files);
@@ -324,7 +331,7 @@ fn cmd_list(
                         .entries
                         .iter()
                         .map(|e| {
-                            let value = if is_sensitive(&e.key) {
+                            let value = if !reveal && is_sensitive(&e.key) {
                                 mask_value(&e.value)
                             } else {
                                 e.value.clone()
@@ -361,14 +368,19 @@ fn cmd_list(
             }
         }
     } else if json {
-        print_entries_json(&entries)?;
+        print_entries_json(&entries, reveal)?;
     } else {
         print_entries_table(&entries);
     }
     Ok(())
 }
 
-fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_search(
+    query: &str,
+    json: bool,
+    fuzzy: bool,
+    reveal: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     if query.is_empty() {
         return Err("Search query cannot be empty".into());
     }
@@ -401,7 +413,7 @@ fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::e
             let json_results: Vec<serde_json::Value> = results
                 .iter()
                 .map(|r| {
-                    let value = if is_sensitive(&r.entry.key) {
+                    let value = if !reveal && is_sensitive(&r.entry.key) {
                         mask_value(&r.entry.value)
                     } else {
                         r.entry.value.clone()
@@ -462,7 +474,7 @@ fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::e
             let json_results: Vec<serde_json::Value> = results
                 .iter()
                 .map(|e| {
-                    let value = if is_sensitive(&e.key) {
+                    let value = if !reveal && is_sensitive(&e.key) {
                         mask_value(&e.value)
                     } else {
                         e.value.clone()
@@ -2108,11 +2120,14 @@ fn print_entries_table(entries: &[EnvEntry]) {
     }
 }
 
-fn print_entries_json(entries: &[EnvEntry]) -> Result<(), Box<dyn std::error::Error>> {
+fn print_entries_json(
+    entries: &[EnvEntry],
+    reveal: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let json_entries: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
-            let value = if is_sensitive(&e.key) {
+            let value = if !reveal && is_sensitive(&e.key) {
                 mask_value(&e.value)
             } else {
                 e.value.clone()
