@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
     <name>EnvForge</name>
-    <version>0.1.4</version>
+    <version>0.1.5</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[
@@ -20,6 +20,7 @@
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.redhat.devtools.lsp4ij</depends>
+    <depends>org.toml.lang</depends>
 
     <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
         <server id="envforgeLsp"
@@ -28,6 +29,13 @@
 
         <languageMapping language="EnvForgeEnv"
                          serverId="envforgeLsp"/>
+        <!-- Schema files are TOML-typed for highlighting; LSP attaches by filename. -->
+        <languageMapping language="TOML"
+                         serverId="envforgeLsp"
+                         fileNamePattern=".env.schema.toml"/>
+        <languageMapping language="TOML"
+                         serverId="envforgeLsp"
+                         fileNamePattern=".env.schema"/>
     </extensions>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -38,6 +46,9 @@
               extensions="env"
               fileNames=".env"
               patterns=".env.*;*.env"/>
+    <!-- Schema files → TOML (exact fileNames beat EnvForge .env glob). -->
+    <fileType name="TOML"
+              fileNames=".env.schema.toml;.env.schema"/>
     <lang.parserDefinition language="EnvForgeEnv"
                            implementationClass="com.envforge.intellij.EnvParserDefinition"/>
     <toolWindow id="EnvForge"
@@ -70,6 +81,18 @@
 
   <group id="EnvForge.Menu" text="EnvForge" popup="true">
         <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+        <action id="EnvForge.RunWizard"
+                class="com.envforge.intellij.actions.RunWizardAction"
+                text="Run Project Wizard"
+                description="Launch guided EnvForge project setup wizard"/>
+
+        <action id="EnvForge.ProjectInit"
+                class="com.envforge.intellij.actions.ProjectInitAction"
+                text="Initialize Project (non-interactive)"
+                description="Scaffold a new EnvForge project with defaults"/>
+
+        <separator/>
 
         <action id="EnvForge.List"
                 class="com.envforge.intellij.actions.ListAction"

@@ -2489,6 +2489,12 @@ fn cmd_init_schema(
     use crate::ops::schema::{find_schema, parse_schema};
     use std::io::{self, BufRead, Write};
 
+    eprintln!(
+        "warning: 'envforge init' is deprecated. Use 'envforge project wizard' for guided setup. \
+         This command will be removed in v0.8.0."
+    );
+    eprintln!();
+
     let sf = schema_path
         .map(std::path::PathBuf::from)
         .or_else(find_schema)
@@ -2859,7 +2865,6 @@ fn cmd_doctor(
         report.error_count()
     );
 
-    // MCP supply-chain section (Bolt 081 / Intent 034)
     if let Some(mcp) = &mcp_section {
         if !json {
             println!();
@@ -5858,14 +5863,36 @@ fn cmd_project(
     let cwd = std::env::current_dir()?;
 
     match action {
-        ProjectAction::Init { format, force } => {
+        ProjectAction::Init {
+            format,
+            force,
+            name,
+            active,
+            schema,
+            env_file,
+        } => {
             let format = project::ConfigFormat::parse(format)?;
-            let project_name = project::derive_project_name(&cwd);
+            let project_name = name
+                .clone()
+                .unwrap_or_else(|| project::derive_project_name(&cwd));
+            let env_name = active.clone().unwrap_or_else(|| "development".to_string());
+            let env_file_path: std::path::PathBuf = env_file
+                .clone()
+                .unwrap_or_else(|| format!(".env.{}", env_name))
+                .into();
+            let schema_path: std::path::PathBuf = schema
+                .clone()
+                .unwrap_or_else(|| ".env.schema.toml".into())
+                .into();
 
             if dry_run {
                 let filename = format.default_filename();
                 println!("Would create: {}/{}", cwd.display(), filename);
-                println!("Would create: {}/.env.development", cwd.display());
+                println!(
+                    "Would create: {}/{}",
+                    cwd.display(),
+                    env_file_path.display()
+                );
                 return Ok(());
             }
 
@@ -5873,9 +5900,9 @@ fn cmd_project(
                 root: cwd.clone(),
                 format,
                 project_name: project_name.clone(),
-                default_env_name: "development".to_string(),
-                env_file_path: ".env.development".into(),
-                schema_path: ".env.schema".into(),
+                default_env_name: env_name,
+                env_file_path,
+                schema_path,
                 force: *force,
             };
 
@@ -6006,29 +6033,36 @@ fn cmd_project(
             Ok(())
         }
 
-        ProjectAction::Wizard { force } => {
-            let detected = project::detect_project_config(&cwd)
-                .ok_or(project::ProjectError::ConfigNotFound)?;
+        ProjectAction::Wizard {
+            force,
+            non_interactive,
+            from,
+            reset,
+        } => {
+            let opts = project::WizardOptions {
+                force: *force,
+                non_interactive: *non_interactive,
+                from_env: from.as_ref().map(std::path::PathBuf::from),
+                reset: *reset,
+                dry_run,
+            };
 
-            let report = project::run_wizard(&cwd, &detected, *force, dry_run)?;
+            let report = project::run_wizard(&cwd, &opts)?;
 
             if json {
                 let out = serde_json::json!({
                     "steps_run": report.steps_run,
+                    "project_name": report.project_name,
+                    "environments": report.environments,
                     "schema_keys": report.schema_keys,
                     "values_set": report.values_set,
                     "values_skipped": report.values_skipped,
+                    "gitignore_updated": report.gitignore_updated,
+                    "ai_context_emitted": report.ai_context_emitted,
+                    "fence_installed": report.fence_installed,
+                    "canary_installed": report.canary_installed,
                 });
                 println!("{}", serde_json::to_string_pretty(&out)?);
-            } else {
-                println!();
-                println!("Wizard complete:");
-                println!("  Steps run: {}", report.steps_run.join(", "));
-                println!("  Schema keys: {}", report.schema_keys);
-                println!(
-                    "  Values: {} set, {} skipped",
-                    report.values_set, report.values_skipped
-                );
             }
             Ok(())
         }

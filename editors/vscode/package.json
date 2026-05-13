@@ -2,7 +2,7 @@
   "name": "envforge-env-manager",
   "displayName": "EnvForge - ENV Manager",
   "description": "Environment variable management with schema validation, secret scanning, and multi-profile support",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "emreerinc",
   "license": "MIT",
   "repository": {
@@ -30,6 +30,7 @@
     "workspaceContains:**/.env",
     "workspaceContains:**/.env.*",
     "workspaceContains:**/.env.schema",
+    "workspaceContains:**/.env.schema.toml",
     "onLanguage:dotenv",
     "onLanguage:env-schema",
     "onView:envforgeVariables",
@@ -80,7 +81,8 @@
           "EnvForge Schema"
         ],
         "filenames": [
-          ".env.schema"
+          ".env.schema",
+          ".env.schema.toml"
         ],
         "configuration": "./language-configuration.json"
       }
@@ -244,6 +246,14 @@
       {
         "command": "envforge.restartLsp",
         "title": "EnvForge: Restart Language Server"
+      },
+      {
+        "command": "envforge.runWizard",
+        "title": "EnvForge: Run Project Wizard"
+      },
+      {
+        "command": "envforge.projectInit",
+        "title": "EnvForge: Initialize Project (non-interactive)"
       },
       {
         "command": "envforge.refreshTree",

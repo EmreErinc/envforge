@@ -2,7 +2,7 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum ProjectAction {
-    /// Initialize project-scoped env management
+    /// Initialize project-scoped env management (non-interactive scaffold)
     Init {
         /// Config format: toml, yaml, json
         #[arg(long, default_value = "toml")]
@@ -10,12 +10,33 @@ pub enum ProjectAction {
         /// Force reinitialize (overwrite existing config)
         #[arg(long)]
         force: bool,
+        /// Project name (default: directory name)
+        #[arg(long)]
+        name: Option<String>,
+        /// Initial environment name (default: development)
+        #[arg(long)]
+        active: Option<String>,
+        /// Schema file path (default: .env.schema.toml)
+        #[arg(long)]
+        schema: Option<String>,
+        /// Env file path (default: .env.<active>)
+        #[arg(long)]
+        env_file: Option<String>,
     },
-    /// Interactive guided project setup (init → schema → values)
+    /// Interactive guided project setup (identity → envs → schema → values → hardening)
     Wizard {
-        /// Force re-run all steps
+        /// Force re-run all steps; preserves project config
         #[arg(long)]
         force: bool,
+        /// Skip prompts — use defaults only
+        #[arg(long)]
+        non_interactive: bool,
+        /// Preseed values step from an existing .env-style file
+        #[arg(long)]
+        from: Option<String>,
+        /// Clear completed_steps before running (deeper than --force)
+        #[arg(long)]
+        reset: bool,
     },
     /// Manage project environments
     Env {

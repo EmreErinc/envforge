@@ -13,6 +13,20 @@ class ValidateAction : AnAction() {
     }
 }
 
+class RunWizardAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        EnvForgeRunner.run(project, listOf("project", "wizard"), "Project Wizard")
+    }
+}
+
+class ProjectInitAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        EnvForgeRunner.run(project, listOf("project", "init"), "Project Init")
+    }
+}
+
 class ScanAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

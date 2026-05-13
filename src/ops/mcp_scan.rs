@@ -366,7 +366,7 @@ pub fn findings_to_json(findings: &[McpFinding], files_scanned: usize) -> serde_
 /// project (cwd). Returns `null` when neither the lockfile nor the
 /// reputation feed can be consulted.
 ///
-/// Added in Bolt 082 (Intent 034 / Unit 008). Additive — does not modify
+/// Additive — does not modify
 /// any pre-existing field in `findings_to_json`.
 fn build_mcp_pin_status_summary() -> serde_json::Value {
     use crate::ops::doctor::{build_mcp_section, DoctorOpts};

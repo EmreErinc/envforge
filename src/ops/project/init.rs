@@ -64,11 +64,10 @@ pub fn init_project(opts: &InitOptions) -> Result<InitResult, ProjectError> {
     // Create .env file if it doesn't exist
     let env_path = opts.root.join(&opts.env_file_path);
     if !env_path.exists() {
-        std::fs::write(&env_path, "# EnvForge project environment\n").map_err(|e| {
-            ProjectError::IoError {
-                path: env_path.clone(),
-                source: e,
-            }
+        let stub = env_file_template(&opts.default_env_name);
+        std::fs::write(&env_path, stub).map_err(|e| ProjectError::IoError {
+            path: env_path.clone(),
+            source: e,
         })?;
     }
 
@@ -106,6 +105,29 @@ pub fn import_existing_env(source: &Path, target: &Path) -> Result<usize, Projec
     })?;
 
     Ok(key_count)
+}
+
+/// Render a starter `.env.<env>` file with commented examples.
+/// Validates against `.env.schema` when present; safe to commit (no real secrets).
+pub fn env_file_template(env_name: &str) -> String {
+    format!(
+        "# EnvForge project environment: {env_name}
+#
+# Add KEY=VALUE lines below. One per line. Values are NOT quoted unless they
+# contain spaces or special characters.
+#
+# Variables defined in .env.schema are validated by `envforge project validate`.
+# Sensitive keys (sensitive = true in schema) are masked when shown by the CLI.
+#
+# ─── Examples (uncomment to use) ───────────────────────────
+#
+# FOO=BAR
+# DATABASE_URL=postgres://user:pass@localhost:5432/myapp
+# PORT=8080
+# LOG_LEVEL=info
+# FEATURE_FLAG_X=false
+"
+    )
 }
 
 /// Derive project name from directory name.

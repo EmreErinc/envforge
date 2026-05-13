@@ -6,10 +6,6 @@
 
 use envforge::ops::mcp_scan::findings_to_json;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Story 001: README + CHANGELOG doc-sync
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[test]
 fn test_readme_reports_current_test_count() {
     let readme = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))
@@ -126,10 +122,6 @@ fn test_changelog_omits_internal_terms() {
         );
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Story 003: mcp scan --json schema-stability
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_mcp_scan_json_retains_legacy_fields() {

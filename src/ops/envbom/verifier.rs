@@ -1,6 +1,6 @@
 //! Two-layer BOM verification: structural → diff.
 //!
-//! Signing/signature verification was removed in intent 033. Users who need a
+//! Signing/signature verification was removed. Users who need a
 //! signed BOM can wrap the emitted file with an external tool (e.g.
 //! `cosign sign-blob`).
 

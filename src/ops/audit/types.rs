@@ -75,7 +75,6 @@ pub enum EventType {
     LeaseGranted,
     LeaseRedeemed,
     LeaseRevoked,
-    // ─── MCP supply-chain integrity (Bolt 081 / Intent 034) ───
     /// `envforge mcp pin` created or refreshed a server pin.
     McpPinned,
     /// `mcp verify` detected hash/integrity mismatch.

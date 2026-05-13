@@ -7,7 +7,7 @@
 //! Predicate URL: `https://envforge.dev/envbom/v1` (custom; SPDX shape with
 //! EnvForge-specific extensions for `keys` field + `audit_summary` aggregation).
 //!
-//! Note: Signing was removed in intent 033 (commit-pending). Consumers who need
+//! Note: Signing was removed. Consumers who need
 //! signed BOMs can pipe the output of `envforge envbom emit` through `cosign
 //! sign-blob` externally.
 

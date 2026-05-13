@@ -63,7 +63,8 @@ impl Backend {
     }
 
     fn is_schema_file(uri: &Url) -> bool {
-        uri.path().ends_with(".env.schema")
+        let p = uri.path();
+        p.ends_with(".env.schema") || p.ends_with(".env.schema.toml")
     }
 
     fn load_schema_from_workspace(&self) {
@@ -80,10 +81,18 @@ impl Backend {
                     Ok(p) => p,
                     Err(_) => return,
                 };
-                let schema_path = root_path.join(".env.schema");
+                // Prefer .env.schema.toml; fall back to legacy .env.schema.
+                let schema_path = {
+                    let toml_path = root_path.join(".env.schema.toml");
+                    if toml_path.exists() {
+                        toml_path
+                    } else {
+                        root_path.join(".env.schema")
+                    }
+                };
                 // Resolve `schema_path` and require it stays under
-                // `root_path` (defense-in-depth — `.env.schema` join
-                // doesn't traverse, but we guard anyway).
+                // `root_path` (defense-in-depth — the join with a literal
+                // filename doesn't traverse, but we guard anyway).
                 let canonical_schema = match std::fs::canonicalize(&schema_path) {
                     Ok(p) => p,
                     Err(_) => return,

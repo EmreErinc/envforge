@@ -33,6 +33,8 @@ export function registerCommands(
     ['envforge.syncPull', cmdSyncPull],
     ['envforge.doctor', cmdDoctor],
     ['envforge.restartLsp', cmdRestartLsp],
+    ['envforge.runWizard', cmdRunWizard],
+    ['envforge.projectInit', cmdProjectInit],
   ];
 
   for (const [id, handler] of commands) {
@@ -375,10 +377,10 @@ async function cmdProfileDiff() {
 async function cmdSchemaGenerate(uri?: vscode.Uri) {
     try {
         const dir = cwdFromUri(uri);
-        await run(['schema', 'generate', '--output', '.env.schema'], dir);
-        vscode.window.showInformationMessage('Generated .env.schema');
+        await run(['schema', 'generate', '--output', '.env.schema.toml'], dir);
+        vscode.window.showInformationMessage('Generated .env.schema.toml');
         const doc = await vscode.workspace.openTextDocument(
-            vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, '.env.schema')
+            vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, '.env.schema.toml')
         );
         await vscode.window.showTextDocument(doc);
     } catch (e: any) {
@@ -432,4 +434,21 @@ async function cmdRestartLsp() {
     // The LSP client doesn't expose restart directly.
     // Reload the window to restart the extension + LSP.
     vscode.commands.executeCommand('workbench.action.reloadWindow');
+}
+
+async function cmdRunWizard() {
+    await launchInTerminal('EnvForge Wizard', ['project', 'wizard']);
+}
+
+async function cmdProjectInit() {
+    await launchInTerminal('EnvForge Project Init', ['project', 'init']);
+}
+
+async function launchInTerminal(name: string, args: string[]) {
+    const bin = getEnvforgePath();
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const terminal = vscode.window.createTerminal({ name, cwd });
+    terminal.show(true);
+    const quoted = args.map(a => /\s/.test(a) ? `"${a}"` : a).join(' ');
+    terminal.sendText(`${bin} ${quoted}`);
 }

@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.envforge"
-version = "0.1.4"
+version = "0.1.5"
 
 repositories {
     mavenCentral()
@@ -19,6 +19,7 @@ dependencies {
         intellijIdeaCommunity("2024.2")
         plugin("com.redhat.devtools.lsp4ij:0.19.3")
         bundledPlugin("com.intellij.java")
+        bundledPlugin("org.toml.lang")
     }
 }
 

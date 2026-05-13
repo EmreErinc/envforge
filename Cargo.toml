@@ -64,6 +64,9 @@ flate2 = "1"
 # Unicode NFKC normalization for MCP poisoning scanner canonicalization (Bolt 079)
 unicode-normalization = "0.1"
 
+# Masked password input for project wizard sensitive values
+rpassword = "7"
+
 [lints.rust]
 future-incompatible = "warn"
 nonstandard_style = { level = "deny", priority = 1 }

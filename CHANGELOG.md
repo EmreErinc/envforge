@@ -5,7 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.6] - 2026-05-08
+## [0.7.6] - 2026-05-13
+
+### Added — Project Wizard Redesign
+
+`envforge project wizard` rewritten as the single canonical onboarding entry point. Self-bootstrapping (no `init` prerequisite), multi-environment, resumable, AI-safety aware.
+
+#### New flags
+
+- `envforge project wizard` — guided 5-step setup: identity → environments → schema → values → hardening.
+- `envforge project wizard --force` — re-run all steps; preserves project config.
+- `envforge project wizard --reset` — wipe `completed_steps` then run (deeper than `--force`).
+- `envforge project wizard --non-interactive` — defaults-only path for CI / scripts.
+- `envforge project wizard --from <env-file>` — preseed Step 4 values from existing dotenv file.
+- `envforge project wizard --dry-run` — walk steps and print planned actions; no filesystem writes.
+- `envforge project init --name X --active Y --schema PATH --env-file PATH` — extended CLI scaffold flags for non-interactive use.
+
+#### New wizard behavior
+
+- Schema step branches three ways: `[R]euse` existing, `[E]dit` per-key (replaces a single `[KEY]` block), `[G]enerate fresh` from active env file.
+- Values step accepts per-key keystrokes: Enter / `<value>` / `s` (skip) / `c` (clear) / `d` (use schema default) / `q` (quit env) / `a` (abort cascade across envs).
+- Sensitive schema keys (`sensitive = true`) prompt via `rpassword` — no terminal echo.
+- Hardening step toggles: `.gitignore` patterns, `.env.ai.md` AI-safe context emit, `.aiignore`/`.cursorignore` fence install, canary token mint + append to active env file.
+- Resume after partial run: `completed_steps` persisted in project config; subsequent runs skip done steps. Already-complete projects print guidance instead of re-prompting.
+- JSON output (`--json`) emits structured `WizardReport` with all step outcomes including hardening flags.
+
+#### Deprecation
+
+- Top-level `envforge init` emits stderr warning: `'envforge init' is deprecated. Use 'envforge project wizard'. Removed in v0.8.0.` Functionality unchanged for one release.
+
+#### IDE plugin parity
+
+- VSCode `0.1.5` — command palette: "EnvForge: Run Project Wizard", "EnvForge: Initialize Project (non-interactive)".
+- IntelliJ `0.1.5` — Tools → EnvForge → Run Project Wizard / Initialize Project.
+
+#### Dependencies
+
+- New: `rpassword = "7"` for masked sensitive input.
+
+#### Tests
+
+24 wizard tests pass (18 → 24). New coverage: non-interactive cold start, idempotency, force-resume, preset precedence, multi-env loop, sensitive-key masking path, branch reuse / infer / blank, edit-existing-key block replacement.
 
 ### Added — MCP Supply-Chain Integrity
 

@@ -124,6 +124,7 @@ async function startLanguageServer(
         synchronize: {
             fileEvents: [
                 vscode.workspace.createFileSystemWatcher('**/.env.schema'),
+                vscode.workspace.createFileSystemWatcher('**/.env.schema.toml'),
                 vscode.workspace.createFileSystemWatcher('**/.env'),
                 vscode.workspace.createFileSystemWatcher('**/.env.*'),
             ],

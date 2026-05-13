@@ -44,11 +44,63 @@ pub fn completions(
 
     // $VAR reference
     if before_cursor.ends_with('$') || before_cursor.contains("${") {
-        return reference_completions(entries, managed_vars);
+        let ref_range = ref_replace_range(line, position);
+        return reference_completions(entries, managed_vars, ref_range);
     }
 
     // Key position
-    key_completions(before_cursor, entries, schema, managed_vars)
+    let key_range = key_replace_range(line, before_cursor, position);
+    key_completions(before_cursor, entries, schema, managed_vars, key_range)
+}
+
+/// Compute the LSP range covering the partial KEY identifier currently being
+/// typed: from the start of the current word (right after the last separator)
+/// up to the cursor. If the line is empty, returns a zero-width range at
+/// cursor. Sent as `text_edit.range` so editor clients (lsp4ij, VSCode)
+/// don't wipe surrounding text on accept.
+fn key_replace_range(line: &str, before_cursor: &str, position: Position) -> Range {
+    let trimmed = before_cursor
+        .strip_prefix("export ")
+        .unwrap_or(before_cursor);
+    let prefix_len = trimmed
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .count();
+    let start_char = before_cursor.len().saturating_sub(prefix_len);
+    Range {
+        start: Position {
+            line: position.line,
+            character: start_char as u32,
+        },
+        end: Position {
+            line: position.line,
+            character: line.len().max(position.character as usize) as u32,
+        },
+    }
+}
+
+/// Range covering the in-progress `$VAR` / `${VAR}` reference. Replaces from
+/// the `$` up to end-of-line so accept doesn't leave trailing partial text.
+fn ref_replace_range(line: &str, position: Position) -> Range {
+    let col = position.character as usize;
+    let before = if col <= line.len() {
+        &line[..col]
+    } else {
+        line
+    };
+    // Walk back to the last `$` on this line.
+    let start = before.rfind('$').unwrap_or(col);
+    Range {
+        start: Position {
+            line: position.line,
+            character: start as u32,
+        },
+        end: Position {
+            line: position.line,
+            character: line.len() as u32,
+        },
+    }
 }
 
 fn key_completions(
@@ -56,6 +108,7 @@ fn key_completions(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     managed_vars: &[ManagedVar],
+    replace_range: Range,
 ) -> Vec<CompletionItem> {
     let existing_keys: std::collections::HashSet<&str> =
         entries.iter().map(|e| e.key.as_str()).collect();
@@ -99,7 +152,10 @@ fn key_completions(
                 kind: Some(CompletionItemKind::VARIABLE),
                 detail: Some(detail.trim().to_string()),
                 documentation: doc,
-                insert_text: Some(insert),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: insert,
+                })),
                 sort_text: Some(format!("0_{}", name)),
                 ..Default::default()
             });
@@ -130,7 +186,10 @@ fn key_completions(
             } else {
                 source
             }),
-            insert_text: Some(format!("{}=", mv.key)),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: replace_range,
+                new_text: format!("{}=", mv.key),
+            })),
             sort_text: Some(format!("1_{}", mv.key)),
             ..Default::default()
         });
@@ -154,6 +213,13 @@ fn value_completions(
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
 
+    let value_edit = |new_text: String| {
+        Some(CompletionTextEdit::Edit(TextEdit {
+            range: value_range,
+            new_text,
+        }))
+    };
+
     // Schema-based value completions
     if let Some(schema) = schema {
         if let Some(var_def) = schema.variables.get(key) {
@@ -163,6 +229,7 @@ fn value_completions(
                         items.push(CompletionItem {
                             label: val.to_string(),
                             kind: Some(CompletionItemKind::VALUE),
+                            text_edit: value_edit(val.to_string()),
                             ..Default::default()
                         });
                     }
@@ -173,6 +240,7 @@ fn value_completions(
                             items.push(CompletionItem {
                                 label: val.clone(),
                                 kind: Some(CompletionItemKind::ENUM_MEMBER),
+                                text_edit: value_edit(val.clone()),
                                 ..Default::default()
                             });
                         }
@@ -184,6 +252,7 @@ fn value_completions(
                             label: def.clone(),
                             kind: Some(CompletionItemKind::VALUE),
                             detail: Some("default".into()),
+                            text_edit: value_edit(def.clone()),
                             ..Default::default()
                         });
                     }
@@ -193,6 +262,7 @@ fn value_completions(
                                 label: ex.clone(),
                                 kind: Some(CompletionItemKind::VALUE),
                                 detail: Some("example".into()),
+                                text_edit: value_edit(ex.clone()),
                                 ..Default::default()
                             });
                         }
@@ -239,10 +309,12 @@ fn value_completions(
         if entry.key == key {
             continue;
         }
+        let new_text = format!("${{{}}}", entry.key);
         items.push(CompletionItem {
-            label: format!("${{{}}}", entry.key),
+            label: new_text.clone(),
             kind: Some(CompletionItemKind::REFERENCE),
             detail: Some("variable reference".into()),
+            text_edit: value_edit(new_text),
             sort_text: Some(format!("z_{}", entry.key)),
             ..Default::default()
         });
@@ -254,18 +326,27 @@ fn value_completions(
 fn reference_completions(
     entries: &[EnvDocEntry],
     managed_vars: &[ManagedVar],
+    replace_range: Range,
 ) -> Vec<CompletionItem> {
     let mut seen = std::collections::HashSet::new();
     let mut items = Vec::new();
 
+    let edit = |new_text: String| {
+        Some(CompletionTextEdit::Edit(TextEdit {
+            range: replace_range,
+            new_text,
+        }))
+    };
+
     // From current file
     for e in entries {
         if seen.insert(e.key.clone()) {
+            let new_text = format!("${{{}}}", e.key);
             items.push(CompletionItem {
                 label: e.key.clone(),
                 kind: Some(CompletionItemKind::REFERENCE),
                 detail: Some("this file".into()),
-                insert_text: Some(format!("{{{}}}", e.key)),
+                text_edit: edit(new_text),
                 insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                 sort_text: Some(format!("0_{}", e.key)),
                 ..Default::default()
@@ -276,11 +357,12 @@ fn reference_completions(
     // From managed vars
     for mv in managed_vars {
         if seen.insert(mv.key.clone()) {
+            let new_text = format!("${{{}}}", mv.key);
             items.push(CompletionItem {
                 label: mv.key.clone(),
                 kind: Some(CompletionItemKind::REFERENCE),
                 detail: Some("envforge".into()),
-                insert_text: Some(format!("{{{}}}", mv.key)),
+                text_edit: edit(new_text),
                 insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                 sort_text: Some(format!("1_{}", mv.key)),
                 ..Default::default()
