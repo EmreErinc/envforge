@@ -1,6 +1,6 @@
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, MarkupContent, MarkupKind,
-    Position,
+    CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, InsertTextFormat,
+    MarkupContent, MarkupKind, Position, Range, TextEdit,
 };
 
 use crate::ops::schema::{EnvSchema, VarType};
@@ -24,10 +24,22 @@ pub fn completions(
     };
 
     // After '=' — value completions
-    if before_cursor.contains('=') {
-        let key = before_cursor.split('=').next().unwrap_or("").trim();
+    if let Some(eq_idx) = before_cursor.find('=') {
+        let key = before_cursor[..eq_idx].trim();
         let key = key.strip_prefix("export ").unwrap_or(key);
-        return value_completions(key, entries, schema, managed_vars);
+        let value_start = Position {
+            line: position.line,
+            character: (eq_idx + 1) as u32,
+        };
+        let value_end = Position {
+            line: position.line,
+            character: line.len() as u32,
+        };
+        let value_range = Range {
+            start: value_start,
+            end: value_end,
+        };
+        return value_completions(key, entries, schema, managed_vars, value_range);
     }
 
     // $VAR reference
@@ -138,6 +150,7 @@ fn value_completions(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     managed_vars: &[ManagedVar],
+    value_range: Range,
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
 
@@ -207,9 +220,13 @@ fn value_completions(
             if !already {
                 items.push(CompletionItem {
                     label: preview,
+                    filter_text: Some(String::new()),
                     kind: Some(CompletionItemKind::VALUE),
                     detail: Some("current value".into()),
-                    insert_text: Some(mv.value.clone()),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: value_range,
+                        new_text: mv.value.clone(),
+                    })),
                     sort_text: Some("0_current".into()),
                     ..Default::default()
                 });
