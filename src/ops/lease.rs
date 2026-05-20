@@ -500,7 +500,7 @@ fn pid_start_time(pid: u32) -> Option<u64> {
     // Field layout: pid (comm) state ppid ... starttime (field 22, 0-indexed 21).
     // The comm field is parenthesized and can contain spaces; use rsplit on ')'
     // to skip past it, then count from there.
-    let after_comm = stat.rsplitn(2, ')').next()?;
+    let after_comm = stat.rsplit(')').next()?;
     let fields: Vec<&str> = after_comm.split_whitespace().collect();
     // Post-comm fields begin at index 0 = "state". starttime is field 22 overall,
     // i.e. index 19 of the post-comm slice (state, ppid, pgrp, session, tty_nr,
