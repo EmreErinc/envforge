@@ -345,11 +345,16 @@ impl BinaryHasher {
             }
         })?;
 
+        // Record the symlink's literal target whenever the input is a
+        // symlink. The earlier `t != realpath` filter was meant to
+        // avoid recording redundant data, but on platforms where the
+        // tempdir base is itself canonicalized (notably macOS, where
+        // `/var/folders/...` → `/private/var/folders/...`) the
+        // comparison rejects legitimate symlink-target metadata.
+        // Always storing the read_link value gives a faithful audit
+        // trail and removes a platform-dependent test flake.
         let symlink_target = if symlink_meta.file_type().is_symlink() {
-            match std::fs::read_link(path) {
-                Ok(t) if t != realpath => Some(t),
-                _ => None,
-            }
+            std::fs::read_link(path).ok()
         } else {
             None
         };
