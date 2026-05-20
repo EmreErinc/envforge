@@ -1677,8 +1677,7 @@ fn test_completion_ref_position_lists_other_entries() {
         character: 1,
     };
     let items = completion::completions(pos, content, &entries, None, &[]);
-    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert!(labels.contains(&"BASE"));
+    assert!(items.iter().any(|i| i.label == "BASE"));
 }
 
 #[test]
@@ -1694,8 +1693,7 @@ fn test_completion_value_position_emits_dollar_refs_for_other_entries() {
         character: 4,
     };
     let items = completion::completions(pos, content, &entries, None, &[]);
-    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert!(labels.contains(&"${BASE}"));
+    assert!(items.iter().any(|i| i.label == "${BASE}"));
 }
 
 #[test]
@@ -1713,8 +1711,7 @@ fn test_completion_includes_managed_vars_when_no_schema() {
         character: 0,
     };
     let items = completion::completions(pos, content, &entries, None, &managed);
-    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert!(labels.contains(&"GLOBAL_VAR"));
+    assert!(items.iter().any(|i| i.label == "GLOBAL_VAR"));
 }
 
 #[test]
@@ -2566,7 +2563,7 @@ fn test_references_multiple_entries_same_doc() {
     let content = "FOO=1\nFOO=2\n";
     let mut open_docs = HashMap::new();
     open_docs.insert(
-        env_uri.clone(),
+        env_uri,
         DocumentState {
             content: content.into(),
             version: 1,

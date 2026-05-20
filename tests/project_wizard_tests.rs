@@ -417,7 +417,7 @@ fn test_wizard_preset_from_env_file() {
     let opts = WizardOptions {
         force: false,
         non_interactive: true,
-        from_env: Some(preset.clone()),
+        from_env: Some(preset),
         reset: false,
         dry_run: false,
     };
