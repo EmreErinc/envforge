@@ -45,7 +45,8 @@ pub fn completions(
     // $VAR reference
     if before_cursor.ends_with('$') || before_cursor.contains("${") {
         let ref_range = ref_replace_range(line, position);
-        return reference_completions(entries, managed_vars, ref_range);
+        let typed_prefix = ref_typed_prefix(before_cursor);
+        return reference_completions(entries, managed_vars, ref_range, &typed_prefix);
     }
 
     // Key position
@@ -274,23 +275,23 @@ fn value_completions(
 
     // Suggest current value from managed vars.
     //
-    // The completion label is shown in the editor's completion popup AND
-    // is often persisted in completion / suggestion history (VS Code,
-    // Neovim, JetBrains). Putting the live secret value in `label`
-    // turns the LSP into a side-channel for secret exposure (screen
-    // recording, pair programming, history files). Use a redacted
-    // preview as the visible label and `insert_text` for the actual
-    // value the user will get on accept.
+    // Current-value completion. Uses the raw value as BOTH `label` and
+    // `text_edit.new_text` so the editor's paste path is robust whether
+    // it honors `text_edit` (correct) or falls back to inserting the
+    // label (some Neovim LSP clients, certain VS Code paths). Earlier
+    // attempts used a redacted preview as the label — that caused
+    // clients to paste `***` instead of the real secret when the
+    // text_edit branch wasn't taken. Hover already exposes the raw
+    // value to anyone looking at the screen, so showing it in the
+    // completion popup carries the same secrecy posture.
     for mv in managed_vars {
         if mv.key == key && !mv.value.is_empty() {
-            let preview = redact_value_for_label(&mv.value);
             let already = items
                 .iter()
-                .any(|i| i.detail.as_deref() == Some("current value") && i.label == preview);
+                .any(|i| i.detail.as_deref() == Some("current value") && i.label == mv.value);
             if !already {
                 items.push(CompletionItem {
-                    label: preview,
-                    filter_text: Some(String::new()),
+                    label: mv.value.clone(),
                     kind: Some(CompletionItemKind::VALUE),
                     detail: Some("current value".into()),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
@@ -312,6 +313,7 @@ fn value_completions(
         let new_text = format!("${{{}}}", entry.key);
         items.push(CompletionItem {
             label: new_text.clone(),
+            filter_text: Some(new_text.clone()),
             kind: Some(CompletionItemKind::REFERENCE),
             detail: Some("variable reference".into()),
             text_edit: value_edit(new_text),
@@ -323,11 +325,37 @@ fn value_completions(
     items
 }
 
+/// Extract the partial identifier the user has typed inside a `${...}`
+/// reference, e.g. `URL=${AB` → `"AB"`, `$` → `""`, `${` → `""`.
+/// Returned lowercase so we can do case-insensitive prefix matching
+/// without re-allocating per managed var.
+fn ref_typed_prefix(before_cursor: &str) -> String {
+    let from = before_cursor
+        .rfind("${")
+        .map(|i| i + 2)
+        .or_else(|| before_cursor.rfind('$').map(|i| i + 1))
+        .unwrap_or(before_cursor.len());
+    before_cursor[from..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect::<String>()
+        .to_lowercase()
+}
+
 fn reference_completions(
     entries: &[EnvDocEntry],
     managed_vars: &[ManagedVar],
     replace_range: Range,
+    typed_prefix: &str,
 ) -> Vec<CompletionItem> {
+    // Cap the number of managed-var refs we surface even after the
+    // server-side prefix filter, so popups stay quick to read. Same-
+    // file entries are never capped — they are the most relevant
+    // suggestions. Lowered from 50 to 20: with prefix filtering in
+    // place, anything beyond ~20 hits is a sign the user hasn't typed
+    // enough to disambiguate yet and a wall of results actively hurts.
+    const MAX_MANAGED_REF_SUGGESTIONS: usize = 20;
+
     let mut seen = std::collections::HashSet::new();
     let mut items = Vec::new();
 
@@ -338,12 +366,30 @@ fn reference_completions(
         }))
     };
 
-    // From current file
+    let matches_prefix = |key: &str| -> bool {
+        if typed_prefix.is_empty() {
+            return true;
+        }
+        key.to_lowercase().starts_with(typed_prefix)
+    };
+
+    // From current file — always surfaced when prefix matches; never
+    // capped because same-file refs are the most relevant.
     for e in entries {
+        if !matches_prefix(&e.key) {
+            continue;
+        }
         if seen.insert(e.key.clone()) {
             let new_text = format!("${{{}}}", e.key);
             items.push(CompletionItem {
                 label: e.key.clone(),
+                // `filter_text` must match what the user is typing
+                // after `$`. If we leave it unset, editors compare the
+                // typed prefix (`${`, `${ABC`) against the bare-key
+                // label — no match → list empties. Setting
+                // `filter_text = "${KEY}"` keeps the items visible as
+                // the user types more of the reference.
+                filter_text: Some(format!("${{{}}}", e.key)),
                 kind: Some(CompletionItemKind::REFERENCE),
                 detail: Some("this file".into()),
                 text_edit: edit(new_text),
@@ -354,12 +400,20 @@ fn reference_completions(
         }
     }
 
-    // From managed vars
+    // From managed vars: prefix-filtered server-side, then capped.
+    let mut managed_added = 0usize;
     for mv in managed_vars {
+        if managed_added >= MAX_MANAGED_REF_SUGGESTIONS {
+            break;
+        }
+        if !matches_prefix(&mv.key) {
+            continue;
+        }
         if seen.insert(mv.key.clone()) {
             let new_text = format!("${{{}}}", mv.key);
             items.push(CompletionItem {
                 label: mv.key.clone(),
+                filter_text: Some(format!("${{{}}}", mv.key)),
                 kind: Some(CompletionItemKind::REFERENCE),
                 detail: Some("envforge".into()),
                 text_edit: edit(new_text),
@@ -367,22 +421,9 @@ fn reference_completions(
                 sort_text: Some(format!("1_{}", mv.key)),
                 ..Default::default()
             });
+            managed_added += 1;
         }
     }
 
     items
-}
-
-/// Render a non-revealing preview of a secret value for use as an LSP
-/// completion `label`. Editor clients display labels in popups and may
-/// persist them in history; the real value still flows through
-/// `insert_text` so accepting the suggestion works normally.
-fn redact_value_for_label(value: &str) -> String {
-    let len = value.chars().count();
-    if len <= 4 {
-        "***".to_string()
-    } else {
-        let head: String = value.chars().take(2).collect();
-        format!("{head}***({len} chars)")
-    }
 }

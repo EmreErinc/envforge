@@ -2,7 +2,7 @@
   "name": "envforge-env-manager",
   "displayName": "EnvForge - ENV Manager",
   "description": "Environment variable management with schema validation, secret scanning, and multi-profile support",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "emreerinc",
   "license": "MIT",
   "repository": {
@@ -99,6 +99,24 @@
         "path": "./syntaxes/env-schema.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "[dotenv]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "on"
+        },
+        "editor.acceptSuggestionOnEnter": "smart",
+        "editor.suggestOnTriggerCharacters": true
+      },
+      "[env-schema]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "on"
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -254,6 +272,31 @@
       {
         "command": "envforge.projectInit",
         "title": "EnvForge: Initialize Project (non-interactive)"
+      },
+      {
+        "command": "envforge.fenceToggle",
+        "title": "EnvForge: Toggle AI Fence",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "envforge.runVolatile",
+        "title": "EnvForge: Run Command (Volatile Session)…",
+        "icon": "$(play)"
+      },
+      {
+        "command": "envforge.revealValue",
+        "title": "EnvForge: Reveal Value (Audit-logged)…",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "envforge.canaryScan",
+        "title": "EnvForge: Scan Text/File for Canary Tokens…",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "envforge.canaryCheck",
+        "title": "EnvForge: Check Triggered Canaries",
+        "icon": "$(bell)"
       },
       {
         "command": "envforge.refreshTree",

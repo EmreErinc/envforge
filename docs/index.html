@@ -406,17 +406,18 @@
 
     <!-- Hero -->
     <section class="hero">
-      <div class="hero-badge">22 AI Safety Tools &middot; Written in Rust &middot; Free &amp; Open Source</div>
+      <div class="hero-badge">28 AI Safety Tools &middot; Written in Rust &middot; Free &amp; Open Source &middot; Now with IDE plugins</div>
       <h1>Your secrets are <em>not safe</em><br>from AI.</h1>
-      <p class="subtitle">EnvForge is the environment variable manager built to protect secrets FROM AI coding agents. 22 safety tools. Zero cloud dependency. One CLI.</p>
+      <p class="subtitle">EnvForge is the environment variable manager built to protect secrets FROM AI coding agents. 28 safety tools. Zero cloud dependency. One CLI + a Language Server that lights up VS Code and IntelliJ with an AI-exposure heatmap, fence shield, and canary tripwire glyphs.</p>
       <div class="hero-cta">
         <a href="#install" class="btn btn-primary">Install in 10 seconds</a>
-        <a href="#ai-safety" class="btn btn-secondary">See the 22 AI safety tools</a>
+        <a href="#ai-safety" class="btn btn-secondary">See the 28 AI safety tools</a>
       </div>
       <div class="stat-bar">
-        <span><strong>90+</strong> commands</span>
+        <span><strong>100+</strong> commands</span>
         <span><strong>13</strong> secret providers</span>
-        <span><strong>22</strong> AI safety tools</span>
+        <span><strong>28</strong> AI safety tools</span>
+        <span><strong>2</strong> first-party IDE plugins</span>
       </div>
     </section>
 
@@ -484,9 +485,24 @@
       </div>
     </section>
 
+    <!-- IDE Plugins -->
+    <section id="ide">
+      <h2>See the danger in your editor</h2>
+      <p>EnvForge ships a Language Server and first-party VS Code + IntelliJ plugins so the AI-safety story is visible where you write code — not buried in a CLI.</p>
+      <ul>
+        <li><strong>AI-exposure heatmap</strong> — colored dot in the gutter on every env-var line. Red = plaintext readable by AI agents. Amber = sensitive, will be redacted by AI-guard. Green = fence active.</li>
+        <li><strong>Canary tripwire glyphs</strong> — shield icon replaces the dot when a canary token is registered. Hover for status.</li>
+        <li><strong>Status bar trio</strong> — variable count, fence shield (<code>AI BLOCKED</code> / <code>AI ALLOWED</code>), and a volatile-lease countdown with sub-minute precision and color escalation.</li>
+        <li><strong>Source-language goto-definition</strong> — Ctrl-click <code>process.env.X</code>, <code>os.environ["X"]</code>, <code>std::env::var("X")</code> in TS / JS / Python / Rust / Go / Java / Kotlin / Ruby / PHP / C# / Shell and land on the schema entry.</li>
+        <li><strong>MCP config linter</strong> — credential patterns flagged inline in <code>.cursor/mcp.json</code>, <code>.claude/settings.json</code>, and friends.</li>
+        <li><strong>Quick-fix actions</strong> — plant a canary, mark as secret in schema, generate <code>.env</code> from schema, use secret reference — one keystroke each.</li>
+      </ul>
+      <p>Both plugins are thin clients over <code>envforge lsp</code>. Same backend, byte-identical classification, contract-locked parity.</p>
+    </section>
+
     <!-- AI Safety Suite -->
     <section id="ai-safety">
-      <h2>22 AI Safety Tools</h2>
+      <h2>28 AI Safety Tools</h2>
       <p>Six security layers. From prevention to governance.</p>
       <table class="safety-table">
         <thead>

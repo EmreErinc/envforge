@@ -2,7 +2,7 @@
 
 The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **28 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 100+ commands. **2073 tests passing.**
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **28 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 100+ commands. Ships with a Language Server (`envforge lsp`) and VS Code + IntelliJ plugins that surface the AI-safety story directly in the editor — gutter exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, source-language goto-definition. **2214 tests passing.**
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
@@ -371,7 +371,7 @@ Additional TUI features:
 
 All commands support `--json` for machine-readable output and `--dry-run` for preview.
 
-Full documentation: [CLI Reference](docs/cli-reference.md) (90+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [Scanner Recipes](docs/scanner-recipes.md)
+Full documentation: [CLI Reference](docs/cli-reference.md) (100+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [LSP Client Setup](docs/lsp-clients.md) (Neovim, Helix, Emacs, Sublime, Zed, Kakoune, Fleet, Lapce, …) &middot; [IDE Behavior Contract](docs/ide-behavior-contract.md) (per-feature parity spec) &middot; [Scanner Recipes](docs/scanner-recipes.md)
 
 ```bash
 # Variable management

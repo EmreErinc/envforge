@@ -49,6 +49,26 @@ pub fn mcp_config_paths() -> Vec<PathBuf> {
     paths
 }
 
+/// Scan an in-memory JSON document for credential patterns. Mirrors
+/// [`scan_json_file`] but operates on a `&str` so the LSP server can
+/// run findings against the editor's current buffer (which may include
+/// unsaved edits) instead of a disk file. The `file` argument is the
+/// virtual identifier carried into each finding so downstream code can
+/// continue to format file paths consistently. Returns an empty vector
+/// for invalid JSON, oversized input, or any IO-free failure.
+pub fn scan_mcp_text(content: &str, file: &Path) -> Vec<McpFinding> {
+    if content.len() as u64 > MAX_MCP_CONFIG_BYTES {
+        return Vec::new();
+    }
+    let value: serde_json::Value = match serde_json::from_str(content) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut findings = Vec::new();
+    walk_json(&value, "", &file.to_path_buf(), &mut findings, 0);
+    findings
+}
+
 /// Scan all known MCP config locations for hardcoded credentials.
 pub fn scan_mcp_configs() -> Vec<McpFinding> {
     let mut findings = Vec::new();

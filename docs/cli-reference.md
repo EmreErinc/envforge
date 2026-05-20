@@ -2113,7 +2113,7 @@ envforge mcp harden --dry-run
 
 ### envforge fence
 
-Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), or check status.
+Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), check status, or remove the envforge-owned fence content while preserving user content.
 
 ```
 Usage: envforge fence [OPTIONS]
@@ -2121,14 +2121,50 @@ Usage: envforge fence [OPTIONS]
 
 | Flag | Description |
 |------|-------------|
-| `--status` | Check if all ignore rules are correctly installed |
+| `--status` | Check if all ignore rules are correctly installed (mutually exclusive with `--disable`) |
+| `--disable` | Strip envforge-owned fence content from `.envforgeignore`, `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json`. User content is preserved; `.envforgeignore` (fully envforge-owned) is deleted outright. |
 
 **Examples:**
 
 ```bash
 envforge fence
 envforge fence --status
+envforge fence --status --json
+envforge fence --disable
 envforge fence --dry-run
+```
+
+---
+
+### envforge exposure
+
+Compute AI-exposure classification (red/amber/green per line) for a single `.env*` file. Emits the same JSON shape as the LSP `envforge/exposureMap` custom request — used internally by VS Code + IntelliJ plugins for the gutter heatmap and file-explorer badges, but also useful in CI / scripts.
+
+```
+Usage: envforge exposure --file <FILE>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--file <FILE>` | Path to the `.env*` file to classify |
+
+**Output schema:**
+
+```json
+{
+  "entries": [
+    { "line": 0, "key": "DB_HOST", "level": "red",   "reason": "...", "canary": false },
+    { "line": 1, "key": "API_KEY", "level": "amber", "reason": "...", "canary": true  }
+  ],
+  "fence_active": false
+}
+```
+
+**Examples:**
+
+```bash
+envforge exposure --file .env
+envforge exposure --file .env.local | jq '.entries[] | select(.level == "red")'
 ```
 
 ---
@@ -2324,6 +2360,33 @@ Usage: envforge lease cleanup [OPTIONS]
 envforge lease cleanup
 envforge lease cleanup --dry-run
 ```
+
+---
+
+### envforge lease renew
+
+Extend an active lease's TTL without recreating it. Same code path the IDE plugins call when the user clicks the volatile-countdown status bar item.
+
+```
+Usage: envforge lease renew <NAME> --ttl <TTL>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Lease name (as shown by `envforge lease list`) |
+
+| Flag | Description |
+|------|-------------|
+| `--ttl <TTL>` | New TTL counted from now (e.g. `30m`, `2h`, `1d`). Replaces the remaining time, does not stack. |
+
+**Examples:**
+
+```bash
+envforge lease renew deploy-lease --ttl 1h
+envforge lease renew deploy-lease --ttl 30m --json
+```
+
+Rejects revoked or already-expired leases — create a fresh lease instead.
 
 ---
 

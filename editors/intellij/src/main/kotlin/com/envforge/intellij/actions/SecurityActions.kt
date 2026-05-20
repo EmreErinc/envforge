@@ -12,8 +12,35 @@ import com.intellij.openapi.wm.ToolWindowManager
 class ToggleFenceAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        EnvForgeRunner.run(project, listOf("fence"), "Toggle Fence") {
-            EnvForgeRunner.notify(project, "Fence", "Fence toggled",
+
+        // Probe current state via `envforge fence --status --json`, then
+        // flip direction. Falls back to enable on probe failure so the
+        // action always does something useful.
+        val basePath = project.basePath?.let { java.io.File(it) }
+        val binary = EnvForgeLspFactory.findEnvforgeBinary()
+        val currentlyFenced = try {
+            val proc = ProcessBuilder(binary, "fence", "--status", "--json")
+                .directory(basePath)
+                .redirectErrorStream(true)
+                .start()
+            val out = proc.inputStream.bufferedReader().readText()
+            proc.waitFor()
+            if (proc.exitValue() == 0) {
+                val obj = com.google.gson.JsonParser.parseString(out).asJsonObject
+                obj.get("all_fenced")?.asBoolean ?: false
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+
+        val args = if (currentlyFenced) listOf("fence", "--disable") else listOf("fence")
+        val title = if (currentlyFenced) "Disable Fence" else "Enable Fence"
+        val message = if (currentlyFenced) "Fence disabled" else "Fence enabled"
+
+        EnvForgeRunner.run(project, args, title) {
+            EnvForgeRunner.notify(project, "Fence", message,
                 com.intellij.notification.NotificationType.INFORMATION)
             refreshSecurityPanel(project)
         }
@@ -110,7 +137,7 @@ class RemoveCanaryAction : AnAction() {
             )
 
             if (confirm == Messages.YES) {
-                EnvForgeRunner.run(project, listOf("canary", "remove", selected), "Remove Canary") {
+                EnvForgeRunner.run(project, listOf("canary", "delete", selected), "Remove Canary") {
                     EnvForgeRunner.notify(project, "Canary", "Canary token removed: $selected",
                         com.intellij.notification.NotificationType.INFORMATION)
                     refreshSecurityPanel(project)

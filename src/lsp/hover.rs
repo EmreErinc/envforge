@@ -1,70 +1,113 @@
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
+use crate::ops::dotenv::is_sensitive_key;
 use crate::ops::schema::{EnvSchema, VarType};
 
 use super::document::EnvDocEntry;
+use super::redact::redact_for_label;
+use super::server::ManagedVar;
 
 pub fn hover_info(
     position: Position,
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
+    managed_vars: &[ManagedVar],
 ) -> Option<Hover> {
-    // Find which entry the cursor is on
     let entry = entries.iter().find(|e| {
         e.line == position.line
             && position.character >= e.key_range.start.character
             && position.character <= e.value_range.end.character
     })?;
 
-    let schema = schema?;
-    let var_def = schema.variables.get(&entry.key)?;
+    let schema_var = schema.and_then(|s| s.variables.get(&entry.key));
+    let managed_match = managed_vars.iter().find(|m| m.key == entry.key);
 
-    let mut lines = Vec::new();
+    if schema_var.is_none() && managed_match.is_none() {
+        return None;
+    }
+
+    let mut lines: Vec<String> = Vec::new();
     lines.push(format!("**{}**", entry.key));
-    lines.push(format!("Type: `{}`", var_def.var_type.display()));
 
-    if var_def.required {
-        lines.push("Required: **yes**".into());
-    }
-    if var_def.sensitive {
-        lines.push("Sensitive: **yes**".into());
-    }
-    if let Some(ref desc) = var_def.description {
-        lines.push(String::new());
-        lines.push(desc.clone());
-    }
-    if let Some(ref def) = var_def.default {
-        lines.push(format!("Default: `{}`", def));
-    }
-    if let Some(ref ex) = var_def.example {
-        lines.push(format!("Example: `{}`", ex));
-    }
-    if let Some(ref pattern) = var_def.pattern {
-        lines.push(format!("Pattern: `{}`", pattern));
-    }
-    if let Some(ref vals) = var_def.values {
-        if var_def.var_type == VarType::Enum {
-            lines.push(format!(
-                "Values: {}",
-                vals.iter()
-                    .map(|v| format!("`{}`", v))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+    if let Some(var_def) = schema_var {
+        lines.push(format!("Type: `{}`", var_def.var_type.display()));
+        if var_def.required {
+            lines.push("Required: **yes**".into());
+        }
+        if var_def.sensitive {
+            lines.push("Sensitive: **yes**".into());
+        }
+        if let Some(ref desc) = var_def.description {
+            lines.push(String::new());
+            lines.push(desc.clone());
+        }
+        if let Some(ref def) = var_def.default {
+            lines.push(format!("Default: `{}`", def));
+        }
+        if let Some(ref ex) = var_def.example {
+            lines.push(format!("Example: `{}`", ex));
+        }
+        if let Some(ref pattern) = var_def.pattern {
+            lines.push(format!("Pattern: `{}`", pattern));
+        }
+        if let Some(ref vals) = var_def.values {
+            if var_def.var_type == VarType::Enum {
+                lines.push(format!(
+                    "Values: {}",
+                    vals.iter()
+                        .map(|v| format!("`{}`", v))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+        if let Some(min) = var_def.min {
+            lines.push(format!("Min: `{}`", min));
+        }
+        if let Some(max) = var_def.max {
+            lines.push(format!("Max: `{}`", max));
+        }
+        if !var_def.env_overrides.is_empty() {
+            lines.push(String::new());
+            lines.push("**Environment overrides:**".into());
+            for env in var_def.env_overrides.keys() {
+                lines.push(format!("- `{}`", env));
+            }
         }
     }
-    if let Some(min) = var_def.min {
-        lines.push(format!("Min: `{}`", min));
-    }
-    if let Some(max) = var_def.max {
-        lines.push(format!("Max: `{}`", max));
-    }
 
-    if !var_def.env_overrides.is_empty() {
-        lines.push(String::new());
-        lines.push("**Environment overrides:**".into());
-        for env in var_def.env_overrides.keys() {
-            lines.push(format!("- `{}`", env));
+    lines.push(String::new());
+    lines.push("---".into());
+    lines.push("**Provenance**".into());
+
+    let defined_by = match (schema_var.is_some(), managed_match.is_some()) {
+        (true, true) => "schema + local",
+        (true, false) => "schema",
+        (false, true) => "local (managed by envforge)",
+        (false, false) => unreachable!(),
+    };
+    lines.push(format!("- Defined by: `{}`", defined_by));
+
+    let sensitive =
+        schema_var.map(|v| v.sensitive).unwrap_or(false) || is_sensitive_key(&entry.key);
+
+    let current_value_line = match managed_match {
+        Some(mv) if mv.value.is_empty() => "- Current value: `not set`".to_string(),
+        Some(mv) if sensitive => {
+            format!(
+                "- Current value: `{}` (redacted)",
+                redact_for_label(&mv.value)
+            )
+        }
+        Some(mv) => format!("- Current value: `{}`", mv.value),
+        None => "- Current value: `not managed`".to_string(),
+    };
+    lines.push(current_value_line);
+
+    if let Some(mv) = managed_match {
+        if !mv.source_file.is_empty() {
+            let fname = mv.source_file.rsplit('/').next().unwrap_or(&mv.source_file);
+            lines.push(format!("- Source file: `{}`", fname));
         }
     }
 

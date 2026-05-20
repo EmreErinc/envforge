@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
     <name>EnvForge</name>
-    <version>0.1.5</version>
+    <version>0.1.6</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[
@@ -36,6 +36,36 @@
         <languageMapping language="TOML"
                          serverId="envforgeLsp"
                          fileNamePattern=".env.schema"/>
+        <!--
+        Source-language mappings: enable goto-definition from code that
+        reads env vars (process.env.X, os.environ["X"], std::env::var,
+        os.Getenv, System.getenv, etc.) back to the .env.schema entry.
+        Each mapping is best-effort — if the IDE edition lacks the
+        language plugin (e.g. Python on IntelliJ Community), lsp4ij
+        silently skips that mapping.
+        -->
+        <languageMapping language="JAVA" serverId="envforgeLsp"/>
+        <languageMapping language="kotlin" serverId="envforgeLsp"/>
+        <languageMapping language="Python" serverId="envforgeLsp"/>
+        <languageMapping language="TypeScript" serverId="envforgeLsp"/>
+        <languageMapping language="JavaScript" serverId="envforgeLsp"/>
+        <languageMapping language="ECMAScript 6" serverId="envforgeLsp"/>
+        <languageMapping language="go" serverId="envforgeLsp"/>
+        <languageMapping language="Rust" serverId="envforgeLsp"/>
+        <languageMapping language="ruby" serverId="envforgeLsp"/>
+        <languageMapping language="PHP" serverId="envforgeLsp"/>
+        <languageMapping language="C#" serverId="envforgeLsp"/>
+        <languageMapping language="Shell Script" serverId="envforgeLsp"/>
+        <!--
+        MCP configuration files. Routed by filename only (JSON language
+        binding picks up arbitrary JSON files; we filter to mcp/claude
+        files via fileNamePattern). LSP server emits inline diagnostics
+        for hardcoded credentials in these files.
+        -->
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="mcp.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".mcp.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="claude_desktop_config.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="settings.json"/>
     </extensions>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -60,6 +90,8 @@
                             order="after Position"/>
     <notificationGroup id="EnvForge"
                        displayType="BALLOON"/>
+    <editorFactoryListener implementation="com.envforge.intellij.EnvForgeExposureEditorListener"/>
+    <projectViewNodeDecorator implementation="com.envforge.intellij.EnvForgeProjectViewDecorator"/>
     <localInspection id="FenceInactive"
                      language=""
                      groupName="EnvForge"
@@ -177,6 +209,33 @@
                 class="com.envforge.intellij.actions.SchemaGenerateAction"
                 text="Generate Schema"
                 description="Generate .env.schema from current variables"/>
+
+        <separator/>
+
+        <action id="EnvForge.RunVolatile"
+                class="com.envforge.intellij.actions.RunVolatileAction"
+                text="Run Command (Volatile Session)..."
+                description="Wrap a shell command in a short-lived envforge session"/>
+
+        <action id="EnvForge.RevealValue"
+                class="com.envforge.intellij.actions.RevealValueAction"
+                text="Reveal Value (Audit-logged)..."
+                description="Show a single env var value; reveal is recorded to the envforge audit stream"/>
+
+        <action id="EnvForge.CanaryCheck"
+                class="com.envforge.intellij.actions.CanaryCheckAction"
+                text="Check Triggered Canaries"
+                description="List canary tripwires that have fired"/>
+
+        <action id="EnvForge.CanaryScan"
+                class="com.envforge.intellij.actions.CanaryScanAction"
+                text="Scan Text/File for Canary Tokens..."
+                description="Scan pasted text, a file, or the editor selection for registered canary tokens"/>
+
+        <action id="EnvForge.ExtendLease"
+                class="com.envforge.intellij.actions.ExtendLeaseAction"
+                text="Extend Volatile Lease..."
+                description="Extend the soonest-expiring active envforge lease"/>
       </group>
     </actions>
 </idea-plugin>

@@ -194,9 +194,12 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             fuzzy,
             reveal,
         } => cmd_search(query, json, *fuzzy, *reveal),
-        Commands::Fence { status } => {
+        Commands::Exposure { file } => cmd_exposure(file),
+        Commands::Fence { status, disable } => {
             if *status {
                 cmd_fence_status(json)
+            } else if *disable {
+                cmd_fence_disable(dry_run)
             } else {
                 cmd_fence(dry_run)
             }
@@ -3836,6 +3839,124 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Compute the AI-exposure classification for a single `.env*` file
+/// and emit JSON shaped like the LSP `envforge/exposureMap` response so
+/// IDE plugins that prefer subprocess calls over a custom LSP request
+/// can consume the same data shape.
+fn cmd_exposure(file: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::lsp::document::parse_env_document;
+    use crate::lsp::exposure::compute_exposure_map;
+    use crate::ops::fence::check_fence_status;
+    use crate::ops::schema::parse_schema_content;
+
+    let path = std::path::Path::new(file);
+    let content = std::fs::read_to_string(path)?;
+    let entries = parse_env_document(&content);
+
+    // Look for `.env.schema.toml` (or legacy `.env.schema`) next to the
+    // target file, then walk upward to find one — mirrors the LSP
+    // server's discovery so subprocess vs LSP outputs match.
+    let schema = {
+        let mut dir = path.parent().map(|p| p.to_path_buf());
+        let mut found = None;
+        while let Some(d) = dir {
+            let toml = d.join(".env.schema.toml");
+            let legacy = d.join(".env.schema");
+            let candidate = if toml.exists() {
+                Some(toml)
+            } else if legacy.exists() {
+                Some(legacy)
+            } else {
+                None
+            };
+            if let Some(p) = candidate {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    if let Ok(s) = parse_schema_content(&text) {
+                        found = Some(s);
+                    }
+                }
+                break;
+            }
+            dir = d.parent().map(|p| p.to_path_buf());
+        }
+        found
+    };
+
+    // Probe fence relative to the file's project root (best-effort: walk
+    // up looking for any of the fence markers). If not located, treat
+    // fence as inactive.
+    let fence_active = {
+        let mut dir = path.parent().map(|p| p.to_path_buf());
+        let mut active = false;
+        while let Some(d) = dir {
+            if d.join(".envforgeignore").exists()
+                || d.join(".cursorignore").exists()
+                || d.join(".env.schema.toml").exists()
+                || d.join(".env.schema").exists()
+            {
+                active = check_fence_status(&d)
+                    .map(|s| s.all_fenced)
+                    .unwrap_or(false);
+                break;
+            }
+            dir = d.parent().map(|p| p.to_path_buf());
+        }
+        active
+    };
+
+    let entries_out = compute_exposure_map(&entries, schema.as_ref(), fence_active);
+
+    let payload = serde_json::json!({
+        "entries": entries_out,
+        "fence_active": fence_active,
+    });
+    println!("{}", serde_json::to_string(&payload)?);
+    Ok(())
+}
+
+fn cmd_fence_disable(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::fence::remove_fence;
+
+    let project_dir = std::env::current_dir()?;
+    let result = remove_fence(&project_dir, dry_run)?;
+
+    if dry_run {
+        println!("AI Secret Fence remove (dry run)\n");
+    } else {
+        println!("AI Secret Fence removed\n");
+    }
+
+    for path in &result.files_removed {
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
+        println!("\x1b[31m\u{2717}\x1b[0m Removed {}", display);
+    }
+    for path in &result.files_updated {
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
+        println!("\x1b[33m\u{270e}\x1b[0m Updated {}", display);
+    }
+    for path in &result.files_skipped {
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
+        println!("\x1b[90m- Skipped {} (no envforge content)\x1b[0m", display);
+    }
+
+    let total = result.files_removed.len() + result.files_updated.len();
+    if total == 0 {
+        println!("\nNo envforge fence content found to remove.");
+    } else {
+        println!(
+            "\n{} file(s) {}. AI tools may now access secrets again.",
+            total,
+            if dry_run {
+                "would be modified"
+            } else {
+                "modified"
+            }
+        );
+    }
+
+    Ok(())
+}
+
 fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::fence::check_fence_status;
 
@@ -5233,6 +5354,33 @@ fn cmd_lease(action: &LeaseAction, json: bool) -> Result<(), Box<dyn std::error:
         LeaseAction::Cleanup => {
             let removed = lease::cleanup_expired()?;
             eprintln!("Cleaned up {} expired/revoked lease(s).", removed);
+        }
+        LeaseAction::Renew { name, ttl } => {
+            use crate::ops::session::parse_ttl;
+            let ttl_seconds =
+                parse_ttl(ttl).map_err(|e| -> Box<dyn std::error::Error> { e.into() })? as i64;
+            match lease::renew_lease(name, ttl_seconds)? {
+                None => {
+                    return Err(format!("lease '{}' not found", name).into());
+                }
+                Some(lease) => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "name": lease.name,
+                                "new_expires_at": lease.expires_at,
+                                "ttl_seconds": ttl_seconds,
+                            })
+                        );
+                    } else {
+                        println!(
+                            "Lease '{}' renewed. New expiry: {}",
+                            lease.name, lease.expires_at
+                        );
+                    }
+                }
+            }
         }
         LeaseAction::Grant {
             key,

@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.7] - 2026-05-20
+
+### Added — IDE-First Experience
+
+A coordinated push to make the editor the primary EnvForge surface. Single language-server backend, two thin plugins (VS Code, IntelliJ), one shared behavior contract. Visual moat: AI-exposure heatmap in the gutter, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs.
+
+#### Language Server (`envforge lsp`)
+
+`textDocument/*` capabilities now advertised in `initialize`:
+
+- `textDocument/completion` — schema-aware; sensitive values redacted in `label`, raw value flows only through `text_edit.new_text`.
+- `textDocument/publishDiagnostics` — schema validation, unknown-key warnings (`envforge`), MCP Supply-Chain Integrity findings on `.cursor/mcp.json` / `.claude/settings.json` (`envforge-mcp`), save-time AI-guard prompt-injection scan (`envforge-aiguard`).
+- `textDocument/hover` — schema info + provenance (source file, current value redacted if sensitive, defined-by).
+- `textDocument/definition` — `.env` key → schema. Source files (TS / JS / Python / Rust / Go / Java / Kotlin / Ruby / PHP / C# / Shell) → schema via UPPER_SNAKE identifier extraction.
+- `textDocument/references` — schema declaration + every open `.env*` entry.
+- `textDocument/rename` — atomic `WorkspaceEdit` across schema + open `.env*` documents.
+- `textDocument/codeAction` — `Add to schema`, `Use secret reference`, `Mark as secret`, `Use default`, `Plant canary tripwire`, `Add all missing keys`, `Generate .env from schema`.
+- `textDocument/codeLens` — actionable `Plant canary` and `Activate fence` lenses on sensitive lines.
+- `textDocument/inlayHint` — `(default)`, `→ <redacted>`, `(<type>)` for unset keys.
+- `textDocument/formatting` — canonical `.env` whitespace normalization, blank-line collapse, trailing newline.
+- `textDocument/semanticTokens/full` — `variable` / `string` / `comment` with `readonly` modifier on sensitive keys.
+
+`workspace/executeCommand` provider (15 commands):
+
+- `envforge.fence.enable`, `envforge.fence.disable`, `envforge.fence.toggle`, `envforge.fence.status`
+- `envforge.canary.plant`, `envforge.canary.list`, `envforge.canary.scan`, `envforge.canary.check`
+- `envforge.volatile.status`, `envforge.volatile.extend`
+- `envforge.sync.push`, `envforge.sync.pull`, `envforge.sync.status`
+- `envforge.run.volatile`, `envforge.reveal.value`
+
+Custom request:
+
+- `envforge/exposureMap` — per-line red / amber / green AI-exposure classification with `canary: bool` flag; backs the gutter heatmap and file-explorer badges.
+
+#### New CLI Subcommands
+
+- `envforge exposure --file <PATH>` — emit AI-exposure classification JSON (same wire format as the LSP custom request).
+- `envforge fence --disable` — symmetric counterpart to `envforge fence`; surgically strips envforge-owned content while preserving user content.
+- `envforge lease renew <NAME> --ttl <TTL>` — extend an existing lease without recreating it.
+
+#### IDE Plugin Parity
+
+VSCode `0.1.6`, IntelliJ `0.1.6`:
+
+- Status bar trio: `<N> vars` · fence shield (`AI BLOCKED` / `AI ALLOWED`) · volatile-lease countdown with sub-minute precision and color escalation (amber ≤5 min, red ≤1 min). Click fence → toggle. Click countdown → extend.
+- AI-exposure gutter heatmap: colored dot per env-var line; lines with a registered canary render a shield glyph instead. Hover tooltips quote the classification reason.
+- File-explorer / project-view badges on `.env*` files: 🛡 (fenced) / ! (red) / ? (amber) / ✓ (all-green).
+- Source-language goto-definition: Ctrl-click `process.env.X`, `os.environ["X"]`, `std::env::var("X")`, etc. to land on the schema entry.
+- MCP Supply-Chain Integrity diagnostics on `mcp.json` / `.cursor/mcp.json` / `.claude/settings.json` — credential patterns flagged inline.
+- New command-palette / tools-menu entries: Run Volatile Session, Reveal Value (audit-logged), Plant Canary, Canary Scan, Check Triggered Canaries, Extend Volatile Lease, Enable / Toggle Fence.
+
+#### Security Posture
+
+- Canary fake values are minted server-side; the plant action arguments carry only `{key, pattern, file}` — the payload never flows through plugin process memory.
+- Reveal-value action emits a `RuntimeEvent` to the monitor bus (audit trail). The value crosses the LSP wire only on explicit user confirm; clipboard auto-clears 30 s after copy if the contents still match.
+- LSP server canonicalizes every URI it touches and confines source-file reads to the workspace root with a 1 MiB size cap and extension allow-list.
+
+#### Behavior Contract
+
+- New `docs/ide-behavior-contract.md` documents every IDE feature row-by-row (trigger, LSP method, wording, keybind, test IDs) so VS Code and IntelliJ stay in lockstep. Drift is now a contract bug, not a maintenance footnote.
+- 162 LSP-layer integration tests in `tests/lsp_phase1_tests.rs` fence every behavior listed in the contract.
+
+### Changed
+
+- Test count: **2073 → 2214** (+141 across workspace).
+- README headline subtitle now mentions the LSP + IDE plugins.
+- `docs/api-reference.md` LSP section rewritten to reflect the full capability surface and custom request schema.
+- `docs/cli-reference.md` gains `envforge exposure`, `envforge fence --disable`, `envforge lease renew` entries; `envforge man` picks them up automatically through the embedded include.
+
 ## [0.7.6] - 2026-05-13
 
 ### Added — Project Wizard Redesign

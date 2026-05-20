@@ -50,6 +50,23 @@ pub fn compute_diagnostics(entries: &[EnvDocEntry], schema: Option<&EnvSchema>) 
                 }
             }
         }
+
+        // Unknown keys (present in .env but absent from schema)
+        for entry in entries {
+            if entry.line_type != super::document::EnvLineType::EnvVar {
+                continue;
+            }
+            if schema.variables.contains_key(&entry.key) {
+                continue;
+            }
+            diags.push(Diagnostic {
+                range: entry.key_range,
+                severity: Some(DiagnosticSeverity::WARNING),
+                source: Some("envforge".into()),
+                message: format!("Unknown key '{}' (not in schema)", entry.key),
+                ..Default::default()
+            });
+        }
     }
 
     // Secret leak warnings

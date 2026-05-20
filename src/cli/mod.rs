@@ -484,6 +484,16 @@ pub enum Commands {
         /// Check fence status instead of creating
         #[arg(long)]
         status: bool,
+        /// Remove envforge-owned fence content (preserves user content)
+        #[arg(long, conflicts_with = "status")]
+        disable: bool,
+    },
+
+    /// Compute AI-exposure classification for an .env file (red/amber/green per line)
+    Exposure {
+        /// Path to the .env file to classify
+        #[arg(long)]
+        file: String,
     },
 
     /// Sanitize a file by replacing secret values with ${KEY} placeholders
@@ -918,6 +928,14 @@ pub enum LeaseAction {
     List,
     /// Clean up expired leases
     Cleanup,
+    /// Renew (extend) an existing lease's TTL
+    Renew {
+        /// Lease name
+        name: String,
+        /// New TTL counted from now (e.g. "30m", "2h", "1d")
+        #[arg(long)]
+        ttl: String,
+    },
     /// Mint a JIT lease bound to a single subprocess PID + TTL
     Grant {
         /// Key name (e.g. STRIPE_KEY)

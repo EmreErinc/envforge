@@ -11,7 +11,7 @@ fn test_readme_reports_current_test_count() {
     let readme = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))
         .expect("README exists");
     assert!(
-        readme.contains("2073 tests passing"),
+        readme.contains("2214 tests passing"),
         "README test count drift detected — update README.md per feedback_docs_sync.md"
     );
 }

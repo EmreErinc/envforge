@@ -22,12 +22,44 @@ class EnvForgeFileActionGroup : ActionGroup() {
     }
 
     override fun getChildren(e: AnActionEvent?): Array<AnAction> {
+        // IntelliJ 2024+ requires every menu item carry non-empty
+        // text. The action classes here inherit `AnAction()` with no
+        // text set in their constructors — plugin.xml supplies text
+        // for the Tools-menu copies but these context-menu instances
+        // are constructed in code and bypass that path. Set the text
+        // on each instance explicitly to avoid `Empty menu item text`
+        // crashes on right-click.
+        fun labeled(action: AnAction, text: String, desc: String): AnAction {
+            action.templatePresentation.text = text
+            action.templatePresentation.description = desc
+            return action
+        }
         return arrayOf(
-            ValidateAction(),
-            ScanAction(),
-            ExportAction(),
-            SchemaGenerateAction(),
-            CheckAction(),
+            labeled(
+                ValidateAction(),
+                "Validate Against Schema",
+                "Run envforge schema validation on this file",
+            ),
+            labeled(
+                ScanAction(),
+                "Scan for Secret Leaks",
+                "Scan this file for leaked secrets",
+            ),
+            labeled(
+                ExportAction(),
+                "Export Variables...",
+                "Export env vars to a different format",
+            ),
+            labeled(
+                SchemaGenerateAction(),
+                "Generate Schema",
+                "Generate .env.schema from this file",
+            ),
+            labeled(
+                CheckAction(),
+                "Run All Checks",
+                "Run doctor + validate + scan + age + drift",
+            ),
         )
     }
 

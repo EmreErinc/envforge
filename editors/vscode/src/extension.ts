@@ -8,6 +8,8 @@ import { registerCommands } from './commands';
 import { StatusBar } from './statusbar';
 import { EnvTreeProvider, ProfileTreeProvider } from './treeview';
 import { SecurityTreeProvider, registerSecurityCommands } from './security';
+import { ExposureRenderer } from './exposure';
+import { EnvFileDecorationProvider } from './decorations';
 
 let client: LanguageClient | undefined;
 let statusBar: StatusBar;
@@ -96,6 +98,57 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }
 
+    // AI-exposure heatmap renderer — drives `.env*` gutter glyphs off
+    // the LSP `envforge/exposureMap` custom request.
+    const exposureRenderer = new ExposureRenderer();
+    context.subscriptions.push(exposureRenderer);
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(editor =>
+            exposureRenderer.scheduleRefresh(editor)
+        )
+    );
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeTextDocument(e => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document === e.document) {
+                exposureRenderer.scheduleRefresh(editor);
+            }
+        })
+    );
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(doc => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document === doc) {
+                exposureRenderer.scheduleRefresh(editor);
+            }
+        })
+    );
+    // Kick off initial render for whichever editor is active at startup.
+    exposureRenderer.scheduleRefresh(vscode.window.activeTextEditor);
+
+    // File explorer / open-tabs badges for .env* files. Reuses the
+    // `envforge exposure` CLI so the badge stays consistent with the
+    // in-editor gutter heatmap.
+    const decorationProvider = new EnvFileDecorationProvider();
+    context.subscriptions.push(decorationProvider);
+    context.subscriptions.push(
+        vscode.window.registerFileDecorationProvider(decorationProvider),
+    );
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(doc => {
+            if (doc.uri.scheme === 'file' && /\.env(\.|$)/.test(doc.fileName)) {
+                decorationProvider.refresh(doc.uri);
+            }
+        }),
+    );
+    // Fence toggle changes the workspace-wide badge story. Refresh
+    // every cached entry after either fence command runs.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('envforge.decorations.refreshAll', () =>
+            decorationProvider.refresh(),
+        ),
+    );
+
     // Refresh data
     statusBar.update();
     treeProvider.refresh();
@@ -120,6 +173,29 @@ async function startLanguageServer(
             { scheme: 'file', pattern: '**/.env' },
             { scheme: 'file', pattern: '**/.env.*' },
             { scheme: 'file', pattern: '**/*.env' },
+            // Source-language selectors enable LSP requests (notably
+            // goto-definition) from code that reads env vars. The LSP
+            // server silently ignores did_open/did_change for these
+            // URIs; they only participate in definition lookups.
+            { scheme: 'file', language: 'typescript' },
+            { scheme: 'file', language: 'typescriptreact' },
+            { scheme: 'file', language: 'javascript' },
+            { scheme: 'file', language: 'javascriptreact' },
+            { scheme: 'file', language: 'python' },
+            { scheme: 'file', language: 'rust' },
+            { scheme: 'file', language: 'go' },
+            { scheme: 'file', language: 'java' },
+            { scheme: 'file', language: 'kotlin' },
+            { scheme: 'file', language: 'ruby' },
+            { scheme: 'file', language: 'php' },
+            { scheme: 'file', language: 'csharp' },
+            { scheme: 'file', language: 'shellscript' },
+            // MCP config files — linted inline for hardcoded credentials.
+            { scheme: 'file', pattern: '**/mcp.json' },
+            { scheme: 'file', pattern: '**/.mcp.json' },
+            { scheme: 'file', pattern: '**/.cursor/mcp.json' },
+            { scheme: 'file', pattern: '**/.claude/settings.json' },
+            { scheme: 'file', pattern: '**/claude_desktop_config.json' },
         ],
         synchronize: {
             fileEvents: [
