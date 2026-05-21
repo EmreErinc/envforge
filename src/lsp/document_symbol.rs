@@ -13,8 +13,8 @@ pub fn document_symbols(entries: &[EnvDocEntry]) -> Option<DocumentSymbolRespons
                     character: 0,
                 },
                 end: Position {
-                    line: entry.line,
-                    character: 0,
+                    line: entry.value_range.end.line,
+                    character: entry.value_range.end.character,
                 },
             };
 

@@ -1,6 +1,6 @@
 [package]
 name = "env-forge-tui"
-version = "0.7.5"
+version = "0.7.7"
 edition = "2021"
 rust-version = "1.75"
 description = "Terminal environment variable manager with TUI and CLI"
@@ -51,6 +51,21 @@ dashmap = "5.5"
 uuid = { version = "1", features = ["v4", "serde"] }
 cron = "0.15"
 zeroize = "1"
+libc = "0.2"
+
+# TLS + cert parsing for MCP remote-server pinning (ADR-015)
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+webpki-roots = "0.26"
+x509-cert = { version = "0.2", features = ["std"] }
+
+# Gzip decompress for bundled MCP reputation feed (ADR-018)
+flate2 = "1"
+
+# Unicode NFKC normalization for MCP poisoning scanner canonicalization (Bolt 079)
+unicode-normalization = "0.1"
+
+# Masked password input for project wizard sensitive values
+rpassword = "7"
 
 [lints.rust]
 future-incompatible = "warn"

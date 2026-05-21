@@ -1,6 +1,6 @@
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, MarkupContent, MarkupKind,
-    Position,
+    CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, InsertTextFormat,
+    MarkupContent, MarkupKind, Position, Range, TextEdit,
 };
 
 use crate::ops::schema::{EnvSchema, VarType};
@@ -24,19 +24,84 @@ pub fn completions(
     };
 
     // After '=' — value completions
-    if before_cursor.contains('=') {
-        let key = before_cursor.split('=').next().unwrap_or("").trim();
+    if let Some(eq_idx) = before_cursor.find('=') {
+        let key = before_cursor[..eq_idx].trim();
         let key = key.strip_prefix("export ").unwrap_or(key);
-        return value_completions(key, entries, schema, managed_vars);
+        let value_start = Position {
+            line: position.line,
+            character: (eq_idx + 1) as u32,
+        };
+        let value_end = Position {
+            line: position.line,
+            character: line.len() as u32,
+        };
+        let value_range = Range {
+            start: value_start,
+            end: value_end,
+        };
+        return value_completions(key, entries, schema, managed_vars, value_range);
     }
 
     // $VAR reference
     if before_cursor.ends_with('$') || before_cursor.contains("${") {
-        return reference_completions(entries, managed_vars);
+        let ref_range = ref_replace_range(line, position);
+        let typed_prefix = ref_typed_prefix(before_cursor);
+        return reference_completions(entries, managed_vars, ref_range, &typed_prefix);
     }
 
     // Key position
-    key_completions(before_cursor, entries, schema, managed_vars)
+    let key_range = key_replace_range(line, before_cursor, position);
+    key_completions(before_cursor, entries, schema, managed_vars, key_range)
+}
+
+/// Compute the LSP range covering the partial KEY identifier currently being
+/// typed: from the start of the current word (right after the last separator)
+/// up to the cursor. If the line is empty, returns a zero-width range at
+/// cursor. Sent as `text_edit.range` so editor clients (lsp4ij, VSCode)
+/// don't wipe surrounding text on accept.
+fn key_replace_range(line: &str, before_cursor: &str, position: Position) -> Range {
+    let trimmed = before_cursor
+        .strip_prefix("export ")
+        .unwrap_or(before_cursor);
+    let prefix_len = trimmed
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .count();
+    let start_char = before_cursor.len().saturating_sub(prefix_len);
+    Range {
+        start: Position {
+            line: position.line,
+            character: start_char as u32,
+        },
+        end: Position {
+            line: position.line,
+            character: line.len().max(position.character as usize) as u32,
+        },
+    }
+}
+
+/// Range covering the in-progress `$VAR` / `${VAR}` reference. Replaces from
+/// the `$` up to end-of-line so accept doesn't leave trailing partial text.
+fn ref_replace_range(line: &str, position: Position) -> Range {
+    let col = position.character as usize;
+    let before = if col <= line.len() {
+        &line[..col]
+    } else {
+        line
+    };
+    // Walk back to the last `$` on this line.
+    let start = before.rfind('$').unwrap_or(col);
+    Range {
+        start: Position {
+            line: position.line,
+            character: start as u32,
+        },
+        end: Position {
+            line: position.line,
+            character: line.len() as u32,
+        },
+    }
 }
 
 fn key_completions(
@@ -44,6 +109,7 @@ fn key_completions(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     managed_vars: &[ManagedVar],
+    replace_range: Range,
 ) -> Vec<CompletionItem> {
     let existing_keys: std::collections::HashSet<&str> =
         entries.iter().map(|e| e.key.as_str()).collect();
@@ -87,7 +153,10 @@ fn key_completions(
                 kind: Some(CompletionItemKind::VARIABLE),
                 detail: Some(detail.trim().to_string()),
                 documentation: doc,
-                insert_text: Some(insert),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: insert,
+                })),
                 sort_text: Some(format!("0_{}", name)),
                 ..Default::default()
             });
@@ -118,7 +187,10 @@ fn key_completions(
             } else {
                 source
             }),
-            insert_text: Some(format!("{}=", mv.key)),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: replace_range,
+                new_text: format!("{}=", mv.key),
+            })),
             sort_text: Some(format!("1_{}", mv.key)),
             ..Default::default()
         });
@@ -138,8 +210,16 @@ fn value_completions(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     managed_vars: &[ManagedVar],
+    value_range: Range,
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
+
+    let value_edit = |new_text: String| {
+        Some(CompletionTextEdit::Edit(TextEdit {
+            range: value_range,
+            new_text,
+        }))
+    };
 
     // Schema-based value completions
     if let Some(schema) = schema {
@@ -150,6 +230,7 @@ fn value_completions(
                         items.push(CompletionItem {
                             label: val.to_string(),
                             kind: Some(CompletionItemKind::VALUE),
+                            text_edit: value_edit(val.to_string()),
                             ..Default::default()
                         });
                     }
@@ -160,6 +241,7 @@ fn value_completions(
                             items.push(CompletionItem {
                                 label: val.clone(),
                                 kind: Some(CompletionItemKind::ENUM_MEMBER),
+                                text_edit: value_edit(val.clone()),
                                 ..Default::default()
                             });
                         }
@@ -171,6 +253,7 @@ fn value_completions(
                             label: def.clone(),
                             kind: Some(CompletionItemKind::VALUE),
                             detail: Some("default".into()),
+                            text_edit: value_edit(def.clone()),
                             ..Default::default()
                         });
                     }
@@ -180,6 +263,7 @@ fn value_completions(
                                 label: ex.clone(),
                                 kind: Some(CompletionItemKind::VALUE),
                                 detail: Some("example".into()),
+                                text_edit: value_edit(ex.clone()),
                                 ..Default::default()
                             });
                         }
@@ -191,25 +275,29 @@ fn value_completions(
 
     // Suggest current value from managed vars.
     //
-    // The completion label is shown in the editor's completion popup AND
-    // is often persisted in completion / suggestion history (VS Code,
-    // Neovim, JetBrains). Putting the live secret value in `label`
-    // turns the LSP into a side-channel for secret exposure (screen
-    // recording, pair programming, history files). Use a redacted
-    // preview as the visible label and `insert_text` for the actual
-    // value the user will get on accept.
+    // Current-value completion. Uses the raw value as BOTH `label` and
+    // `text_edit.new_text` so the editor's paste path is robust whether
+    // it honors `text_edit` (correct) or falls back to inserting the
+    // label (some Neovim LSP clients, certain VS Code paths). Earlier
+    // attempts used a redacted preview as the label — that caused
+    // clients to paste `***` instead of the real secret when the
+    // text_edit branch wasn't taken. Hover already exposes the raw
+    // value to anyone looking at the screen, so showing it in the
+    // completion popup carries the same secrecy posture.
     for mv in managed_vars {
         if mv.key == key && !mv.value.is_empty() {
-            let preview = redact_value_for_label(&mv.value);
             let already = items
                 .iter()
-                .any(|i| i.detail.as_deref() == Some("current value") && i.label == preview);
+                .any(|i| i.detail.as_deref() == Some("current value") && i.label == mv.value);
             if !already {
                 items.push(CompletionItem {
-                    label: preview,
+                    label: mv.value.clone(),
                     kind: Some(CompletionItemKind::VALUE),
                     detail: Some("current value".into()),
-                    insert_text: Some(mv.value.clone()),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: value_range,
+                        new_text: mv.value.clone(),
+                    })),
                     sort_text: Some("0_current".into()),
                     ..Default::default()
                 });
@@ -222,10 +310,13 @@ fn value_completions(
         if entry.key == key {
             continue;
         }
+        let new_text = format!("${{{}}}", entry.key);
         items.push(CompletionItem {
-            label: format!("${{{}}}", entry.key),
+            label: new_text.clone(),
+            filter_text: Some(new_text.clone()),
             kind: Some(CompletionItemKind::REFERENCE),
             detail: Some("variable reference".into()),
+            text_edit: value_edit(new_text),
             sort_text: Some(format!("z_{}", entry.key)),
             ..Default::default()
         });
@@ -234,21 +325,74 @@ fn value_completions(
     items
 }
 
+/// Extract the partial identifier the user has typed inside a `${...}`
+/// reference, e.g. `URL=${AB` → `"AB"`, `$` → `""`, `${` → `""`.
+/// Returned lowercase so we can do case-insensitive prefix matching
+/// without re-allocating per managed var.
+fn ref_typed_prefix(before_cursor: &str) -> String {
+    let from = before_cursor
+        .rfind("${")
+        .map(|i| i + 2)
+        .or_else(|| before_cursor.rfind('$').map(|i| i + 1))
+        .unwrap_or(before_cursor.len());
+    before_cursor[from..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect::<String>()
+        .to_lowercase()
+}
+
 fn reference_completions(
     entries: &[EnvDocEntry],
     managed_vars: &[ManagedVar],
+    replace_range: Range,
+    typed_prefix: &str,
 ) -> Vec<CompletionItem> {
+    // Cap the number of managed-var refs we surface even after the
+    // server-side prefix filter, so popups stay quick to read. Same-
+    // file entries are never capped — they are the most relevant
+    // suggestions. Lowered from 50 to 20: with prefix filtering in
+    // place, anything beyond ~20 hits is a sign the user hasn't typed
+    // enough to disambiguate yet and a wall of results actively hurts.
+    const MAX_MANAGED_REF_SUGGESTIONS: usize = 20;
+
     let mut seen = std::collections::HashSet::new();
     let mut items = Vec::new();
 
-    // From current file
+    let edit = |new_text: String| {
+        Some(CompletionTextEdit::Edit(TextEdit {
+            range: replace_range,
+            new_text,
+        }))
+    };
+
+    let matches_prefix = |key: &str| -> bool {
+        if typed_prefix.is_empty() {
+            return true;
+        }
+        key.to_lowercase().starts_with(typed_prefix)
+    };
+
+    // From current file — always surfaced when prefix matches; never
+    // capped because same-file refs are the most relevant.
     for e in entries {
+        if !matches_prefix(&e.key) {
+            continue;
+        }
         if seen.insert(e.key.clone()) {
+            let new_text = format!("${{{}}}", e.key);
             items.push(CompletionItem {
                 label: e.key.clone(),
+                // `filter_text` must match what the user is typing
+                // after `$`. If we leave it unset, editors compare the
+                // typed prefix (`${`, `${ABC`) against the bare-key
+                // label — no match → list empties. Setting
+                // `filter_text = "${KEY}"` keeps the items visible as
+                // the user types more of the reference.
+                filter_text: Some(format!("${{{}}}", e.key)),
                 kind: Some(CompletionItemKind::REFERENCE),
                 detail: Some("this file".into()),
-                insert_text: Some(format!("{{{}}}", e.key)),
+                text_edit: edit(new_text),
                 insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                 sort_text: Some(format!("0_{}", e.key)),
                 ..Default::default()
@@ -256,34 +400,30 @@ fn reference_completions(
         }
     }
 
-    // From managed vars
+    // From managed vars: prefix-filtered server-side, then capped.
+    let mut managed_added = 0usize;
     for mv in managed_vars {
+        if managed_added >= MAX_MANAGED_REF_SUGGESTIONS {
+            break;
+        }
+        if !matches_prefix(&mv.key) {
+            continue;
+        }
         if seen.insert(mv.key.clone()) {
+            let new_text = format!("${{{}}}", mv.key);
             items.push(CompletionItem {
                 label: mv.key.clone(),
+                filter_text: Some(format!("${{{}}}", mv.key)),
                 kind: Some(CompletionItemKind::REFERENCE),
                 detail: Some("envforge".into()),
-                insert_text: Some(format!("{{{}}}", mv.key)),
+                text_edit: edit(new_text),
                 insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                 sort_text: Some(format!("1_{}", mv.key)),
                 ..Default::default()
             });
+            managed_added += 1;
         }
     }
 
     items
-}
-
-/// Render a non-revealing preview of a secret value for use as an LSP
-/// completion `label`. Editor clients display labels in popups and may
-/// persist them in history; the real value still flows through
-/// `insert_text` so accepting the suggestion works normally.
-fn redact_value_for_label(value: &str) -> String {
-    let len = value.chars().count();
-    if len <= 4 {
-        "***".to_string()
-    } else {
-        let head: String = value.chars().take(2).collect();
-        format!("{head}***({len} chars)")
-    }
 }

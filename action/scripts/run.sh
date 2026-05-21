@@ -16,6 +16,51 @@ MASK_VALUES="${INPUT_MASK_VALUES:-true}"
 ENV_FILES="${INPUT_ENV_FILES:-}"
 OVERRIDES="${INPUT_OVERRIDES:-}"
 DRIFT_ENVS="${INPUT_DRIFT_ENVS:-}"
+QUARANTINE="${INPUT_QUARANTINE:-auto}"
+ALLOW_KEYS="${INPUT_ALLOW_KEYS:-}"
+
+# --------------------------------------------------------------------------
+# CI Trust Classification + Quarantine
+# --------------------------------------------------------------------------
+# Runs once at the top so the rest of run.sh sees a possibly-scrubbed env.
+
+apply_ci_trust() {
+  if [ "${QUARANTINE}" = "off" ]; then
+    echo "EnvForge: quarantine=off; skipping trust classification" >&2
+    envforge ci-trust summary >> "${GITHUB_STEP_SUMMARY:-/dev/null}" 2>/dev/null || true
+    return 0
+  fi
+
+  local verdict_json verdict_level
+  verdict_json="$(envforge ci-trust classify --json 2>/dev/null || echo '{}')"
+  verdict_level="$(echo "${verdict_json}" | grep -oE '"Untrusted"|"Suspicious"|"Trusted"' | head -1 | tr -d '"')"
+  verdict_level="${verdict_level:-Untrusted}"
+
+  if [ "${verdict_level}" = "Untrusted" ] || [ "${QUARANTINE}" = "force" ]; then
+    echo "::warning::EnvForge: untrusted CI trigger detected (or --quarantine=force); scrubbing secrets"
+
+    # Build allow-key flags from comma/newline-separated input
+    local allow_flags=""
+    if [ -n "${ALLOW_KEYS}" ]; then
+      local _ifs="${IFS}"
+      IFS=$',\n'
+      for k in ${ALLOW_KEYS}; do
+        k="${k// /}"  # strip whitespace
+        [ -n "${k}" ] && allow_flags="${allow_flags} --allow-key ${k}"
+      done
+      IFS="${_ifs}"
+    fi
+
+    # Run quarantine; emitted lines install the scrubbed environment in this shell
+    local force_flag=""
+    [ "${QUARANTINE}" = "force" ] && force_flag="--force"
+    eval "$(envforge ci-trust quarantine ${force_flag} ${allow_flags})"
+  fi
+
+  envforge ci-trust summary >> "${GITHUB_STEP_SUMMARY:-/dev/null}" 2>/dev/null || true
+}
+
+apply_ci_trust
 
 # --------------------------------------------------------------------------
 # Helpers

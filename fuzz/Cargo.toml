@@ -33,3 +33,10 @@ path = "fuzz_targets/provider_parsers.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "canonical_hasher"
+path = "fuzz_targets/canonical_hasher.rs"
+test = false
+doc = false
+bench = false

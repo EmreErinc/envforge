@@ -19,12 +19,14 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             group,
             sort,
             reverse,
+            reveal,
         } => cmd_list(
             json,
             filter.as_deref(),
             group.as_deref(),
             sort.as_str(),
             *reverse,
+            *reveal,
         ),
         Commands::Get { key } => cmd_get(key, json),
         Commands::Set { assignment } => cmd_set(assignment, dry_run),
@@ -154,7 +156,11 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Hook { shell } => cmd_hook(shell),
         Commands::Env { dir } => crate::ops::hook::cmd_env(dir.as_deref()).map_err(|e| e.into()),
         Commands::EnvUnload { dir } => crate::ops::hook::cmd_env_unload(dir).map_err(|e| e.into()),
-        Commands::Doctor { verbose } => cmd_doctor(*verbose, json),
+        Commands::Doctor {
+            verbose,
+            all,
+            fail_on,
+        } => cmd_doctor(*verbose, *all, fail_on.as_deref(), json),
         Commands::Check { only } => cmd_check(only.as_deref(), json),
         Commands::Snapshot { action } => cmd_snapshot(action, dry_run, json),
         Commands::Share { action } => cmd_share(action, dry_run),
@@ -183,10 +189,17 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         ),
         Commands::AuditTrail { action } => super::audit_cmd::execute_audit_trail(action, json)
             .map_err(|e| -> Box<dyn std::error::Error> { e.into() }),
-        Commands::Search { query, fuzzy } => cmd_search(query, json, *fuzzy),
-        Commands::Fence { status } => {
+        Commands::Search {
+            query,
+            fuzzy,
+            reveal,
+        } => cmd_search(query, json, *fuzzy, *reveal),
+        Commands::Exposure { file } => cmd_exposure(file),
+        Commands::Fence { status, disable } => {
             if *status {
                 cmd_fence_status(json)
+            } else if *disable {
+                cmd_fence_disable(dry_run)
             } else {
                 cmd_fence(dry_run)
             }
@@ -222,6 +235,8 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
         Commands::Canary { action } => cmd_canary(action, json),
         Commands::Hardening { action } => cmd_hardening(action),
         Commands::Scanner { action } => cmd_scanner(action),
+        Commands::CiTrust { action } => cmd_ci_trust(action),
+        Commands::Envbom { action } => cmd_envbom(action),
         Commands::Monitor { action } => cmd_monitor(action),
         Commands::Revoke { all, name } => cmd_revoke(*all, name.as_deref(), json),
         Commands::Deps { key, source } => cmd_deps(key, *source, json),
@@ -271,6 +286,7 @@ fn cmd_list(
     group: Option<&str>,
     sort: &str,
     reverse: bool,
+    reveal: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (config, shell_files) = load_context()?;
     let mut entries = collect_all_entries(&shell_files);
@@ -318,7 +334,7 @@ fn cmd_list(
                         .entries
                         .iter()
                         .map(|e| {
-                            let value = if is_sensitive(&e.key) {
+                            let value = if !reveal && is_sensitive(&e.key) {
                                 mask_value(&e.value)
                             } else {
                                 e.value.clone()
@@ -355,14 +371,19 @@ fn cmd_list(
             }
         }
     } else if json {
-        print_entries_json(&entries)?;
+        print_entries_json(&entries, reveal)?;
     } else {
         print_entries_table(&entries);
     }
     Ok(())
 }
 
-fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_search(
+    query: &str,
+    json: bool,
+    fuzzy: bool,
+    reveal: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     if query.is_empty() {
         return Err("Search query cannot be empty".into());
     }
@@ -395,7 +416,7 @@ fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::e
             let json_results: Vec<serde_json::Value> = results
                 .iter()
                 .map(|r| {
-                    let value = if is_sensitive(&r.entry.key) {
+                    let value = if !reveal && is_sensitive(&r.entry.key) {
                         mask_value(&r.entry.value)
                     } else {
                         r.entry.value.clone()
@@ -456,7 +477,7 @@ fn cmd_search(query: &str, json: bool, fuzzy: bool) -> Result<(), Box<dyn std::e
             let json_results: Vec<serde_json::Value> = results
                 .iter()
                 .map(|e| {
-                    let value = if is_sensitive(&e.key) {
+                    let value = if !reveal && is_sensitive(&e.key) {
                         mask_value(&e.value)
                     } else {
                         e.value.clone()
@@ -1244,9 +1265,47 @@ fn cmd_mcp(
     dry_run: bool,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::cli::mcp_pin_cmd;
     match action {
         McpAction::Harden => cmd_mcp_harden(dry_run, json),
         McpAction::Status => cmd_mcp_status(json),
+        McpAction::Pin {
+            strict,
+            inspect,
+            lockfile,
+            refresh,
+            accept,
+            yes,
+            resolve_conflicts,
+        } => mcp_pin_cmd::cmd_pin(
+            *strict,
+            *inspect,
+            lockfile.as_ref(),
+            *refresh,
+            *accept,
+            *yes,
+            resolve_conflicts.as_deref(),
+        ),
+        McpAction::Verify {
+            json,
+            strict,
+            lockfile,
+        } => mcp_pin_cmd::cmd_verify(*json, *strict, lockfile.as_ref()),
+        McpAction::Diff { server, lockfile } => {
+            mcp_pin_cmd::cmd_diff(server.as_deref(), lockfile.as_ref())
+        }
+        McpAction::Trust { name, reason } => mcp_pin_cmd::cmd_trust(name, reason),
+        McpAction::Untrust { name } => mcp_pin_cmd::cmd_untrust(name),
+        McpAction::Explain {
+            lock,
+            format,
+            lockfile,
+        } => mcp_pin_cmd::cmd_explain(*lock, format, lockfile.as_ref()),
+        McpAction::Launch {
+            ide,
+            lockfile,
+            args,
+        } => mcp_pin_cmd::cmd_launch(ide, args, lockfile.as_ref()),
     }
 }
 
@@ -2064,11 +2123,14 @@ fn print_entries_table(entries: &[EnvEntry]) {
     }
 }
 
-fn print_entries_json(entries: &[EnvEntry]) -> Result<(), Box<dyn std::error::Error>> {
+fn print_entries_json(
+    entries: &[EnvEntry],
+    reveal: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let json_entries: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
-            let value = if is_sensitive(&e.key) {
+            let value = if !reveal && is_sensitive(&e.key) {
                 mask_value(&e.value)
             } else {
                 e.value.clone()
@@ -2430,6 +2492,12 @@ fn cmd_init_schema(
     use crate::ops::schema::{find_schema, parse_schema};
     use std::io::{self, BufRead, Write};
 
+    eprintln!(
+        "warning: 'envforge init' is deprecated. Use 'envforge project wizard' for guided setup. \
+         This command will be removed in v0.8.0."
+    );
+    eprintln!();
+
     let sf = schema_path
         .map(std::path::PathBuf::from)
         .or_else(find_schema)
@@ -2726,10 +2794,19 @@ fn cmd_check(only: Option<&str>, json: bool) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::ops::doctor::{run_doctor, CheckStatus};
+fn cmd_doctor(
+    verbose: bool,
+    all: bool,
+    fail_on: Option<&str>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::doctor::{build_mcp_section, run_doctor, CheckStatus, DoctorOpts};
 
     let report = run_doctor();
+    let mcp_opts = DoctorOpts {
+        include_unknown: all,
+    };
+    let mcp_section = build_mcp_section(&mcp_opts);
 
     if json {
         let checks: Vec<serde_json::Value> = report
@@ -2791,6 +2868,47 @@ fn cmd_doctor(verbose: bool, json: bool) -> Result<(), Box<dyn std::error::Error
         report.error_count()
     );
 
+    if let Some(mcp) = &mcp_section {
+        if !json {
+            println!();
+            println!("MCP supply-chain:");
+            if !mcp.lockfile_exists {
+                println!("  no lockfile (.envforge/mcp.lock) — run `envforge mcp pin` to enable");
+            } else {
+                println!(
+                    "  pinned servers: {} ({} KnownBad, {} UNKNOWN shown)",
+                    mcp.pinned_server_count, mcp.known_bad_count, mcp.unknown_count,
+                );
+                if mcp.feed_stale {
+                    println!(
+                        "  feed STALE (version {}; upgrade binary for fresh reputation)",
+                        mcp.feed_version
+                    );
+                }
+                for name in &mcp.known_bad_servers {
+                    println!("  ✗ KnownBad: {name}");
+                }
+                if all {
+                    for name in &mcp.unknown_servers {
+                        println!("  ? UNKNOWN: {name}");
+                    }
+                }
+            }
+        }
+    }
+
+    // --fail-on subsystem exit-code (Bolt 081 / Story 002)
+    if let Some(subsystem) = fail_on {
+        if subsystem == "mcp" {
+            if let Some(mcp) = &mcp_section {
+                if mcp.has_critical_findings() {
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+
+    let _ = verbose;
     Ok(())
 }
 
@@ -3721,6 +3839,124 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Compute the AI-exposure classification for a single `.env*` file
+/// and emit JSON shaped like the LSP `envforge/exposureMap` response so
+/// IDE plugins that prefer subprocess calls over a custom LSP request
+/// can consume the same data shape.
+fn cmd_exposure(file: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::lsp::document::parse_env_document;
+    use crate::lsp::exposure::compute_exposure_map;
+    use crate::ops::fence::check_fence_status;
+    use crate::ops::schema::parse_schema_content;
+
+    let path = std::path::Path::new(file);
+    let content = std::fs::read_to_string(path)?;
+    let entries = parse_env_document(&content);
+
+    // Look for `.env.schema.toml` (or legacy `.env.schema`) next to the
+    // target file, then walk upward to find one — mirrors the LSP
+    // server's discovery so subprocess vs LSP outputs match.
+    let schema = {
+        let mut dir = path.parent().map(|p| p.to_path_buf());
+        let mut found = None;
+        while let Some(d) = dir {
+            let toml = d.join(".env.schema.toml");
+            let legacy = d.join(".env.schema");
+            let candidate = if toml.exists() {
+                Some(toml)
+            } else if legacy.exists() {
+                Some(legacy)
+            } else {
+                None
+            };
+            if let Some(p) = candidate {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    if let Ok(s) = parse_schema_content(&text) {
+                        found = Some(s);
+                    }
+                }
+                break;
+            }
+            dir = d.parent().map(|p| p.to_path_buf());
+        }
+        found
+    };
+
+    // Probe fence relative to the file's project root (best-effort: walk
+    // up looking for any of the fence markers). If not located, treat
+    // fence as inactive.
+    let fence_active = {
+        let mut dir = path.parent().map(|p| p.to_path_buf());
+        let mut active = false;
+        while let Some(d) = dir {
+            if d.join(".envforgeignore").exists()
+                || d.join(".cursorignore").exists()
+                || d.join(".env.schema.toml").exists()
+                || d.join(".env.schema").exists()
+            {
+                active = check_fence_status(&d)
+                    .map(|s| s.all_fenced)
+                    .unwrap_or(false);
+                break;
+            }
+            dir = d.parent().map(|p| p.to_path_buf());
+        }
+        active
+    };
+
+    let entries_out = compute_exposure_map(&entries, schema.as_ref(), fence_active);
+
+    let payload = serde_json::json!({
+        "entries": entries_out,
+        "fence_active": fence_active,
+    });
+    println!("{}", serde_json::to_string(&payload)?);
+    Ok(())
+}
+
+fn cmd_fence_disable(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::fence::remove_fence;
+
+    let project_dir = std::env::current_dir()?;
+    let result = remove_fence(&project_dir, dry_run)?;
+
+    if dry_run {
+        println!("AI Secret Fence remove (dry run)\n");
+    } else {
+        println!("AI Secret Fence removed\n");
+    }
+
+    for path in &result.files_removed {
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
+        println!("\x1b[31m\u{2717}\x1b[0m Removed {}", display);
+    }
+    for path in &result.files_updated {
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
+        println!("\x1b[33m\u{270e}\x1b[0m Updated {}", display);
+    }
+    for path in &result.files_skipped {
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
+        println!("\x1b[90m- Skipped {} (no envforge content)\x1b[0m", display);
+    }
+
+    let total = result.files_removed.len() + result.files_updated.len();
+    if total == 0 {
+        println!("\nNo envforge fence content found to remove.");
+    } else {
+        println!(
+            "\n{} file(s) {}. AI tools may now access secrets again.",
+            total,
+            if dry_run {
+                "would be modified"
+            } else {
+                "modified"
+            }
+        );
+    }
+
+    Ok(())
+}
+
 fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::fence::check_fence_status;
 
@@ -4371,6 +4607,176 @@ fn cmd_canary(action: &super::CanaryAction, json: bool) -> Result<(), Box<dyn st
                 false => println!("Canary {} already placed in {}", key, file),
             }
         }
+        // ─── v2 forensic canaries ────────────────
+        super::CanaryAction::MintV2 {
+            key,
+            tool,
+            pid,
+            json: emit_json,
+        } => {
+            let actual_pid = pid.unwrap_or_else(std::process::id);
+            let (record, token) = canary::mint_v2(key, tool, actual_pid)?;
+            if *emit_json {
+                let obj = serde_json::json!({
+                    "version": 2,
+                    "key": record.key,
+                    "token": token,
+                    "tool": tool,
+                    "pid": actual_pid,
+                    "minted_at": record.created_at,
+                });
+                println!("{}", serde_json::to_string_pretty(&obj)?);
+            } else {
+                println!("{}", token);
+            }
+        }
+        super::CanaryAction::Decode { token, json: j } => {
+            // v1 fast path: token doesn't start with v2 prefix.
+            if !token.starts_with(canary::V2_PREFIX) {
+                if *j {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "version": 1,
+                            "opaque": true,
+                            "hmac_valid": false,
+                        }))?
+                    );
+                } else {
+                    println!("v1 token: opaque (no decodable payload)");
+                }
+                return Ok(());
+            }
+            let mgr = canary::HmacKeyManager::load_or_init()?;
+            let registry = mgr.registry();
+            let candidates = registry.verify_iter();
+            match canary::decode_token(token, candidates.iter().map(|(v, k)| (*v, *k))) {
+                Ok(decoded) => {
+                    if *j {
+                        let payload_obj = decoded.payload.as_ref().map(|p| {
+                            serde_json::json!({
+                                "machine_id_hex": hex::encode(p.machine_id),
+                                "pid": p.pid,
+                                "timestamp_unix": p.timestamp_unix(),
+                                "agent_name_hash_hex": hex::encode(p.agent_name_hash),
+                                "key_name_hash_hex": hex::encode(p.key_name_hash),
+                            })
+                        });
+                        let obj = serde_json::json!({
+                            "version": decoded.version,
+                            "hmac_valid": decoded.hmac_valid,
+                            "key_version_used": decoded.key_version_used,
+                            "age_seconds": decoded.age_seconds,
+                            "payload": payload_obj,
+                        });
+                        println!("{}", serde_json::to_string_pretty(&obj)?);
+                    } else {
+                        let banner = if decoded.hmac_valid {
+                            "✅ HMAC valid"
+                        } else {
+                            "⚠ HMAC INVALID — token may be forged or from rotated key"
+                        };
+                        println!("{banner}");
+                        if let Some(p) = &decoded.payload {
+                            println!("  machine_id: {}", hex::encode(p.machine_id));
+                            println!("  pid:        {}", p.pid);
+                            println!("  ts_unix:    {}", p.timestamp_unix());
+                            println!("  agent_hash: {}", hex::encode(p.agent_name_hash));
+                            println!("  key_hash:   {}", hex::encode(p.key_name_hash));
+                            if let Some(age) = decoded.age_seconds {
+                                println!("  age_secs:   {}", age);
+                            }
+                            if let Some(v) = decoded.key_version_used {
+                                println!("  hmac_key_v: {}", v);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("decode error: {e}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        super::CanaryAction::Scan {
+            input,
+            strict,
+            json: j,
+        } => {
+            let matches: Vec<canary::TokenMatch> = if input == "-" {
+                canary::scan_reader(std::io::stdin().lock())
+            } else {
+                let f = std::fs::File::open(input)?;
+                canary::scan_reader(f)
+            };
+            if *j {
+                let arr: Vec<_> = matches
+                    .iter()
+                    .map(|m| {
+                        serde_json::json!({
+                            "token": m.token,
+                            "byte_offset": m.byte_offset,
+                            "line_number": m.line_number,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&arr)?);
+            } else {
+                for m in &matches {
+                    let line = m
+                        .line_number
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "-".into());
+                    println!("line {line}: {}", m.token);
+                }
+                if matches.is_empty() {
+                    println!("(no canary tokens found)");
+                }
+            }
+            if *strict && !matches.is_empty() {
+                std::process::exit(1);
+            }
+        }
+        super::CanaryAction::RotateKey { dry_run } => {
+            if *dry_run {
+                println!("dry-run: would rotate canary HMAC key (active version → +1; oldest retired key evicted if cap reached)");
+            } else {
+                let (new_v, kept) = canary::rotate_key()?;
+                println!(
+                    "rotated: new active key version {new_v}; retired versions kept: {kept:?}"
+                );
+            }
+        }
+        super::CanaryAction::Migrate {
+            dry_run,
+            replace,
+            bulk,
+            tool,
+        } => {
+            if !*bulk && replace.is_none() {
+                eprintln!("specify --replace <key> or --bulk");
+                std::process::exit(2);
+            }
+            let plan = canary::MigrationService::plan(replace.as_deref())?;
+            if plan.steps.is_empty() {
+                println!("(nothing to migrate)");
+            } else {
+                for s in &plan.steps {
+                    println!("  {} -> {:?}: {}", s.original_key, s.action, s.reason);
+                }
+            }
+            let report = canary::MigrationService::execute(&plan, *dry_run, tool)?;
+            println!(
+                "planned={} executed={} skipped={} failures={}",
+                report.planned,
+                report.executed,
+                report.skipped,
+                report.failures.len()
+            );
+            for (k, e) in &report.failures {
+                eprintln!("  FAIL {k}: {e}");
+            }
+        }
     }
 
     Ok(())
@@ -4949,6 +5355,121 @@ fn cmd_lease(action: &LeaseAction, json: bool) -> Result<(), Box<dyn std::error:
             let removed = lease::cleanup_expired()?;
             eprintln!("Cleaned up {} expired/revoked lease(s).", removed);
         }
+        LeaseAction::Renew { name, ttl } => {
+            use crate::ops::session::parse_ttl;
+            let ttl_seconds =
+                parse_ttl(ttl).map_err(|e| -> Box<dyn std::error::Error> { e.into() })? as i64;
+            match lease::renew_lease(name, ttl_seconds)? {
+                None => {
+                    return Err(format!("lease '{}' not found", name).into());
+                }
+                Some(lease) => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "name": lease.name,
+                                "new_expires_at": lease.expires_at,
+                                "ttl_seconds": ttl_seconds,
+                            })
+                        );
+                    } else {
+                        println!(
+                            "Lease '{}' renewed. New expiry: {}",
+                            lease.name, lease.expires_at
+                        );
+                    }
+                }
+            }
+        }
+        LeaseAction::Grant {
+            key,
+            pid,
+            ttl,
+            tool,
+            multi_redeem,
+            json: emit_json,
+        } => {
+            let ttl_secs_i64 = lease::parse_lease_duration(ttl)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            let ttl_secs = u64::try_from(ttl_secs_i64)
+                .map_err(|_| -> Box<dyn std::error::Error> { "ttl must be positive".into() })?;
+            let req = lease::GrantRequest {
+                key: key.clone(),
+                pid: *pid,
+                ttl_secs,
+                tool_name: tool.clone(),
+                single_redeem: !multi_redeem,
+            };
+            let handle = lease::jit_grant(req)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+            if *emit_json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "uuid": handle.uuid,
+                        "lease_name": handle.lease_name,
+                    }))?
+                );
+            } else {
+                // Two-line shell-friendly output: capture with `eval` or `read`.
+                println!("{}", handle.uuid);
+                println!("{}", handle.lease_name);
+            }
+        }
+        LeaseAction::Revoke { name } => {
+            let did = lease::jit_revoke(name, lease::RevokeReason::Explicit)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+            if did {
+                eprintln!("revoked lease: {name}");
+            } else {
+                eprintln!("lease not found: {name}");
+                std::process::exit(1);
+            }
+        }
+        LeaseAction::Status {
+            name,
+            json: emit_json,
+        } => {
+            let leases = lease::list_leases()?;
+            let s = match leases.into_iter().find(|l| &l.name == name) {
+                Some(s) => s,
+                None => {
+                    eprintln!("lease not found: {name}");
+                    std::process::exit(1);
+                }
+            };
+            if *emit_json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "name": s.name,
+                        "expires_at": s.expires_at,
+                        "remaining_seconds": s.remaining_seconds,
+                        "expired": s.expired,
+                        "revoked": s.revoked,
+                        "key_count": s.key_count,
+                        "pid": s.pid,
+                        "redeemed": s.redeemed,
+                    }))?
+                );
+            } else {
+                let pid_s = s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
+                println!("name:      {}", s.name);
+                println!("expires:   {}", s.expires_at);
+                println!("remaining: {} secs", s.remaining_seconds);
+                println!("expired:   {}", s.expired);
+                println!("revoked:   {}", s.revoked);
+                println!("redeemed:  {}", s.redeemed);
+                println!("pid:       {}", pid_s);
+                println!(
+                    "keys:      {}",
+                    s.key_count
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "(all)".into())
+                );
+            }
+        }
     }
 
     Ok(())
@@ -5490,14 +6011,36 @@ fn cmd_project(
     let cwd = std::env::current_dir()?;
 
     match action {
-        ProjectAction::Init { format, force } => {
+        ProjectAction::Init {
+            format,
+            force,
+            name,
+            active,
+            schema,
+            env_file,
+        } => {
             let format = project::ConfigFormat::parse(format)?;
-            let project_name = project::derive_project_name(&cwd);
+            let project_name = name
+                .clone()
+                .unwrap_or_else(|| project::derive_project_name(&cwd));
+            let env_name = active.clone().unwrap_or_else(|| "development".to_string());
+            let env_file_path: std::path::PathBuf = env_file
+                .clone()
+                .unwrap_or_else(|| format!(".env.{}", env_name))
+                .into();
+            let schema_path: std::path::PathBuf = schema
+                .clone()
+                .unwrap_or_else(|| ".env.schema.toml".into())
+                .into();
 
             if dry_run {
                 let filename = format.default_filename();
                 println!("Would create: {}/{}", cwd.display(), filename);
-                println!("Would create: {}/.env.development", cwd.display());
+                println!(
+                    "Would create: {}/{}",
+                    cwd.display(),
+                    env_file_path.display()
+                );
                 return Ok(());
             }
 
@@ -5505,9 +6048,9 @@ fn cmd_project(
                 root: cwd.clone(),
                 format,
                 project_name: project_name.clone(),
-                default_env_name: "development".to_string(),
-                env_file_path: ".env.development".into(),
-                schema_path: ".env.schema".into(),
+                default_env_name: env_name,
+                env_file_path,
+                schema_path,
                 force: *force,
             };
 
@@ -5638,29 +6181,36 @@ fn cmd_project(
             Ok(())
         }
 
-        ProjectAction::Wizard { force } => {
-            let detected = project::detect_project_config(&cwd)
-                .ok_or(project::ProjectError::ConfigNotFound)?;
+        ProjectAction::Wizard {
+            force,
+            non_interactive,
+            from,
+            reset,
+        } => {
+            let opts = project::WizardOptions {
+                force: *force,
+                non_interactive: *non_interactive,
+                from_env: from.as_ref().map(std::path::PathBuf::from),
+                reset: *reset,
+                dry_run,
+            };
 
-            let report = project::run_wizard(&cwd, &detected, *force, dry_run)?;
+            let report = project::run_wizard(&cwd, &opts)?;
 
             if json {
                 let out = serde_json::json!({
                     "steps_run": report.steps_run,
+                    "project_name": report.project_name,
+                    "environments": report.environments,
                     "schema_keys": report.schema_keys,
                     "values_set": report.values_set,
                     "values_skipped": report.values_skipped,
+                    "gitignore_updated": report.gitignore_updated,
+                    "ai_context_emitted": report.ai_context_emitted,
+                    "fence_installed": report.fence_installed,
+                    "canary_installed": report.canary_installed,
                 });
                 println!("{}", serde_json::to_string_pretty(&out)?);
-            } else {
-                println!();
-                println!("Wizard complete:");
-                println!("  Steps run: {}", report.steps_run.join(", "));
-                println!("  Schema keys: {}", report.schema_keys);
-                println!(
-                    "  Values: {} set, {} skipped",
-                    report.values_set, report.values_skipped
-                );
             }
             Ok(())
         }
@@ -6320,5 +6870,209 @@ fn cmd_project_env(
         }
     }
 
+    Ok(())
+}
+
+fn cmd_ci_trust(action: &super::CiTrustAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::ci_trust;
+
+    match action {
+        super::CiTrustAction::Classify { json } => {
+            let v = ci_trust::cached_or_compute();
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&v)?);
+            } else {
+                let level = match v.level {
+                    ci_trust::TrustLevel::Trusted => "Trusted",
+                    ci_trust::TrustLevel::Suspicious => "Suspicious",
+                    ci_trust::TrustLevel::Untrusted => "Untrusted",
+                };
+                println!("level={level}");
+                println!("reason={:?}", v.reason);
+            }
+        }
+        super::CiTrustAction::Quarantine {
+            force,
+            off,
+            allow_key,
+            json,
+        } => {
+            let verdict = ci_trust::cached_or_compute();
+            let apply = if *off {
+                false
+            } else if *force {
+                true
+            } else {
+                matches!(verdict.level, ci_trust::TrustLevel::Untrusted)
+            };
+            let source = if *force {
+                ci_trust::DecisionSource::Cli
+            } else if *off {
+                ci_trust::DecisionSource::Off
+            } else {
+                ci_trust::DecisionSource::Auto
+            };
+            let decision = ci_trust::QuarantineDecision {
+                apply,
+                allow_keys: allow_key.clone(),
+                source,
+            };
+            let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+            let (scrubbed_env, report) = ci_trust::apply(&env, &decision);
+
+            // Cache the report alongside the verdict so `summary` can pick it up.
+            if let Some(p) = std::env::var_os("RUNNER_TEMP") {
+                let path = std::path::PathBuf::from(p).join("envforge-scrub-report.json");
+                let _ = std::fs::write(
+                    &path,
+                    serde_json::to_string_pretty(&report).unwrap_or_default(),
+                );
+            }
+
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else if apply {
+                // Emit `unset KEY` for scrubbed keys plus `export KEY='VALUE'` for
+                // preserved keys so `eval "$(envforge ci-trust quarantine)"` in a
+                // parent shell installs the scrubbed environment in place.
+                for k in &report.scrubbed_keys {
+                    println!("unset {k}");
+                }
+                let mut sorted: Vec<_> = scrubbed_env.iter().collect();
+                sorted.sort_by(|a, b| a.0.cmp(b.0));
+                for (k, v) in sorted {
+                    let q = v.replace('\'', "'\\''");
+                    println!("export {k}='{q}'");
+                }
+            }
+        }
+        super::CiTrustAction::Summary => {
+            let v = ci_trust::cached_or_compute();
+            let report: Option<ci_trust::ScrubReport> =
+                if let Some(p) = std::env::var_os("RUNNER_TEMP") {
+                    let path = std::path::PathBuf::from(p).join("envforge-scrub-report.json");
+                    std::fs::read_to_string(&path)
+                        .ok()
+                        .and_then(|s| serde_json::from_str(&s).ok())
+                } else {
+                    None
+                };
+            let s = ci_trust::render_step_summary(&v, report.as_ref());
+            print!("{s}");
+            ci_trust::emit_action_outputs(&v, report.as_ref())?;
+        }
+    }
+    Ok(())
+}
+
+fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::ops::envbom;
+
+    match action {
+        super::EnvbomAction::Emit {
+            profile,
+            output,
+            reproducible_now,
+        } => {
+            let project_id = std::env::current_dir()
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "envforge-project".into());
+
+            let pairs: Vec<(String, Option<String>)> =
+                std::env::vars().map(|(k, v)| (k, Some(v))).collect();
+
+            let bom = envbom::build_bom(
+                &project_id,
+                profile.as_deref(),
+                pairs,
+                reproducible_now.as_deref(),
+            )
+            .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+            let bytes = envbom::canonical_json(&bom)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+            match output {
+                Some(p) => {
+                    std::fs::write(p, &bytes)?;
+                    eprintln!("wrote BOM to {}", p.display());
+                }
+                None => {
+                    use std::io::Write;
+                    std::io::stdout().write_all(&bytes)?;
+                }
+            }
+        }
+        super::EnvbomAction::Verify {
+            path,
+            against_current,
+            strict_schema,
+            strict_current,
+            json,
+        } => {
+            let current = if *against_current {
+                let project_id = std::env::current_dir()
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "envforge-project".into());
+                let pairs: Vec<(String, Option<String>)> =
+                    std::env::vars().map(|(k, v)| (k, Some(v))).collect();
+                let bom = envbom::build_bom(&project_id, None, pairs, None)
+                    .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+                Some(bom)
+            } else {
+                None
+            };
+
+            let opts = envbom::VerifyOptions {
+                against_current: current,
+                strict_schema: *strict_schema,
+                strict_current: *strict_current,
+            };
+
+            let report = match envbom::verify(path, &opts) {
+                Ok(r) => r,
+                Err(envbom::EnvbomError::InvalidBom(msg)) => {
+                    eprintln!("structural fail: {msg}");
+                    std::process::exit(1);
+                }
+                Err(envbom::EnvbomError::VerificationFailed(msg)) => {
+                    eprintln!("verify failed: {msg}");
+                    std::process::exit(2);
+                }
+                Err(e) => return Err(e.to_string().into()),
+            };
+
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "structural: {}",
+                    if report.structural_ok { "ok" } else { "fail" }
+                );
+                if let Some(d) = &report.diff {
+                    println!(
+                        "diff:       added={} removed={} changed={} unchanged={}",
+                        d.added.len(),
+                        d.removed.len(),
+                        d.changed.len(),
+                        d.unchanged_count
+                    );
+                }
+                for w in &report.warnings {
+                    eprintln!("warning: {w}");
+                }
+            }
+
+            if *strict_current {
+                if let Some(d) = &report.diff {
+                    if !d.added.is_empty() || !d.removed.is_empty() || !d.changed.is_empty() {
+                        std::process::exit(4);
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }

@@ -827,13 +827,18 @@ fn shellexpand_path(path: &str) -> PathBuf {
 
 // ─── Find Schema ─────────────────────────────────────────────
 
-/// Search for .env.schema in current directory and parents.
+/// Search for the project schema file in the current directory and parents.
+///
+/// Looks for `.env.schema.toml` first (preferred TOML-typed name), then falls
+/// back to the legacy `.env.schema` filename for backward compatibility.
 pub fn find_schema() -> Option<PathBuf> {
     let mut dir = std::env::current_dir().ok()?;
     loop {
-        let candidate = dir.join(".env.schema");
-        if candidate.exists() {
-            return Some(candidate);
+        for name in [".env.schema.toml", ".env.schema"] {
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                return Some(candidate);
+            }
         }
         if !dir.pop() {
             return None;

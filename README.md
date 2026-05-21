@@ -2,7 +2,7 @@
 
 The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **25 AI safety tools**, 13 secret provider integrations, encrypted sync, and 90+ commands.
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **28 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 100+ commands. Ships with a Language Server (`envforge lsp`) and VS Code + IntelliJ plugins that surface the AI-safety story directly in the editor — gutter exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, source-language goto-definition. **2214 tests passing.**
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
@@ -89,7 +89,9 @@ envforge revoke --all
 
 | Category | Highlights |
 |----------|-----------|
-| **AI Safety** | 22 tools: canary, approval flow, guard, leases, killswitch, proxy, fence, MCP harden, deps |
+| **AI Safety** | 25 tools: canary (v1+v2 forensic), approval flow, guard, leases (incl. JIT/PID-bound), killswitch, proxy, fence, MCP harden, deps |
+| **CI Defense** | `envforge ci-trust` — fork-PR / external-comment / pull_request_target classifier + secret quarantine |
+| **Compliance** | `envforge envbom` — SPDX-style env Bill of Materials |
 | **Check** | `envforge check` — unified health check (doctor + validate + scan + age + drift) |
 | **Snapshots** | Backup/restore active profile state, diff, auto-prune |
 | **Explain** | `envforge explain KEY` — X-ray view across all subsystems |
@@ -101,7 +103,7 @@ envforge revoke --all
 | **Core** | Safe parsing, soft-delete, atomic writes, auto backups, SHA-256 verification |
 | **TUI** | Vim-style navigation, fuzzy search, grouping, value masking, mouse support |
 | **Export** | 8 formats: dotenv, JSON, YAML, TOML, Docker, Docker Secrets, K8s, tfvars |
-| **CLI** | 90+ subcommands, `--json` output, `--dry-run` preview, shell completions |
+| **CLI** | 100+ subcommands, `--json` output, `--dry-run` preview, shell completions |
 | **Run** | Subprocess injection with volatile, redact, multi-profile, resolve |
 | **Schema** | `.env.schema` — type validation, JSON Schema, onboarding wizard, drift detection |
 | **Projects** | Multi-env project config, wizard setup, `envforge project env diff`, provider pull/push per env |
@@ -369,7 +371,7 @@ Additional TUI features:
 
 All commands support `--json` for machine-readable output and `--dry-run` for preview.
 
-Full documentation: [CLI Reference](docs/cli-reference.md) (90+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [Scanner Recipes](docs/scanner-recipes.md)
+Full documentation: [CLI Reference](docs/cli-reference.md) (100+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [LSP Client Setup](docs/lsp-clients.md) (Neovim, Helix, Emacs, Sublime, Zed, Kakoune, Fleet, Lapce, …) &middot; [IDE Behavior Contract](docs/ide-behavior-contract.md) (per-feature parity spec) &middot; [Scanner Recipes](docs/scanner-recipes.md)
 
 ```bash
 # Variable management
@@ -1649,7 +1651,7 @@ src/
 │   ├── input.rs         # Text input handling
 │   └── mod.rs           # run_tui() entry
 │
-├── cli/                 # Clap CLI (90+ subcommands)
+├── cli/                 # Clap CLI (100+ subcommands)
 │   ├── commands.rs      # Command implementations
 │   ├── mod.rs           # CLI struct, Commands enum
 │   ├── sync_cmd.rs      # Sync subcommands

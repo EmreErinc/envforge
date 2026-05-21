@@ -313,6 +313,327 @@ fn check_file_status(project_dir: &Path, rel_path: &str) -> FenceFileStatus {
     }
 }
 
+/// Result of removing envforge-owned fence content.
+#[derive(Debug, Default)]
+pub struct FenceRemoveResult {
+    /// Files we fully deleted because they are envforge-owned end-to-end.
+    pub files_removed: Vec<PathBuf>,
+    /// Files we edited in place to strip envforge-owned sections.
+    pub files_updated: Vec<PathBuf>,
+    /// Files that didn't exist or contained no envforge content.
+    pub files_skipped: Vec<PathBuf>,
+}
+
+/// Strip every envforge-owned fence section while preserving any user
+/// content in shared files. Symmetric counterpart of [`create_fence`].
+///
+/// File-by-file behavior:
+/// - `.envforgeignore` — deleted (we own the whole file).
+/// - `.cursorignore` — `CURSORIGNORE_BLOCK` removed; if the file becomes
+///   empty (or whitespace-only) it is deleted as well.
+/// - `.cursorrules` — `CURSORRULES_BLOCK` removed; same emptiness rule.
+/// - `.github/copilot-instructions.md` — the `## Secret Safety Rules`
+///   section is excised up to the next `##` heading or EOF; same rule.
+/// - `.claude/settings.json` — `CLAUDE_DENY_RULES` entries are pulled out
+///   of `permissions.deny`; if the array empties, `deny` is removed; if
+///   `permissions` empties, it is removed too. Resulting `{}` files are
+///   deleted to avoid leaving orphan stubs.
+pub fn remove_fence(project_dir: &Path, dry_run: bool) -> Result<FenceRemoveResult, OpError> {
+    crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+        source: crate::ops::monitor::EventSource::Fence,
+        key: None,
+        message: format!(
+            "Fence {} in {}",
+            if dry_run { "remove dry-run" } else { "removed" },
+            project_dir.display()
+        ),
+        timestamp: chrono::Utc::now(),
+    });
+
+    let mut result = FenceRemoveResult::default();
+
+    delete_envforgeignore(project_dir, dry_run, &mut result)?;
+    strip_cursorignore(project_dir, dry_run, &mut result)?;
+    strip_cursorrules(project_dir, dry_run, &mut result)?;
+    strip_copilot_instructions(project_dir, dry_run, &mut result)?;
+    strip_claude_settings(project_dir, dry_run, &mut result)?;
+
+    Ok(result)
+}
+
+fn delete_envforgeignore(
+    dir: &Path,
+    dry_run: bool,
+    result: &mut FenceRemoveResult,
+) -> Result<(), OpError> {
+    let path = dir.join(".envforgeignore");
+    if !path.exists() {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+    if !dry_run {
+        std::fs::remove_file(&path)?;
+    }
+    result.files_removed.push(path);
+    Ok(())
+}
+
+fn strip_cursorignore(
+    dir: &Path,
+    dry_run: bool,
+    result: &mut FenceRemoveResult,
+) -> Result<(), OpError> {
+    let path = dir.join(".cursorignore");
+    if !path.exists() {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let stripped = strip_block(&content, CURSORIGNORE_BLOCK);
+    if stripped == content {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+    write_or_delete(&path, &stripped, dry_run, result)?;
+    Ok(())
+}
+
+fn strip_cursorrules(
+    dir: &Path,
+    dry_run: bool,
+    result: &mut FenceRemoveResult,
+) -> Result<(), OpError> {
+    let path = dir.join(".cursorrules");
+    if !path.exists() {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let stripped = strip_block(&content, CURSORRULES_BLOCK);
+    if stripped == content {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+    write_or_delete(&path, &stripped, dry_run, result)?;
+    Ok(())
+}
+
+fn strip_copilot_instructions(
+    dir: &Path,
+    dry_run: bool,
+    result: &mut FenceRemoveResult,
+) -> Result<(), OpError> {
+    let path = dir.join(".github/copilot-instructions.md");
+    if !path.exists() {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let stripped = strip_secret_safety_section(&content);
+    if stripped == content {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+    write_or_delete(&path, &stripped, dry_run, result)?;
+    Ok(())
+}
+
+fn strip_claude_settings(
+    dir: &Path,
+    dry_run: bool,
+    result: &mut FenceRemoveResult,
+) -> Result<(), OpError> {
+    let path = dir.join(".claude/settings.json");
+    if !path.exists() {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let mut json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => {
+            // Unparseable — leave it alone; user can clean up manually.
+            result.files_skipped.push(path);
+            return Ok(());
+        }
+    };
+
+    let mut mutated = false;
+    let permissions_empty;
+    let deny_empty;
+
+    if let Some(perms) = json
+        .as_object_mut()
+        .and_then(|root| root.get_mut("permissions"))
+        .and_then(|p| p.as_object_mut())
+    {
+        if let Some(deny) = perms.get_mut("deny").and_then(|d| d.as_array_mut()) {
+            let before_len = deny.len();
+            deny.retain(|entry| {
+                entry
+                    .as_str()
+                    .map(|s| !CLAUDE_DENY_RULES.contains(&s))
+                    .unwrap_or(true)
+            });
+            if deny.len() != before_len {
+                mutated = true;
+            }
+            if deny.is_empty() {
+                perms.remove("deny");
+            }
+        }
+        permissions_empty = perms.is_empty();
+        deny_empty = !perms.contains_key("deny");
+    } else {
+        permissions_empty = false;
+        deny_empty = true;
+    }
+
+    if permissions_empty {
+        if let Some(root) = json.as_object_mut() {
+            root.remove("permissions");
+            mutated = true;
+        }
+    }
+
+    if !mutated {
+        result.files_skipped.push(path);
+        return Ok(());
+    }
+
+    // If JSON is now `{}`, delete the file so we don't leave a stub.
+    let is_empty_object = matches!(&json, serde_json::Value::Object(m) if m.is_empty());
+    if is_empty_object {
+        if !dry_run {
+            std::fs::remove_file(&path)?;
+        }
+        result.files_removed.push(path);
+        return Ok(());
+    }
+
+    if !dry_run {
+        let serialized = serde_json::to_string_pretty(&json)?;
+        std::fs::write(&path, format!("{}\n", serialized))?;
+    }
+    let _ = deny_empty;
+    result.files_updated.push(path);
+    Ok(())
+}
+
+/// Remove a block substring from `content`. Tolerates one preceding
+/// blank-line gap so a leading `"\n\n"` separator (which `create_fence`
+/// inserts when appending) does not stick around.
+fn strip_block(content: &str, block: &str) -> String {
+    let Some(idx) = content.find(block) else {
+        return content.to_string();
+    };
+    let block_end = idx + block.len();
+
+    // Trim a single leading `\n` or `\n\n` immediately before the block.
+    let mut start = idx;
+    let bytes = content.as_bytes();
+    while start > 0 && bytes[start - 1] == b'\n' {
+        start -= 1;
+        if idx - start >= 2 {
+            break;
+        }
+    }
+    // Trim a single trailing `\n` if present (block already ends with one).
+    let end = block_end;
+    let mut out = String::with_capacity(content.len() - (end - start));
+    out.push_str(&content[..start]);
+    out.push_str(&content[end..]);
+    out
+}
+
+/// Cut the `## Secret Safety Rules` section out of a markdown document.
+/// Removes from the heading line up to (but not including) the next `##`
+/// heading at the same level, or to EOF if none exists.
+fn strip_secret_safety_section(content: &str) -> String {
+    let marker = "## Secret Safety Rules";
+    let Some(start) = content.find(marker) else {
+        return content.to_string();
+    };
+
+    // Walk forward from the marker for the next line that starts with
+    // `## ` (any second-level heading) to find the section terminator.
+    let after = &content[start + marker.len()..];
+    let mut end_offset = after.len();
+    for (idx, line_start) in line_start_offsets(after) {
+        if idx == 0 {
+            continue;
+        }
+        if after[line_start..].starts_with("## ") {
+            end_offset = line_start;
+            break;
+        }
+    }
+    let section_end = start + marker.len() + end_offset;
+
+    // Trim a preceding blank-line gap so we don't leave a `\n\n\n` scar.
+    let mut cut_start = start;
+    let bytes = content.as_bytes();
+    while cut_start > 0 && bytes[cut_start - 1] == b'\n' {
+        cut_start -= 1;
+        if start - cut_start >= 2 {
+            break;
+        }
+    }
+
+    let mut out = String::with_capacity(content.len() - (section_end - cut_start));
+    out.push_str(&content[..cut_start]);
+    out.push_str(&content[section_end..]);
+    out
+}
+
+/// Iterate over `(line_idx, byte_offset)` for the start of each line in
+/// `s`. Used by `strip_secret_safety_section` to locate the next `##`
+/// heading without allocating split slices.
+fn line_start_offsets(s: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let mut idx = 0usize;
+    let mut next_line = 0usize;
+    std::iter::from_fn(move || {
+        if next_line > s.len() {
+            return None;
+        }
+        let cur = next_line;
+        let i = idx;
+        idx += 1;
+        if let Some(nl_pos) = s[cur..].find('\n') {
+            next_line = cur + nl_pos + 1;
+        } else {
+            next_line = s.len() + 1;
+        }
+        Some((i, cur))
+    })
+}
+
+/// Write the stripped content back, or delete the file if the strip
+/// left nothing but whitespace (so we don't leave behind a meaningless
+/// empty file).
+fn write_or_delete(
+    path: &Path,
+    new_content: &str,
+    dry_run: bool,
+    result: &mut FenceRemoveResult,
+) -> Result<(), OpError> {
+    if new_content.trim().is_empty() {
+        if !dry_run {
+            std::fs::remove_file(path)?;
+        }
+        result.files_removed.push(path.to_path_buf());
+    } else {
+        if !dry_run {
+            // Normalize: ensure exactly one trailing newline.
+            let mut to_write = new_content.trim_end().to_string();
+            to_write.push('\n');
+            std::fs::write(path, to_write)?;
+        }
+        result.files_updated.push(path.to_path_buf());
+    }
+    Ok(())
+}
+
 /// Check which fence files exist and are properly configured.
 pub fn check_fence_status(project_dir: &Path) -> Result<FenceStatus, OpError> {
     let files = vec![

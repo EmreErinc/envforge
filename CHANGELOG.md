@@ -5,6 +5,264 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- _Nothing yet — describe next-version work in this section. MCP Supply-Chain Integrity coverage remains in place; no new audit events for this slot._
+
+## [0.7.7] - 2026-05-20
+
+### Added — IDE-First Experience
+
+A coordinated push to make the editor the primary EnvForge surface. Single language-server backend, two thin plugins (VS Code, IntelliJ), one shared behavior contract. Visual moat: AI-exposure heatmap in the gutter, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs.
+
+#### Language Server (`envforge lsp`)
+
+`textDocument/*` capabilities now advertised in `initialize`:
+
+- `textDocument/completion` — schema-aware; sensitive values redacted in `label`, raw value flows only through `text_edit.new_text`.
+- `textDocument/publishDiagnostics` — schema validation, unknown-key warnings (`envforge`), MCP Supply-Chain Integrity findings on `.cursor/mcp.json` / `.claude/settings.json` (`envforge-mcp`), save-time AI-guard prompt-injection scan (`envforge-aiguard`).
+- `textDocument/hover` — schema info + provenance (source file, current value redacted if sensitive, defined-by).
+- `textDocument/definition` — `.env` key → schema. Source files (TS / JS / Python / Rust / Go / Java / Kotlin / Ruby / PHP / C# / Shell) → schema via UPPER_SNAKE identifier extraction.
+- `textDocument/references` — schema declaration + every open `.env*` entry.
+- `textDocument/rename` — atomic `WorkspaceEdit` across schema + open `.env*` documents.
+- `textDocument/codeAction` — `Add to schema`, `Use secret reference`, `Mark as secret`, `Use default`, `Plant canary tripwire`, `Add all missing keys`, `Generate .env from schema`.
+- `textDocument/codeLens` — actionable `Plant canary` and `Activate fence` lenses on sensitive lines.
+- `textDocument/inlayHint` — `(default)`, `→ <redacted>`, `(<type>)` for unset keys.
+- `textDocument/formatting` — canonical `.env` whitespace normalization, blank-line collapse, trailing newline.
+- `textDocument/semanticTokens/full` — `variable` / `string` / `comment` with `readonly` modifier on sensitive keys.
+
+`workspace/executeCommand` provider (15 commands):
+
+- `envforge.fence.enable`, `envforge.fence.disable`, `envforge.fence.toggle`, `envforge.fence.status`
+- `envforge.canary.plant`, `envforge.canary.list`, `envforge.canary.scan`, `envforge.canary.check`
+- `envforge.volatile.status`, `envforge.volatile.extend`
+- `envforge.sync.push`, `envforge.sync.pull`, `envforge.sync.status`
+- `envforge.run.volatile`, `envforge.reveal.value`
+
+Custom request:
+
+- `envforge/exposureMap` — per-line red / amber / green AI-exposure classification with `canary: bool` flag; backs the gutter heatmap and file-explorer badges.
+
+#### New CLI Subcommands
+
+- `envforge exposure --file <PATH>` — emit AI-exposure classification JSON (same wire format as the LSP custom request).
+- `envforge fence --disable` — symmetric counterpart to `envforge fence`; surgically strips envforge-owned content while preserving user content.
+- `envforge lease renew <NAME> --ttl <TTL>` — extend an existing lease without recreating it.
+
+#### IDE Plugin Parity
+
+VSCode `0.1.6`, IntelliJ `0.1.6`:
+
+- Status bar trio: `<N> vars` · fence shield (`AI BLOCKED` / `AI ALLOWED`) · volatile-lease countdown with sub-minute precision and color escalation (amber ≤5 min, red ≤1 min). Click fence → toggle. Click countdown → extend.
+- AI-exposure gutter heatmap: colored dot per env-var line; lines with a registered canary render a shield glyph instead. Hover tooltips quote the classification reason.
+- File-explorer / project-view badges on `.env*` files: 🛡 (fenced) / ! (red) / ? (amber) / ✓ (all-green).
+- Source-language goto-definition: Ctrl-click `process.env.X`, `os.environ["X"]`, `std::env::var("X")`, etc. to land on the schema entry.
+- MCP Supply-Chain Integrity diagnostics on `mcp.json` / `.cursor/mcp.json` / `.claude/settings.json` — credential patterns flagged inline.
+- New command-palette / tools-menu entries: Run Volatile Session, Reveal Value (audit-logged), Plant Canary, Canary Scan, Check Triggered Canaries, Extend Volatile Lease, Enable / Toggle Fence.
+
+#### Security Posture
+
+- Canary fake values are minted server-side; the plant action arguments carry only `{key, pattern, file}` — the payload never flows through plugin process memory.
+- Reveal-value action emits a `RuntimeEvent` to the monitor bus (audit trail). The value crosses the LSP wire only on explicit user confirm; clipboard auto-clears 30 s after copy if the contents still match.
+- LSP server canonicalizes every URI it touches and confines source-file reads to the workspace root with a 1 MiB size cap and extension allow-list.
+
+#### Behavior Contract
+
+- New `docs/ide-behavior-contract.md` documents every IDE feature row-by-row (trigger, LSP method, wording, keybind, test IDs) so VS Code and IntelliJ stay in lockstep. Drift is now a contract bug, not a maintenance footnote.
+- 162 LSP-layer integration tests in `tests/lsp_phase1_tests.rs` fence every behavior listed in the contract.
+
+### Changed
+
+- Test count: **2073 → 2214** (+141 across workspace).
+- README headline subtitle now mentions the LSP + IDE plugins.
+- `docs/api-reference.md` LSP section rewritten to reflect the full capability surface and custom request schema.
+- `docs/cli-reference.md` gains `envforge exposure`, `envforge fence --disable`, `envforge lease renew` entries; `envforge man` picks them up automatically through the embedded include.
+
+## [0.7.6] - 2026-05-13
+
+### Added — Project Wizard Redesign
+
+`envforge project wizard` rewritten as the single canonical onboarding entry point. Self-bootstrapping (no `init` prerequisite), multi-environment, resumable, AI-safety aware.
+
+#### New flags
+
+- `envforge project wizard` — guided 5-step setup: identity → environments → schema → values → hardening.
+- `envforge project wizard --force` — re-run all steps; preserves project config.
+- `envforge project wizard --reset` — wipe `completed_steps` then run (deeper than `--force`).
+- `envforge project wizard --non-interactive` — defaults-only path for CI / scripts.
+- `envforge project wizard --from <env-file>` — preseed Step 4 values from existing dotenv file.
+- `envforge project wizard --dry-run` — walk steps and print planned actions; no filesystem writes.
+- `envforge project init --name X --active Y --schema PATH --env-file PATH` — extended CLI scaffold flags for non-interactive use.
+
+#### New wizard behavior
+
+- Schema step branches three ways: `[R]euse` existing, `[E]dit` per-key (replaces a single `[KEY]` block), `[G]enerate fresh` from active env file.
+- Values step accepts per-key keystrokes: Enter / `<value>` / `s` (skip) / `c` (clear) / `d` (use schema default) / `q` (quit env) / `a` (abort cascade across envs).
+- Sensitive schema keys (`sensitive = true`) prompt via `rpassword` — no terminal echo.
+- Hardening step toggles: `.gitignore` patterns, `.env.ai.md` AI-safe context emit, `.aiignore`/`.cursorignore` fence install, canary token mint + append to active env file.
+- Resume after partial run: `completed_steps` persisted in project config; subsequent runs skip done steps. Already-complete projects print guidance instead of re-prompting.
+- JSON output (`--json`) emits structured `WizardReport` with all step outcomes including hardening flags.
+
+#### Deprecation
+
+- Top-level `envforge init` emits stderr warning: `'envforge init' is deprecated. Use 'envforge project wizard'. Removed in v0.8.0.` Functionality unchanged for one release.
+
+#### IDE plugin parity
+
+- VSCode `0.1.5` — command palette: "EnvForge: Run Project Wizard", "EnvForge: Initialize Project (non-interactive)".
+- IntelliJ `0.1.5` — Tools → EnvForge → Run Project Wizard / Initialize Project.
+
+#### Dependencies
+
+- New: `rpassword = "7"` for masked sensitive input.
+
+#### Tests
+
+24 wizard tests pass (18 → 24). New coverage: non-interactive cold start, idempotency, force-resume, preset precedence, multi-env loop, sensitive-key masking path, branch reuse / infer / blank, edit-existing-key block replacement.
+
+### Added — MCP Supply-Chain Integrity
+
+First env-management tool to combine pin + reputation + tool-poisoning detection for Model Context Protocol (MCP) servers consumed by Claude Code and Cursor. Closes 10 documented attack classes against AI tooling. **200 new tests** (1873 → 2073 total).
+
+#### New CLI commands
+
+- `envforge mcp pin [--strict] [--inspect] [--lockfile PATH]` — pin all configured MCP servers to a lockfile at `.envforge/mcp.lock`. Captures package-manager integrity (npm `sha512-...`, pip `sha256:...`), binary SHA-256 (realpath-canonicalized, with symlink target recording), canonical-JSON hash of each server's config section, TLS SPKI hash for remote SSE/HTTP servers, and (with `--inspect`) the MCP `initialize` handshake response hash. `--strict` requires `KNOWN_GOOD` reputation tier.
+- `envforge mcp verify [--json] [--strict] [--lockfile PATH]` — re-resolve and compare against lockfile. Exit 0 on clean match, 1 on mismatch, 2 on input error.
+- `envforge mcp diff [--server NAME] [--lockfile PATH]` — human-readable per-server diff with reputation-tier annotations.
+- `envforge mcp trust NAME --reason TEXT` / `envforge mcp untrust NAME` — manage `USER_TRUSTED` reputation overrides for community MCP servers not yet in the curated feed. Reason text is required (audit-bound).
+- `envforge mcp explain --lock [--format text|markdown] [--lockfile PATH]` — render annotated lockfile suitable for PR review. Markdown format produces a GitHub-friendly table.
+- `envforge mcp launch <ide> [args...]` — atomic verify-then-exec for Claude Code or Cursor. Uses `execvp` on Unix (process replacement, no TOCTOU gap) and spawn+wait on Windows. Refuses to exec if any pinned server's reputation has flipped to `KNOWN_BAD`.
+- `envforge mcp pin --refresh --accept` / `--refresh --yes` — refresh existing lockfile after diff review (`--accept`) or CI-bypass mode (`--yes`, audit-logged).
+- `envforge mcp pin --resolve-conflicts ours|theirs` — resolve git merge markers in `.envforge/mcp.lock` from one side.
+
+#### Doctor extensions
+
+- `envforge doctor --all` — include `UNKNOWN`-tier MCP servers in the report (default shows only `KNOWN_BAD`).
+- `envforge doctor --fail-on mcp` — exit 2 if any pinned MCP server is `KNOWN_BAD`; CI-gating friendly.
+
+#### Reputation feed
+
+- Bundled gzip-compressed reputation feed shipped inside the binary. Five tier classifications: `KNOWN_GOOD`, `UNKNOWN`, `KNOWN_BAD`, `USER_TRUSTED`, `VOLATILE`. Lookup precedence is locked: `KNOWN_BAD` always wins (security floor — user trust cannot override a known-malicious package). `expires_at` field surfaces stale-feed warnings.
+- User-trust overrides persist at `~/.config/envforge/mcp-trust.json` (or platform-equivalent via `dirs::config_dir`), atomic write, `0600` perms on Unix.
+
+#### Tool-poisoning detection
+
+- Pattern-based scanner for prompt-injection content embedded in MCP tool descriptions, input schemas (e.g. overly-permissive `env` / `shell` / `eval` parameters), and concatenated cross-tool description blobs. 7-step canonicalization pipeline catches common evasion techniques: NFKC normalization, leetspeak fold (`1gn0re` → `ignore`), zero-width character stripping, whitespace collapse, line-separator normalization (U+2028 / U+2029 / CRLF), bidi-control detection (U+202A-E, U+2066-9), unicode-tag-smuggling detection (U+E0000-E007F).
+- 17 detection patterns covering critical exfil/role-injection/tool-call-smuggling vectors.
+- All findings carry SHA-256 of the matched payload only — never the raw matched text — so the audit log cannot be re-read by an LLM to re-trigger the same injection.
+
+#### TUI
+
+- New `!M` marker in the env table header when any `KNOWN_BAD`-pinned MCP server is present in the lockfile. Inline only; no new popup.
+
+#### JSON output
+
+- `envforge mcp scan --json` output extended with a top-level `mcp_pin_status` field: `lockfile_exists`, `pinned_count`, `known_bad_count`, `unknown_count`, `feed_version`, `feed_stale`, `known_bad_servers[]`. Field is additive; existing consumers using only `findings`, `files_scanned`, `credentials_found` remain backward-compatible.
+
+#### Hooks
+
+- `envforge ai-hook install --tool claude-code` now installs a third hook stage (`SessionStart`) that invokes `envforge mcp verify --json` automatically when a Claude Code session opens. Existing `PreToolUse` + `PostToolUse` stages unchanged.
+- `envforge ai-hook install --tool cursor` extends the `.cursor/rules` template with an MCP-pin advisory block. Cursor lacks a pre-load hook surface; hard enforcement is wrapper-only.
+
+#### Periodic re-verify
+
+- `ENVFORGE_MCP_REVERIFY_TTL` environment variable (in seconds) controls the cadence at which `ops/monitor` re-checks the lockfile against the resolution + reputation state. Default 7 days. Emits new audit events on tier flips.
+
+#### New audit event types
+
+`McpPinned`, `McpVerifyFailed`, `McpReverifyOk`, `McpReverifyFailed`, `McpPoisonDetected`, `McpFeedFlippedKnownBad`, `McpUserTrustGranted`, `McpUserTrustRevoked`, `McpLaunchBlocked`, `McpFeedStale`. All events carry SHA-256 hashes + identifiers only — no raw payload text.
+
+### Threat-Model Coverage
+
+Ten attack classes addressed:
+
+1. Supply-chain swap — package-manager integrity or binary hash changed between releases
+2. Tool description poisoning — prompt-injection inside MCP `tools/list` response
+3. Tool schema poisoning — overly-permissive `env` / `shell` / `eval` input parameters
+4. Typosquat / namespace-squat — reputation tier flags near-match package names
+5. Config drift — canonical-JSON hash of the per-server MCP config section
+6. TOCTOU between verify and IDE launch — atomic `execvp` wrapper closes the race
+7. Self-updating server — `volatile` flag falls back to package-manager integrity as the anchor
+8. Remote (SSE/HTTP) server compromise — SPKI (Subject Public Key Info) pinning survives Let's Encrypt cert rotation while detecting key swaps
+9. Mid-session feed flip — periodic re-verify emits a dedicated event on transitions
+10. Cross-tool injection — concatenated blob scan catches payloads split across adjacent tool descriptions
+
+### Dependencies
+
+- New: `rustls 0.23`, `webpki-roots 0.26`, `x509-cert 0.2` (TLS handshake + SPKI extraction for remote MCP servers)
+- New: `flate2 1` (gzip decompression of the bundled reputation feed)
+- New: `unicode-normalization 0.1` (NFKC for tool-description canonicalization)
+
+All pure-Rust; ~3 MB combined binary-size increase. Verified clean against `cargo audit` (RustSec advisory database, 0 vulnerabilities across 447 transitive dependencies).
+
+### Known limitations
+
+- Detection patterns are English-only in this release; multilingual coverage is planned for a future release.
+- Cursor lacks a pre-load hook surface; hard enforcement of pin verification on Cursor requires using the `envforge mcp launch cursor` wrapper. The `.cursor/rules` block is advisory only.
+- The bundled reputation feed is shipped unsigned and refreshed via binary release; an externally-signed update channel is planned for a future release.
+- Detection is deterministic (pattern-based), not ML-classifier-based; novel evasion techniques may bypass the v1 pattern set until patterns are updated.
+
+### Added — AI Safety 
+
+All four address concrete CVE-class threats from agentic coding workflows (Claude Code, Cursor, Cline) and the broader CI supply-chain story. **133 new tests** (1740 → 1873)
+
+#### JIT Lease — PID-binding extension to existing lease module (`envforge lease grant|revoke|status`)
+
+- **New module surface in `src/ops/lease.rs`**: extended `Lease` struct with `pid`, `single_redeem`, `redeemed`, `tool_name` (all `#[serde(default)]` for backward compat). Net new ~350 LOC alongside existing 354 LOC; in-place extension per ADR-009.
+- **JIT lifecycle**: `jit_grant(GrantRequest) → JitHandle`, `jit_redeem(handle) → Zeroizing<String>`, `jit_revoke(name, RevokeReason)`. Single-redeem semantics enforced; `Zeroizing` wrapper guarantees secret memory is overwritten on Drop.
+- **PID watcher**: tokio task per active JIT lease, polls `libc::kill(pid, 0)` at 100ms cadence (configurable via `LEASE_WATCHER_POLL_MS`, clamped 50-500ms). Linux PID start-time fingerprint via `/proc/<pid>/stat` field 22 defeats reuse races; macOS falls back to PID-only with documented limitation. Per ADR-008 (tokio polling chosen over pidfd/kqueue for cross-platform simplicity).
+- **WatcherRegistry**: process-wide `OnceLock<DashMap<String, JoinHandle<()>>>`. Watcher abort on explicit revoke is safe + idempotent.
+- **Audit integration**: 3 new `EventType` variants (`LeaseGranted`, `LeaseRedeemed`, `LeaseRevoked`); audit emit failure is non-blocking (logs warning, lifecycle proceeds).
+- **CLI**: `envforge lease grant --tool X --key K --pid P --ttl 30s [--multi-redeem] [--json]`, `envforge lease revoke <name>`, `envforge lease status <name>`. Existing `Create / List / Cleanup` unchanged.
+- **`parse_lease_duration` extended** to accept `30s` (seconds suffix) alongside existing `m / h / d`.
+- **New direct dep**: `libc = "0.2"` (was transitive only).
+- **27 lease tests pass** (14 existing unchanged + 13 new). Critical bug caught + fixed during Stage 5 testing: deadlock in `jit_revoke` when pre-acquiring lock + calling `revoke_lease` which acquires same non-reentrant mutex; resolved by removing outer acquisition.
+
+#### Canary v2 — Forensic decodable tokens (`envforge canary mint-v2|decode|scan|rotate-key|migrate`)
+
+- **New submodule split** `src/ops/canary/{mod,v2,hmac_store,scanner,migration}.rs` per ADR-007 (existing `canary.rs` lifted to `mod.rs` verbatim; ~600 LOC of new code split into 4 cohesive concerns). Public API path unchanged.
+- **Token format** `cnry_<39-char base32>_<13-char base32>` total 58 chars (within 64-char log-line budget). Payload: `machine_id[8] || pid[4 LE] || timestamp_secs[4 LE] || agent_name_hash[4] || key_name_hash[4]`. Timestamp epoch fixed at 2026-01-01T00:00:00Z (load-bearing constant).
+- **HMAC-SHA256** with first 8 bytes truncated as integrity tag per ADR-006 (64-bit forgery cost ≈ 2^63 ops; well above local-oracle adversary capability for canary-class threats). Manual HMAC-SHA256 implementation avoids pinning hmac crate version against sha2 0.11. Constant-time comparison via manual `constant_time_eq` over XOR/OR accumulator.
+- **HMAC key rotation**: `~/.envforge/canary-keys.age` (age-encrypted via existing recipient flow). Active key + max 2 retired keys verified on decode; oldest evicted on rotation.
+- **CLI**: `mint-v2 <key> [--tool X] [--pid P] [--json]`, `decode <token> [--json]`, `scan <input> [--strict] [--json]`, `rotate-key [--dry-run]`, `migrate [--bulk] [--replace <key>] [--dry-run]`.
+- **Backward compat**: existing v1 patterns (aws_key, github_token, stripe_key, slack_token, gitlab_token, database_url, jwt_token, openai_key, private_key_pem, smtp_credential, ftp_credential — 11 patterns) untouched. v1 records load via `serde(default)` on new fields. Migration is idempotent: `superseded_by` link added; v1 record never deleted.
+- **CanarySecret extended**: `version: u8 (default 1)`, `forensic: bool`, `superseded_by: Option<String>`, `payload_summary: Option<PayloadSummary>`. `Default` impl added.
+- **50 canary tests pass** (17 existing + 16 v2 + 5 hmac_store + 6 scanner + 6 migration). Includes RFC 4231 HMAC-SHA256 KAT (Test Case 1), 1000-payload deterministic roundtrip, tamper detection, retired-key fallback verify.
+
+#### CI Comment-and-Control Guard (`envforge ci-trust classify|quarantine|summary` + GitHub Action `quarantine` input)
+
+- **New module** `src/ops/ci_trust/{mod,classifier,quarantine,summary}.rs`. Per ADR-010, classification logic lives in the Rust binary (typed enums, unit-testable, future-reusable from local pre-push hooks) instead of inline bash + jq.
+- **Classifier**: pure function `classify(TriggerContext) → TrustVerdict { level, reason, classifier_version }`. 12-row decision matrix covering `push`, `pull_request` (fork vs internal), `pull_request_target` (always Untrusted), `issue_comment` (author-association gated), `workflow_run` (conservative Untrusted), `workflow_dispatch`, `schedule`, unknown events. `Trusted` for owner/member/collaborator; `Untrusted` for everyone else. **Fail-closed** on missing/malformed input.
+- **Verdict cache**: `$RUNNER_TEMP/envforge-trust.json` with `classifier_version` field for cache-format drift detection. Composite-action steps reuse without reclassifying.
+- **Quarantine engine**: scrubs env by key-name regex (`(?i)(?:_KEY|_SECRET|_TOKEN|_PASSWORD|_PASS|_CREDENTIAL|_API_?KEY|_PRIVATE_KEY)$|_TOKEN_|_KEY_|_SECRET_`) OR value-shape (AWS `AKIA*`/`ASIA*`, GitHub `ghp_*`/`gho_*`/`ghu_*`, Stripe `sk_live_*`/`rk_live_*`, OpenAI `sk-*`, high-entropy ≥32-char strings). `GITHUB_TOKEN` always scrubbed unless explicitly allow-listed; `RUNNER_*` / `GITHUB_*` (non-token) / `CI` auto-allowed.
+- **Step Summary + GitHub Outputs**: `envforge ci-trust summary` writes markdown to `$GITHUB_STEP_SUMMARY` plus 5 outputs to `$GITHUB_OUTPUT` (`quarantine_verdict`, `quarantine_reason`, `quarantine_applied`, `quarantine_scrubbed_count`, `quarantine_preserved_count`).
+- **GitHub Action extended**: `action/action.yml` gains `quarantine` input (default `auto` — scrub on Untrusted; `force` always scrub; `off` opt out with explicit warning) and `allow-keys` input. `action/scripts/run.sh::apply_ci_trust` runs classify → decide → `eval "$(envforge ci-trust quarantine)"` → emit summary, all before mode dispatch.
+- **Test workflow**: `.github/workflows/test-quarantine.yml` exercises 3 scenarios via `workflow_dispatch` input — `trusted` (canary preserved), `fork-pr` (canary scrubbed; verdict Untrusted/ForkPr), `external-comment` (verdict Untrusted/ExternalComment).
+- **34 ci_trust tests pass** (18 classifier + 11 quarantine + 4 summary + 1 misc). Zero new dependencies.
+
+#### ENV-BOM Attestation (`envforge envbom emit|verify|update-trust-root`)
+
+- **Determinism**: `BTreeMap` for keys, sorted Vec for paths/profiles, recursive canonicalize-value pass before serialization → byte-identical output across `serde_json` versions and re-emits. CLI flag `--reproducible-now <RFC3339>` fixes `generated_at` for reproducible builds.
+- **Audit-grade no-raw-values invariant**: enforced by `no_raw_value_in_serialized_bom` lint test that greps emitted JSON for the secret string.
+- **Encrypted-value handling**: `ENC[age:...]` ciphertext recognized; hashed pre-decrypt; `value_state: "Encrypted"` annotates the entry. Missing values emit `value_sha256: null`, `value_state: "Missing"`.
+- **Audit summary**: total keys, per-classification counts, unrotated-over-90d count, sorted+deduped provider list.
+- **Diff (`verify --against-current`)**: BomDiff with added / removed / changed fields (ValueSha256, Classification, Owner, LastRotated, ProviderRef, SchemaRequired, ValueState).
+
+### Tests
+
+- **1873 total tests passing** under default build (up from 1740 in 0.7.5; +133 new tests across the 4 units)
+- `cargo fmt --check` clean
+- `cargo clippy --all-targets -- -D warnings` zero warnings under default
+
+### Changed
+
+- **`Lease` struct**: 4 new fields (`pid`, `single_redeem`, `redeemed`, `tool_name`) with `#[serde(default)]`; `Default` impl derived. Existing on-disk lease TOML files load unchanged.
+- **`CanarySecret` struct**: 4 new fields (`version`, `forensic`, `superseded_by`, `payload_summary`) with `#[serde(default)]`; `Default` impl added. Existing on-disk canary records load unchanged.
+- **`EventType` enum** (`src/ops/audit/types.rs`): 3 new variants (`LeaseGranted`, `LeaseRedeemed`, `LeaseRevoked`).
+- **`parse_lease_duration`**: accepts `30s` suffix in addition to `m / h / d`.
+
 ## [0.7.5] - 2026-05-08
 
 ### Security
@@ -228,11 +486,6 @@ Comprehensive security hardening pass — 50 fixes across the entire codebase, o
   - `SessionConfig` with configurable default TTL (default: 1h)
 - **CLI**: `envforge session start` — start session; `envforge session stop [id]` — stop session; `envforge session list` — list sessions; `envforge session show <id>` — session details; `envforge session cleanup` — remove expired
 - **5 unit tests**: session lifecycle, TTL parsing, cleanup, tool detection, duration formatting
-
-### Deprecated
-
-- **Intent 032 (Prompt Injection Detection)**: Deprecated in specsmd memory bank. Advisory-only prompt injection detection adds noise without security value. Replaced by the three features above which stay on envforge's core competency (secret/env-var protection).
-- **Intent 034 (AI Context Isolation)**: Deprecated in specsmd memory bank. Full namespace isolation + inheritance provided marginal incremental value over existing Fence + Guard + Volatile + Canary stack. Replaced by lightweight session management which achieves ~70% of the security benefit with ~20% of the code. Removed `src/model/context_isolation.rs` (557 lines).
 
 ### Changed
 

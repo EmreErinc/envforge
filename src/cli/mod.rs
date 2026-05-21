@@ -3,6 +3,7 @@ mod audit_cmd;
 mod commands;
 mod error;
 mod lifecycle_cmd;
+mod mcp_pin_cmd;
 mod project_cmd;
 mod secrets_cmd;
 mod sync_cmd;
@@ -58,6 +59,10 @@ pub enum Commands {
         /// Reverse sort order
         #[arg(long)]
         reverse: bool,
+
+        /// Reveal raw values without masking sensitive entries (opt-in for tooling)
+        #[arg(long)]
+        reveal: bool,
     },
 
     /// Get the value of a specific variable
@@ -387,6 +392,13 @@ pub enum Commands {
         /// Show detailed output for each check
         #[arg(long)]
         verbose: bool,
+        /// Include UNKNOWN-tier MCP servers in the report (default: KnownBad only)
+        #[arg(long)]
+        all: bool,
+        /// Exit non-zero if the named subsystem has critical findings.
+        /// Currently supported: "mcp"
+        #[arg(long, value_name = "SUBSYSTEM")]
+        fail_on: Option<String>,
     },
 
     /// Run all checks: doctor + validate + scan + age + drift
@@ -462,6 +474,9 @@ pub enum Commands {
         /// Use fuzzy matching (default is substring)
         #[arg(long)]
         fuzzy: bool,
+        /// Reveal raw values without masking sensitive entries (opt-in for tooling)
+        #[arg(long)]
+        reveal: bool,
     },
 
     /// Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code)
@@ -469,6 +484,16 @@ pub enum Commands {
         /// Check fence status instead of creating
         #[arg(long)]
         status: bool,
+        /// Remove envforge-owned fence content (preserves user content)
+        #[arg(long, conflicts_with = "status")]
+        disable: bool,
+    },
+
+    /// Compute AI-exposure classification for an .env file (red/amber/green per line)
+    Exposure {
+        /// Path to the .env file to classify
+        #[arg(long)]
+        file: String,
     },
 
     /// Sanitize a file by replacing secret values with ${KEY} placeholders
@@ -541,6 +566,17 @@ pub enum Commands {
     Scanner {
         #[command(subcommand)]
         action: ScannerAction,
+    },
+
+    #[command(name = "ci-trust")]
+    CiTrust {
+        #[command(subcommand)]
+        action: CiTrustAction,
+    },
+
+    Envbom {
+        #[command(subcommand)]
+        action: EnvbomAction,
     },
 
     /// Real-time monitoring: health checks, event stream
@@ -743,6 +779,87 @@ pub enum McpAction {
     Harden,
     /// Check if any MCP config files contain plaintext secrets
     Status,
+    /// Pin configured MCP servers to a lockfile (.envforge/mcp.lock)
+    Pin {
+        /// Require KNOWN_GOOD reputation tier for all pinned servers
+        #[arg(long)]
+        strict: bool,
+        /// Run MCP `initialize` handshake to capture tool-list hashes
+        #[arg(long)]
+        inspect: bool,
+        /// Override default lockfile path (.envforge/mcp.lock)
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+        /// Refresh existing lockfile: re-resolve all servers
+        #[arg(long)]
+        refresh: bool,
+        /// Apply refresh after reviewing diff (mandatory with --refresh outside CI)
+        #[arg(long)]
+        accept: bool,
+        /// CI bypass: apply refresh without diff review (audit-logged)
+        #[arg(long)]
+        yes: bool,
+        /// Resolve git merge-conflict markers in lockfile: ours | theirs
+        #[arg(long, value_name = "STRATEGY")]
+        resolve_conflicts: Option<String>,
+    },
+    /// Verify resolved state matches lockfile
+    Verify {
+        /// Emit machine-readable JSON report
+        #[arg(long)]
+        json: bool,
+        /// Also fail on UNKNOWN-tier servers
+        #[arg(long)]
+        strict: bool,
+        /// Override default lockfile path
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+    },
+    /// Show human-readable diff between lockfile and resolved state
+    Diff {
+        /// Limit diff to a single server
+        #[arg(long)]
+        server: Option<String>,
+        /// Override default lockfile path
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+    },
+    /// Record a USER_TRUSTED reputation override for a server
+    Trust {
+        /// Server name (npm package or alias)
+        name: String,
+        /// Required: reason for trusting this server
+        #[arg(long)]
+        reason: String,
+    },
+    /// Remove a USER_TRUSTED override for a server
+    Untrust {
+        /// Server name
+        name: String,
+    },
+    /// Render annotated lockfile for PR review
+    Explain {
+        /// Render the lockfile (currently the only mode)
+        #[arg(long)]
+        lock: bool,
+        /// Output format: text | markdown
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Override default lockfile path
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+    },
+    /// Verify the lockfile, then exec an IDE (atomic verify+launch)
+    Launch {
+        /// IDE name: claude-code | claude | cursor
+        ide: String,
+        /// Override default lockfile path
+        #[arg(long)]
+        lockfile: Option<std::path::PathBuf>,
+        /// Extra args passed through to the IDE
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -800,7 +917,7 @@ pub enum LeaseAction {
         /// Lease name (default: auto-generated)
         #[arg(long)]
         name: Option<String>,
-        /// Time-to-live (e.g., "1h", "30m", "8h", "24h", "7d")
+        /// Time-to-live (e.g., "30s", "1h", "30m", "8h", "24h", "7d")
         #[arg(long)]
         ttl: String,
         /// Restrict to specific keys (comma-separated)
@@ -811,6 +928,47 @@ pub enum LeaseAction {
     List,
     /// Clean up expired leases
     Cleanup,
+    /// Renew (extend) an existing lease's TTL
+    Renew {
+        /// Lease name
+        name: String,
+        /// New TTL counted from now (e.g. "30m", "2h", "1d")
+        #[arg(long)]
+        ttl: String,
+    },
+    /// Mint a JIT lease bound to a single subprocess PID + TTL
+    Grant {
+        /// Key name (e.g. STRIPE_KEY)
+        key: String,
+        /// Target PID (the subprocess that will use the secret)
+        #[arg(long)]
+        pid: u32,
+        /// TTL e.g. "30s", "5m", "1h"
+        #[arg(long)]
+        ttl: String,
+        /// Tool/agent name for audit log
+        #[arg(long, default_value = "unknown")]
+        tool: String,
+        /// Disable single-redeem (allow multiple redemptions)
+        #[arg(long)]
+        multi_redeem: bool,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke a lease by name
+    Revoke {
+        /// Lease name
+        name: String,
+    },
+    /// Show detailed status for one lease
+    Status {
+        /// Lease name
+        name: String,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -850,6 +1008,60 @@ pub enum CanaryAction {
         /// Position: top, middle, bottom, random
         #[arg(long, default_value = "bottom")]
         position: String,
+    },
+    /// Mint a v2 forensic canary token (HMAC-encoded, decodable)
+    MintV2 {
+        /// Canary registry key (e.g. STRIPE_KEY)
+        key: String,
+        /// Tool name to embed in payload (e.g. claude-code, cursor)
+        #[arg(long, default_value = "unknown")]
+        tool: String,
+        /// PID to embed (defaults to current process)
+        #[arg(long)]
+        pid: Option<u32>,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Decode a v2 canary token; returns origin tuple
+    Decode {
+        /// Token string
+        token: String,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Scan a file or stdin for canary tokens
+    Scan {
+        /// File path; "-" for stdin
+        input: String,
+        /// Strict mode: exit 1 if any tokens found
+        #[arg(long)]
+        strict: bool,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Rotate the HMAC key (prior keys retained for verify)
+    RotateKey {
+        /// Show planned action without executing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Migrate v1 canary records to v2
+    Migrate {
+        /// Show planned migrations without executing
+        #[arg(long)]
+        dry_run: bool,
+        /// Migrate a specific v1 record by key (else all eligible)
+        #[arg(long)]
+        replace: Option<String>,
+        /// Migrate every eligible v1 record
+        #[arg(long, conflicts_with = "replace")]
+        bulk: bool,
+        /// Tool name to embed in new v2 payloads
+        #[arg(long, default_value = "envforge-migrate")]
+        tool: String,
     },
 }
 
@@ -895,6 +1107,67 @@ pub enum ScannerAction {
         /// Scanner name
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum EnvbomAction {
+    /// Build and emit an ENV-BOM for the current project
+    Emit {
+        /// Profile to use (defaults to active profile)
+        #[arg(long)]
+        profile: Option<String>,
+        /// Output file (default: stdout)
+        #[arg(long, short = 'o')]
+        output: Option<std::path::PathBuf>,
+        /// Fix `generated_at` to this timestamp for reproducible builds
+        #[arg(long)]
+        reproducible_now: Option<String>,
+    },
+    /// Verify an ENV-BOM
+    Verify {
+        /// Path to BOM file
+        path: std::path::PathBuf,
+        /// Compare against current project state and emit a diff
+        #[arg(long)]
+        against_current: bool,
+        /// Fail on any unknown / forward-compat schema fields
+        #[arg(long)]
+        strict_schema: bool,
+        /// Fail on any diff vs current project state
+        #[arg(long)]
+        strict_current: bool,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CiTrustAction {
+    /// Print the trust verdict for the current GitHub Actions invocation
+    Classify {
+        /// JSON output (one object)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Scrub the current environment per quarantine rules; emits `KEY=VALUE`
+    /// lines suitable for `eval` in a parent shell
+    Quarantine {
+        /// Force apply regardless of verdict
+        #[arg(long)]
+        force: bool,
+        /// Skip quarantine even if verdict is Untrusted
+        #[arg(long, conflicts_with = "force")]
+        off: bool,
+        /// Allow specific keys through (repeatable, comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        allow_key: Vec<String>,
+        /// Emit JSON ScrubReport instead of env-var lines
+        #[arg(long)]
+        json: bool,
+    },
+    /// Render Step Summary markdown for the latest verdict + last scrub report
+    Summary,
 }
 
 #[derive(Subcommand)]

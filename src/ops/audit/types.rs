@@ -72,6 +72,29 @@ pub enum EventType {
     SyncPull,
     ConfigChange,
     IntegrityAlert,
+    LeaseGranted,
+    LeaseRedeemed,
+    LeaseRevoked,
+    /// `envforge mcp pin` created or refreshed a server pin.
+    McpPinned,
+    /// `mcp verify` detected hash/integrity mismatch.
+    McpVerifyFailed,
+    /// Periodic re-verify confirmed lockfile matches.
+    McpReverifyOk,
+    /// Periodic re-verify failed (lockfile / resolver / feed error).
+    McpReverifyFailed,
+    /// Poisoning scanner finding above threshold (ADR-020 redacted).
+    McpPoisonDetected,
+    /// Reputation feed flipped a pinned server to KnownBad.
+    McpFeedFlippedKnownBad,
+    /// User recorded a USER_TRUSTED override via `mcp trust`.
+    McpUserTrustGranted,
+    /// User removed a USER_TRUSTED override via `mcp untrust`.
+    McpUserTrustRevoked,
+    /// `mcp launch` refused exec due to verify failure.
+    McpLaunchBlocked,
+    /// Reputation feed `expires_at` is past; warning emitted.
+    McpFeedStale,
 }
 
 /// Which subsystem produced this event.

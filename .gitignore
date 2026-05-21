@@ -36,6 +36,8 @@ memory-bank/
 .cline/
 .agents
 AGENTS.md
+_bmad
+_bmad-output
 
 # Un-ignore editor plugin package files (needed for CI builds)
 !editors/**/package.json

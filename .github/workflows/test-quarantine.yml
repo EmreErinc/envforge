@@ -1,0 +1,118 @@
+name: Test Quarantine
+on:
+  workflow_dispatch:
+    inputs:
+      simulate:
+        description: 'Simulated trigger context: trusted | fork-pr | external-comment'
+        required: false
+        default: 'trusted'
+  pull_request:
+    paths:
+      - 'src/ops/ci_trust/**'
+      - 'src/cli/**'
+      - 'action/**'
+      - '.github/workflows/test-quarantine.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  trusted-trigger:
+    if: github.event_name == 'workflow_dispatch' && (inputs.simulate == 'trusted' || inputs.simulate == '')
+    runs-on: ubuntu-latest
+    env:
+      ENVFORGE_TEST_CANARY: 'super_secret_test_value_xyzzy'
+      MY_API_KEY: 'sk_live_canary_should_be_scrubbed_or_preserved'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build local action binary
+        run: cargo build --release --bin envforge
+      - name: Put binary on PATH
+        run: echo "${PWD}/target/release" >> "$GITHUB_PATH"
+      - name: Classify trusted trigger
+        run: envforge ci-trust classify --json
+      - name: Quarantine should be no-op
+        run: |
+          eval "$(envforge ci-trust quarantine)"
+          if [ "${ENVFORGE_TEST_CANARY:-}" != 'super_secret_test_value_xyzzy' ]; then
+            echo "FAIL: trusted trigger should not scrub env"
+            exit 1
+          fi
+          echo "PASS: trusted trigger preserves env"
+      - name: Render summary
+        run: envforge ci-trust summary
+
+  untrusted-fork-pr-simulation:
+    if: github.event_name == 'workflow_dispatch' && inputs.simulate == 'fork-pr'
+    runs-on: ubuntu-latest
+    env:
+      ENVFORGE_TEST_CANARY: 'super_secret_test_value_xyzzy'
+      MY_API_KEY: 'sk_live_should_be_scrubbed'
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release --bin envforge
+      - run: echo "${PWD}/target/release" >> "$GITHUB_PATH"
+      - name: Simulate fork PR event payload
+        run: |
+          mkdir -p /tmp/fake-events
+          cat > /tmp/fake-events/pr-fork.json <<'JSON'
+          {
+            "pull_request": {
+              "head": { "repo": { "fork": true, "full_name": "attacker/fork" } },
+              "base": { "repo": { "full_name": "target/repo" } }
+            }
+          }
+          JSON
+          echo "GITHUB_EVENT_PATH=/tmp/fake-events/pr-fork.json" >> "$GITHUB_ENV"
+          echo "GITHUB_EVENT_NAME=pull_request" >> "$GITHUB_ENV"
+      - name: Classify simulated fork PR
+        run: |
+          rm -f "${RUNNER_TEMP}/envforge-trust.json"
+          verdict="$(envforge ci-trust classify --json)"
+          echo "$verdict"
+          echo "$verdict" | grep -q '"Untrusted"' || { echo "FAIL: expected Untrusted"; exit 1; }
+          echo "$verdict" | grep -q '"ForkPr"' || { echo "FAIL: expected ForkPr reason"; exit 1; }
+      - name: Quarantine should scrub env
+        run: |
+          rm -f "${RUNNER_TEMP}/envforge-trust.json"
+          eval "$(envforge ci-trust quarantine)"
+          if [ -n "${ENVFORGE_TEST_CANARY:-}" ]; then
+            echo "FAIL: canary should be scrubbed"
+            exit 1
+          fi
+          if [ -n "${MY_API_KEY:-}" ]; then
+            echo "FAIL: API key should be scrubbed"
+            exit 1
+          fi
+          echo "PASS: untrusted trigger scrubs secrets"
+      - name: Render summary should mention quarantine applied
+        run: |
+          rm -f "${RUNNER_TEMP}/envforge-trust.json"
+          summary="$(envforge ci-trust summary)"
+          echo "$summary"
+          echo "$summary" | grep -q 'Untrusted' || { echo "FAIL: expected Untrusted in summary"; exit 1; }
+
+  untrusted-external-comment-simulation:
+    if: github.event_name == 'workflow_dispatch' && inputs.simulate == 'external-comment'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release --bin envforge
+      - run: echo "${PWD}/target/release" >> "$GITHUB_PATH"
+      - name: Simulate external-comment event
+        run: |
+          mkdir -p /tmp/fake-events
+          cat > /tmp/fake-events/issue-comment.json <<'JSON'
+          {
+            "comment": { "author_association": "FIRST_TIME_CONTRIBUTOR" }
+          }
+          JSON
+          echo "GITHUB_EVENT_PATH=/tmp/fake-events/issue-comment.json" >> "$GITHUB_ENV"
+          echo "GITHUB_EVENT_NAME=issue_comment" >> "$GITHUB_ENV"
+      - name: Verify external comment classified Untrusted/ExternalComment
+        run: |
+          rm -f "${RUNNER_TEMP}/envforge-trust.json"
+          verdict="$(envforge ci-trust classify --json)"
+          echo "$verdict"
+          echo "$verdict" | grep -q '"Untrusted"' || { echo "FAIL: expected Untrusted"; exit 1; }
+          echo "$verdict" | grep -q '"ExternalComment"' || { echo "FAIL: expected ExternalComment"; exit 1; }

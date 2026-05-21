@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import { getEnvforgePath, getOutputChannel } from './extension';
+import { getEnvforgePath, getOutputChannel, getClient } from './extension';
 import { StatusBar } from './statusbar';
 import { EnvTreeProvider, ProfileTreeProvider } from './treeview';
 
@@ -33,6 +33,14 @@ export function registerCommands(
     ['envforge.syncPull', cmdSyncPull],
     ['envforge.doctor', cmdDoctor],
     ['envforge.restartLsp', cmdRestartLsp],
+    ['envforge.runWizard', cmdRunWizard],
+    ['envforge.projectInit', cmdProjectInit],
+    ['envforge.fenceToggle', () => cmdFenceToggle(statusBar)],
+    ['envforge.runVolatile', cmdRunVolatile],
+    ['envforge.revealValue', cmdRevealValue],
+    ['envforge.canaryScan', cmdCanaryScan],
+    ['envforge.canaryCheck', cmdCanaryCheck],
+    ['envforge.volatileExtend', () => cmdVolatileExtend(statusBar)],
   ];
 
   for (const [id, handler] of commands) {
@@ -375,10 +383,10 @@ async function cmdProfileDiff() {
 async function cmdSchemaGenerate(uri?: vscode.Uri) {
     try {
         const dir = cwdFromUri(uri);
-        await run(['schema', 'generate', '--output', '.env.schema'], dir);
-        vscode.window.showInformationMessage('Generated .env.schema');
+        await run(['schema', 'generate', '--output', '.env.schema.toml'], dir);
+        vscode.window.showInformationMessage('Generated .env.schema.toml');
         const doc = await vscode.workspace.openTextDocument(
-            vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, '.env.schema')
+            vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, '.env.schema.toml')
         );
         await vscode.window.showTextDocument(doc);
     } catch (e: any) {
@@ -432,4 +440,408 @@ async function cmdRestartLsp() {
     // The LSP client doesn't expose restart directly.
     // Reload the window to restart the extension + LSP.
     vscode.commands.executeCommand('workbench.action.reloadWindow');
+}
+
+async function cmdRunWizard() {
+    await launchInTerminal('EnvForge Wizard', ['project', 'wizard']);
+}
+
+async function cmdProjectInit() {
+    await launchInTerminal('EnvForge Project Init', ['project', 'init']);
+}
+
+async function launchInTerminal(name: string, args: string[]) {
+    const bin = getEnvforgePath();
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const terminal = vscode.window.createTerminal({ name, cwd });
+    terminal.show(true);
+    const quoted = args.map(a => /\s/.test(a) ? `"${a}"` : a).join(' ');
+    terminal.sendText(`${bin} ${quoted}`);
+}
+
+async function cmdFenceToggle(statusBar: StatusBar) {
+    const client = getClient();
+    if (!client) {
+        vscode.window.showWarningMessage('EnvForge LSP not running');
+        return;
+    }
+
+    // Ask the server which direction we're about to go so we can show
+    // an accurate confirmation prompt.
+    let currentlyFenced = false;
+    try {
+        const statusResult: any = await client.sendRequest('workspace/executeCommand', {
+            command: 'envforge.fence.status',
+            arguments: [],
+        });
+        currentlyFenced = !!statusResult?.result?.all_fenced;
+    } catch {
+        // Status probe failed — assume not fenced (enable direction)
+        // and let the toggle command itself fail loudly if state is bad.
+    }
+
+    const promptText = currentlyFenced
+        ? 'Disable EnvForge fence? Removes envforge-owned content from .envforgeignore, .cursorignore, .cursorrules, .github/copilot-instructions.md, .claude/settings.json. User content is preserved.'
+        : 'Enable EnvForge fence? Writes .envforgeignore, .cursorignore, .cursorrules, .github/copilot-instructions.md, .claude/settings.json.';
+    const confirmButton = currentlyFenced ? 'Disable Fence' : 'Enable Fence';
+
+    const confirm = await vscode.window.showWarningMessage(
+        promptText,
+        { modal: true },
+        confirmButton
+    );
+    if (confirm !== confirmButton) {
+        return;
+    }
+
+    try {
+        const result: any = await client.sendRequest('workspace/executeCommand', {
+            command: 'envforge.fence.toggle',
+            arguments: [],
+        });
+        const action = result?.result?.action ?? (currentlyFenced ? 'disabled' : 'enabled');
+        vscode.window.showInformationMessage(`EnvForge fence ${action}`);
+        statusBar.update();
+        // Fence flip changes the file-decoration story for every
+        // .env* file in the workspace. Refresh all cached badges so
+        // the explorer redraws immediately.
+        vscode.commands.executeCommand('envforge.decorations.refreshAll');
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Fence toggle failed: ${err?.message || err}`);
+    }
+}
+
+async function cmdRunVolatile() {
+    const client = getClient();
+    if (!client) {
+        vscode.window.showWarningMessage('EnvForge LSP not running');
+        return;
+    }
+
+    // Pre-fill with the active editor's selection so a user can mark up
+    // a script line and run it inside the wrapper with zero typing.
+    const editor = vscode.window.activeTextEditor;
+    const selected = editor?.document.getText(editor.selection)?.trim();
+
+    const command = await vscode.window.showInputBox({
+        prompt: 'Command to run with volatile envforge session',
+        placeHolder: 'npm test',
+        value: selected || '',
+        validateInput: v => (v.trim() === '' ? 'Command cannot be empty' : null),
+    });
+    if (!command) return;
+
+    const ttl = await vscode.window.showQuickPick(
+        ['5m', '15m', '30m', '1h', '2h', 'Custom…'],
+        { placeHolder: 'Session TTL (auto-revokes after this)' },
+    );
+    if (!ttl) return;
+    let ttlFinal = ttl;
+    if (ttl === 'Custom…') {
+        const v = await vscode.window.showInputBox({
+            prompt: 'TTL duration (e.g. 45m, 2h, 1d)',
+            value: '30m',
+            validateInput: s =>
+                /^\d+[smhd]$/i.test(s.trim()) ? null : 'Format: <number><s|m|h|d>',
+        });
+        if (!v) return;
+        ttlFinal = v.trim();
+    }
+
+    let response: any;
+    try {
+        response = await client.sendRequest('workspace/executeCommand', {
+            command: 'envforge.run.volatile',
+            arguments: [{ command, ttl: ttlFinal }],
+        });
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`run-volatile failed: ${err?.message || err}`);
+        return;
+    }
+    if (response?.ok !== true) {
+        vscode.window.showErrorMessage(`run-volatile failed: ${response?.error || 'unknown'}`);
+        return;
+    }
+    const wrapper: string = response.result.wrapper;
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const terminal = vscode.window.createTerminal({
+        name: `EnvForge volatile (${ttlFinal})`,
+        cwd,
+    });
+    terminal.show(true);
+    terminal.sendText(wrapper);
+}
+
+async function cmdRevealValue(arg?: any) {
+    const client = getClient();
+    if (!client) {
+        vscode.window.showWarningMessage('EnvForge LSP not running');
+        return;
+    }
+
+    let key: string | undefined =
+        typeof arg === 'string'
+            ? arg
+            : arg?.envVar?.key ?? arg?.key ?? undefined;
+
+    if (!key) {
+        key = await vscode.window.showInputBox({
+            prompt: 'Env var key to reveal',
+            placeHolder: 'DB_PASSWORD',
+            validateInput: v => (v.trim() === '' ? 'Key cannot be empty' : null),
+        });
+        if (!key) return;
+    }
+
+    const reason = await vscode.window.showInputBox({
+        prompt: `Why reveal ${key}? (logged to envforge audit)`,
+        placeHolder: 'e.g. debugging staging deploy',
+        value: '',
+    });
+    // Empty reason still proceeds — confirm path below gates the action.
+    const confirm = await vscode.window.showWarningMessage(
+        `Reveal value of ${key}? This will be logged to the envforge audit stream.`,
+        { modal: true },
+        'Reveal',
+    );
+    if (confirm !== 'Reveal') return;
+
+    let response: any;
+    try {
+        response = await client.sendRequest('workspace/executeCommand', {
+            command: 'envforge.reveal.value',
+            arguments: [{ key, reason: reason ?? '' }],
+        });
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`reveal failed: ${err?.message || err}`);
+        return;
+    }
+    if (response?.ok !== true) {
+        vscode.window.showErrorMessage(`reveal failed: ${response?.error || 'unknown'}`);
+        return;
+    }
+    const value: string = response.result.value ?? '';
+    const sourceFile: string = response.result.source_file ?? '';
+
+    // Show value via a non-modal info message with action buttons.
+    // The value is never written to OutputChannel / log — we keep it
+    // off persistent surfaces. Clipboard auto-clears after 30 s.
+    const choice = await vscode.window.showInformationMessage(
+        `${key} = ${value}\n(source: ${sourceFile})`,
+        { modal: true },
+        'Copy to clipboard',
+    );
+    if (choice === 'Copy to clipboard') {
+        await vscode.env.clipboard.writeText(value);
+        vscode.window.showInformationMessage(
+            'Value copied. Clipboard will auto-clear in 30s.',
+        );
+        setTimeout(async () => {
+            const current = await vscode.env.clipboard.readText();
+            if (current === value) {
+                await vscode.env.clipboard.writeText('');
+            }
+        }, 30000);
+    }
+}
+
+async function cmdCanaryScan() {
+    const client = getClient();
+    if (!client) {
+        vscode.window.showWarningMessage('EnvForge LSP not running');
+        return;
+    }
+
+    // Two entry paths — paste text or pick a file. Editor selection
+    // wins as the third path: if the user has text highlighted, that's
+    // almost always what they want to scan.
+    const editor = vscode.window.activeTextEditor;
+    const selected = editor?.document.getText(editor.selection);
+
+    let mode: 'text' | 'file' | undefined;
+    if (selected && selected.trim().length > 0) {
+        mode = 'text';
+    } else {
+        const choice = await vscode.window.showQuickPick(
+            ['Paste text to scan…', 'Pick a file to scan…'],
+            { placeHolder: 'How do you want to scan for canary tokens?' },
+        );
+        if (!choice) return;
+        mode = choice.startsWith('Paste') ? 'text' : 'file';
+    }
+
+    const args: Record<string, string> = {};
+    if (mode === 'text') {
+        let text = selected;
+        if (!text) {
+            text = await vscode.window.showInputBox({
+                prompt: 'Paste text (log line, stack trace, diff) to scan',
+                placeHolder: 'cnry_…',
+                validateInput: v => (v.trim() === '' ? 'Text cannot be empty' : null),
+            });
+            if (!text) return;
+        }
+        args.text = text;
+    } else {
+        const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            openLabel: 'Scan for canary tokens',
+        });
+        if (!picked || picked.length === 0) return;
+        args.file = picked[0].fsPath;
+    }
+
+    let response: any;
+    try {
+        response = await client.sendRequest('workspace/executeCommand', {
+            command: 'envforge.canary.scan',
+            arguments: [args],
+        });
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`canary.scan failed: ${err?.message || err}`);
+        return;
+    }
+    if (response?.ok !== true) {
+        vscode.window.showErrorMessage(`canary.scan failed: ${response?.error || 'unknown'}`);
+        return;
+    }
+
+    const count: number = response.result.match_count ?? 0;
+    const matches: Array<{ token: string; byte_offset: number | null; line_number: number | null }> =
+        response.result.matches ?? [];
+
+    if (count === 0) {
+        vscode.window.showInformationMessage(
+            'EnvForge canary scan: no registered tripwire tokens found.',
+        );
+        return;
+    }
+
+    // Route detailed match output to the channel so the user can copy
+    // line numbers, but show a summary banner first.
+    const out = getOutputChannel();
+    out.clear();
+    out.appendLine(`── EnvForge canary scan ──`);
+    out.appendLine(`${count} match${count === 1 ? '' : 'es'} found:`);
+    out.appendLine('');
+    for (const m of matches) {
+        const loc = m.line_number != null
+            ? `line ${m.line_number}`
+            : m.byte_offset != null
+                ? `byte ${m.byte_offset}`
+                : '?';
+        out.appendLine(`  ${loc}: ${m.token}`);
+    }
+    out.show(true);
+    vscode.window.showWarningMessage(
+        `EnvForge: ${count} canary token${count === 1 ? '' : 's'} detected — see output for details.`,
+    );
+}
+
+async function cmdCanaryCheck() {
+    const client = getClient();
+    if (!client) {
+        vscode.window.showWarningMessage('EnvForge LSP not running');
+        return;
+    }
+    let response: any;
+    try {
+        response = await client.sendRequest('workspace/executeCommand', {
+            command: 'envforge.canary.check',
+            arguments: [],
+        });
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`canary.check failed: ${err?.message || err}`);
+        return;
+    }
+    if (response?.ok !== true) {
+        vscode.window.showErrorMessage(`canary.check failed: ${response?.error || 'unknown'}`);
+        return;
+    }
+
+    const count: number = response.result.triggered_count ?? 0;
+    const triggered: Array<{ key: string; pattern: string; trigger_count: number; created_at: string }> =
+        response.result.triggered ?? [];
+
+    if (count === 0) {
+        vscode.window.showInformationMessage(
+            'EnvForge canary check: no triggered tripwires. All quiet.',
+        );
+        return;
+    }
+    const out = getOutputChannel();
+    out.clear();
+    out.appendLine(`── EnvForge triggered canaries ──`);
+    out.appendLine(`${count} tripwire${count === 1 ? '' : 's'} triggered:`);
+    out.appendLine('');
+    for (const c of triggered) {
+        out.appendLine(`  ${c.key} (${c.pattern}) — ${c.trigger_count} hit${c.trigger_count === 1 ? '' : 's'}, created ${c.created_at}`);
+    }
+    out.show(true);
+    vscode.window.showErrorMessage(
+        `EnvForge: ${count} triggered canary${count === 1 ? '' : 's'}. Review immediately.`,
+    );
+}
+
+async function cmdVolatileExtend(statusBar: StatusBar) {
+    const client = getClient();
+    if (!client) {
+        vscode.window.showWarningMessage('EnvForge LSP not running');
+        return;
+    }
+
+    // Resolve the lease to extend: query the active one. If none active,
+    // tell the user instead of silently doing nothing.
+    let statusResp: any;
+    try {
+        statusResp = await client.sendRequest('workspace/executeCommand', {
+            command: 'envforge.volatile.status',
+            arguments: [],
+        });
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`volatile.status failed: ${err?.message || err}`);
+        return;
+    }
+    const active = statusResp?.result;
+    if (!active || active === null) {
+        vscode.window.showInformationMessage('No active volatile lease to extend.');
+        return;
+    }
+    const name: string = active.name;
+
+    const ttlChoice = await vscode.window.showQuickPick(
+        ['5m', '15m', '30m', '1h', '2h', 'Custom…'],
+        { placeHolder: `Extend lease "${name}" — new TTL (replaces remaining time)` },
+    );
+    if (!ttlChoice) return;
+    let ttl = ttlChoice;
+    if (ttlChoice === 'Custom…') {
+        const v = await vscode.window.showInputBox({
+            prompt: 'TTL duration (e.g. 45m, 2h, 1d)',
+            value: '30m',
+            validateInput: s =>
+                /^\d+[smhd]$/i.test(s.trim()) ? null : 'Format: <number><s|m|h|d>',
+        });
+        if (!v) return;
+        ttl = v.trim();
+    }
+
+    try {
+        const resp: any = await client.sendRequest('workspace/executeCommand', {
+            command: 'envforge.volatile.extend',
+            arguments: [{ name, ttl }],
+        });
+        if (resp?.ok !== true) {
+            vscode.window.showErrorMessage(`Extend failed: ${resp?.error || 'unknown'}`);
+            return;
+        }
+        vscode.window.showInformationMessage(
+            `Lease "${name}" extended by ${ttl}.`,
+        );
+        statusBar.update();
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Extend failed: ${err?.message || err}`);
+    }
 }

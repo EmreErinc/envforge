@@ -60,6 +60,13 @@ inputs:
   drift-envs:
     description: 'Paths to .env files for drift comparison (newline or comma separated)'
     required: false
+  quarantine:
+    description: 'Quarantine policy when CI trigger is untrusted: auto (default), force, off'
+    required: false
+    default: 'auto'
+  allow-keys:
+    description: 'Comma/newline-separated env var names to preserve through quarantine'
+    required: false
 
 outputs:
   variables:
@@ -74,6 +81,18 @@ outputs:
   drift-result:
     description: 'Drift detection result: clean or drift'
     value: ${{ steps.envforge.outputs.drift-result }}
+  quarantine_verdict:
+    description: 'Trust verdict: Trusted | Suspicious | Untrusted'
+    value: ${{ steps.envforge.outputs.quarantine_verdict }}
+  quarantine_reason:
+    description: 'Reason classifier returned (push, fork_pr, external_comment, etc.)'
+    value: ${{ steps.envforge.outputs.quarantine_reason }}
+  quarantine_applied:
+    description: 'true if secrets were scrubbed before mode dispatch'
+    value: ${{ steps.envforge.outputs.quarantine_applied }}
+  quarantine_scrubbed_count:
+    description: 'Number of env vars scrubbed under quarantine'
+    value: ${{ steps.envforge.outputs.quarantine_scrubbed_count }}
 
 runs:
   using: 'composite'
@@ -103,4 +122,6 @@ runs:
         INPUT_ENV_FILES: ${{ inputs.env-files }}
         INPUT_OVERRIDES: ${{ inputs.overrides }}
         INPUT_DRIFT_ENVS: ${{ inputs.drift-envs }}
+        INPUT_QUARANTINE: ${{ inputs.quarantine }}
+        INPUT_ALLOW_KEYS: ${{ inputs.allow-keys }}
       run: ${{ github.action_path }}/scripts/run.sh

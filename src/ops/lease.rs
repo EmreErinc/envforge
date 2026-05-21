@@ -28,13 +28,22 @@ fn acquire_lease_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Lease {
     pub name: String,
     pub created_at: String,
     pub expires_at: String,
     pub keys: Option<Vec<String>>, // None = all keys
     pub revoked: bool,
+    // ─── JIT extension (additive; serde-default for backward compat). See ADR-009. ───
+    #[serde(default)]
+    pub pid: Option<u32>,
+    #[serde(default)]
+    pub single_redeem: bool,
+    #[serde(default)]
+    pub redeemed: bool,
+    #[serde(default)]
+    pub tool_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +54,8 @@ pub struct LeaseStatus {
     pub expired: bool,
     pub revoked: bool,
     pub key_count: Option<usize>,
+    pub pid: Option<u32>,
+    pub redeemed: bool,
 }
 
 /// Get leases directory path.
@@ -78,6 +89,7 @@ pub fn create_lease(
         expires_at: expires.to_rfc3339(),
         keys,
         revoked: false,
+        ..Default::default()
     };
 
     let dir = leases_dir()?;
@@ -133,6 +145,8 @@ fn list_leases_in(dir: &std::path::Path) -> Vec<LeaseStatus> {
                         expired: remaining <= 0,
                         revoked: lease.revoked,
                         key_count: lease.keys.as_ref().map(|k| k.len()),
+                        pid: lease.pid,
+                        redeemed: lease.redeemed,
                     });
                 }
             }
@@ -287,10 +301,13 @@ fn check_lease_access_in(dir: &std::path::Path, key: &str) -> Option<String> {
     None
 }
 
-/// Parse duration string ("1h", "30m", "8h", "24h", "7d") to seconds.
+/// Parse duration string ("30s", "1h", "30m", "8h", "24h", "7d") to seconds.
+/// JIT leases routinely use "s" suffix; manual leases the others.
 pub fn parse_lease_duration(s: &str) -> Result<i64, String> {
     let s = s.trim();
-    if let Some(minutes) = s.strip_suffix('m') {
+    if let Some(secs) = s.strip_suffix('s') {
+        secs.parse::<i64>().map_err(|e| e.to_string())
+    } else if let Some(minutes) = s.strip_suffix('m') {
         minutes
             .parse::<i64>()
             .map(|m| m * 60)
@@ -306,7 +323,7 @@ pub fn parse_lease_duration(s: &str) -> Result<i64, String> {
             .map_err(|e| e.to_string())
     } else {
         Err(format!(
-            "Invalid duration '{}'. Use: 30m, 1h, 8h, 24h, 7d",
+            "Invalid duration '{}'. Use: 30s, 30m, 1h, 8h, 24h, 7d",
             s
         ))
     }
@@ -349,7 +366,402 @@ fn cleanup_expired_in(dir: &std::path::Path) -> Result<usize, OpError> {
     Ok(removed)
 }
 
-// ─── Tests ─────────────────────────────────────────────────
+use dashmap::DashMap;
+use zeroize::Zeroizing;
+
+/// Reason a JIT lease was revoked. Audit-log metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RevokeReason {
+    Explicit,
+    PidExit,
+    TtlExpired,
+    Panic,
+}
+
+/// One-time-use redemption ticket returned by `jit_grant`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JitHandle {
+    pub uuid: String,
+    pub lease_name: String,
+}
+
+/// Inputs to `jit_grant`. All validated before lease is created.
+#[derive(Debug, Clone)]
+pub struct GrantRequest {
+    pub key: String,
+    pub pid: u32,
+    pub ttl_secs: u64,
+    pub tool_name: String,
+    pub single_redeem: bool,
+}
+
+/// Errors specific to the JIT lease flow.
+#[derive(Debug, thiserror::Error)]
+pub enum LeaseError {
+    #[error("lease not found: {0}")]
+    NotFound(String),
+    #[error("lease already revoked: {0}")]
+    AlreadyRevoked(String),
+    #[error("lease already redeemed: {0}")]
+    AlreadyRedeemed(String),
+    #[error("lease expired: {0}")]
+    Expired(String),
+    #[error("invalid pid: {0}")]
+    InvalidPid(u32),
+    #[error("invalid ttl: {0}")]
+    InvalidTtl(String),
+    #[error("invalid key name: {0}")]
+    InvalidKey(String),
+    #[error("op error: {0}")]
+    OpError(#[from] OpError),
+}
+
+/// Process-wide registry of active watcher tasks. One per JIT lease.
+fn watcher_registry() -> &'static DashMap<String, tokio::task::JoinHandle<()>> {
+    static R: OnceLock<DashMap<String, tokio::task::JoinHandle<()>>> = OnceLock::new();
+    R.get_or_init(DashMap::new)
+}
+
+/// Number of currently-tracked watcher tasks (for tests + diagnostics).
+pub fn watcher_count() -> usize {
+    watcher_registry().len()
+}
+
+fn validate_pid(pid: u32) -> Result<(), LeaseError> {
+    if pid == 0 {
+        return Err(LeaseError::InvalidPid(pid));
+    }
+    if pid == std::process::id() {
+        return Err(LeaseError::InvalidPid(pid));
+    }
+    Ok(())
+}
+
+fn validate_key_name(key: &str) -> Result<(), LeaseError> {
+    if key.is_empty() {
+        return Err(LeaseError::InvalidKey(key.to_string()));
+    }
+    Ok(())
+}
+
+fn persist_lease(lease: &Lease) -> Result<(), OpError> {
+    let dir = leases_dir()?;
+    let path = dir.join(format!("{}.toml", lease.name));
+    let content = toml::to_string_pretty(lease)?;
+    std::fs::write(&path, content)?;
+    Ok(())
+}
+
+fn load_lease(name: &str) -> Result<Option<Lease>, OpError> {
+    let dir = leases_dir()?;
+    let path = dir.join(format!("{}.toml", name));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(&path)?;
+    Ok(Some(toml::from_str(&content)?))
+}
+
+fn lease_expired(lease: &Lease) -> bool {
+    DateTime::parse_from_rfc3339(&lease.expires_at)
+        .map(|exp| exp.with_timezone(&Utc) <= Utc::now())
+        .unwrap_or(true)
+}
+
+/// Liveness probe via `kill(pid, 0)`. Returns true if the process exists and
+/// the EnvForge process has permission to signal it (which it does for any
+/// process owned by the same uid).
+fn pid_alive(pid: u32) -> bool {
+    // SAFETY: kill(pid, 0) is a side-effect-free liveness probe; it does not
+    // deliver any signal. The pid is u32 → i32 safe for the userspace range.
+    #[cfg(unix)]
+    unsafe {
+        let r = libc::kill(pid as i32, 0);
+        if r == 0 {
+            return true;
+        }
+        // ESRCH means the process is gone. Anything else (e.g. EPERM for a
+        // process we can see but not signal) means the process *exists*.
+        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+/// Read PID start-time fingerprint to defeat PID reuse races.
+/// Returns `None` if not readable on this platform / for this caller.
+#[cfg(target_os = "linux")]
+fn pid_start_time(pid: u32) -> Option<u64> {
+    let path = format!("/proc/{}/stat", pid);
+    let stat = std::fs::read_to_string(&path).ok()?;
+    // Field layout: pid (comm) state ppid ... starttime (field 22, 0-indexed 21).
+    // The comm field is parenthesized and can contain spaces; use rsplit on ')'
+    // to skip past it, then count from there.
+    let after_comm = stat.rsplit(')').next()?;
+    let fields: Vec<&str> = after_comm.split_whitespace().collect();
+    // Post-comm fields begin at index 0 = "state". starttime is field 22 overall,
+    // i.e. index 19 of the post-comm slice (state, ppid, pgrp, session, tty_nr,
+    // tpgid, flags, minflt, cminflt, majflt, cmajflt, utime, stime, cutime,
+    // cstime, priority, nice, num_threads, itrealvalue, starttime).
+    fields.get(19).and_then(|s| s.parse().ok())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn pid_start_time(_pid: u32) -> Option<u64> {
+    // macOS proc_pidinfo path deferred to a future intent. Falling back to
+    // PID-only liveness is documented as a known limitation in the bolt brief.
+    None
+}
+
+fn poll_interval_ms() -> u64 {
+    std::env::var("LEASE_WATCHER_POLL_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(|n| n.clamp(50, 500))
+        .unwrap_or(100)
+}
+
+/// Spawn a watcher task that calls `jit_revoke` when the bound PID exits or
+/// the TTL deadline is reached. Registers the JoinHandle so explicit revoke
+/// can abort the task. No-op if there's no tokio runtime active.
+fn spawn_watcher(lease_name: &str, pid: u32, expires_at: String) {
+    let name = lease_name.to_string();
+    let deadline = match DateTime::parse_from_rfc3339(&expires_at) {
+        Ok(d) => d.with_timezone(&Utc),
+        Err(_) => Utc::now() + chrono::Duration::hours(1),
+    };
+    let pid_start = pid_start_time(pid);
+    let poll_ms = poll_interval_ms();
+
+    // tokio::spawn requires a runtime; if there isn't one, fall back gracefully.
+    let runtime_handle = tokio::runtime::Handle::try_current().ok();
+    let Some(rt) = runtime_handle else {
+        log::warn!(
+            "JIT lease {name} created without tokio runtime; PID watcher disabled (TTL still applies via cleanup_expired)"
+        );
+        return;
+    };
+
+    let handle = rt.spawn(async move {
+        loop {
+            // 1. TTL deadline?
+            if Utc::now() >= deadline {
+                let _ = jit_revoke(&name, RevokeReason::TtlExpired);
+                break;
+            }
+            // 2. PID still alive (and same start-time)?
+            if !pid_alive_with_start(pid, pid_start) {
+                let _ = jit_revoke(&name, RevokeReason::PidExit);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(poll_ms)).await;
+        }
+        watcher_registry().remove(&name);
+    });
+
+    watcher_registry().insert(lease_name.to_string(), handle);
+}
+
+fn pid_alive_with_start(pid: u32, expected_start: Option<u64>) -> bool {
+    if !pid_alive(pid) {
+        return false;
+    }
+    match (expected_start, pid_start_time(pid)) {
+        (Some(a), Some(b)) => a == b,
+        _ => true, // fall back to PID-only check if start-time unreadable
+    }
+}
+
+/// Mint a JIT lease. Validates inputs, creates the lease record (extended with
+/// JIT fields), spawns a PID watcher, and returns a single-redemption handle.
+pub fn jit_grant(req: GrantRequest) -> Result<JitHandle, LeaseError> {
+    validate_pid(req.pid)?;
+    validate_key_name(&req.key)?;
+    if req.ttl_secs == 0 {
+        return Err(LeaseError::InvalidTtl("ttl == 0".into()));
+    }
+    if req.ttl_secs > 7 * 86_400 {
+        return Err(LeaseError::InvalidTtl(format!(
+            "ttl {} > 7 days",
+            req.ttl_secs
+        )));
+    }
+    let ttl_i64 = i64::try_from(req.ttl_secs)
+        .map_err(|_| LeaseError::InvalidTtl(format!("ttl too large: {}", req.ttl_secs)))?;
+
+    // Generate lease name. UUID prefix avoids collisions with manual leases.
+    let lease_name = format!("jit-{}", uuid::Uuid::new_v4());
+
+    // Acquire lock once around create + extension + persist.
+    let _guard = acquire_lease_lock();
+
+    // Reuse existing TTL math from create_lease: build the record manually so
+    // we can include JIT fields in a single write (avoid double-fsync).
+    let now = Utc::now();
+    let expires = now + chrono::Duration::seconds(ttl_i64);
+    let lease = Lease {
+        name: lease_name.clone(),
+        created_at: now.to_rfc3339(),
+        expires_at: expires.to_rfc3339(),
+        keys: Some(vec![req.key.clone()]),
+        revoked: false,
+        pid: Some(req.pid),
+        single_redeem: req.single_redeem,
+        redeemed: false,
+        tool_name: Some(req.tool_name.clone()),
+    };
+    persist_lease(&lease)?;
+
+    // Spawn watcher *outside* the lock — the watcher acquires the lock itself
+    // when it eventually calls jit_revoke.
+    drop(_guard);
+    spawn_watcher(&lease_name, req.pid, lease.expires_at.clone());
+
+    audit_emit_lease_granted(&lease, &req);
+    Ok(JitHandle {
+        uuid: uuid::Uuid::new_v4().to_string(),
+        lease_name,
+    })
+}
+
+/// Resolve the secret value bound to a JIT lease. On success, returns a
+/// `Zeroizing<String>` whose drop overwrites the heap buffer. Single-redeem
+/// leases reject the second redemption.
+///
+/// NOTE: this implementation reads the value from the system shell environment
+/// (`std::env::var`). Future intents may resolve via the secrets-provider
+/// pipeline (`ops/secrets`), at which point this fn becomes a thin facade.
+pub fn jit_redeem(handle: &JitHandle) -> Result<Zeroizing<String>, LeaseError> {
+    let _guard = acquire_lease_lock();
+    let mut lease = load_lease(&handle.lease_name)?
+        .ok_or_else(|| LeaseError::NotFound(handle.lease_name.clone()))?;
+
+    if lease.revoked {
+        return Err(LeaseError::AlreadyRevoked(handle.lease_name.clone()));
+    }
+    if lease_expired(&lease) {
+        return Err(LeaseError::Expired(handle.lease_name.clone()));
+    }
+    if lease.single_redeem && lease.redeemed {
+        return Err(LeaseError::AlreadyRedeemed(handle.lease_name.clone()));
+    }
+
+    let key = lease
+        .keys
+        .as_ref()
+        .and_then(|v| v.first())
+        .cloned()
+        .ok_or_else(|| LeaseError::InvalidKey("no key on lease".into()))?;
+
+    let raw = std::env::var(&key)
+        .map_err(|_| LeaseError::OpError(OpError::Other(format!("env var not set: {key}"))))?;
+    let value = Zeroizing::new(raw);
+
+    if lease.single_redeem {
+        lease.redeemed = true;
+        persist_lease(&lease)?;
+    }
+
+    audit_emit_lease_redeemed(&lease);
+    Ok(value)
+}
+
+/// Revoke a JIT lease (or any lease). Aborts the watcher if present. Idempotent.
+///
+/// Lock acquisition is delegated to `revoke_lease` (the existing fn already holds
+/// the process-wide lease lock). We do NOT pre-acquire it here — the project's
+/// lease mutex is non-reentrant and a double-acquisition would deadlock.
+pub fn jit_revoke(name: &str, reason: RevokeReason) -> Result<bool, LeaseError> {
+    // Abort + remove watcher first so it doesn't race against the file write.
+    if let Some((_, handle)) = watcher_registry().remove(name) {
+        handle.abort();
+    }
+
+    let did = revoke_lease(name)?;
+    if did {
+        let lease = load_lease(name)?;
+        audit_emit_lease_revoked(lease.as_ref(), reason);
+    }
+    Ok(did)
+}
+
+// ─── Audit emission (3 new EventType variants registered in audit/types.rs) ──
+
+fn audit_emit_lease_granted(lease: &Lease, req: &GrantRequest) {
+    use crate::ops::audit::emitter::emit;
+    use crate::ops::audit::types::{AuditEvent, EventResult, EventSource, EventType};
+    let mut event = AuditEvent::new(
+        EventType::LeaseGranted,
+        EventSource::AiGuard,
+        EventResult::Success,
+    );
+    event.add_metadata("lease_name", serde_json::Value::String(lease.name.clone()));
+    event.add_metadata("key", serde_json::Value::String(req.key.clone()));
+    event.add_metadata(
+        "tool_name",
+        serde_json::Value::String(req.tool_name.clone()),
+    );
+    event.add_metadata("pid", serde_json::Value::from(req.pid));
+    event.add_metadata("ttl_secs", serde_json::Value::from(req.ttl_secs));
+    let cfg = match audit_config() {
+        Some(c) => c,
+        None => return,
+    };
+    if let Err(e) = emit(event, &cfg) {
+        log::warn!("audit emit (LeaseGranted) failed: {e}");
+    }
+}
+
+fn audit_emit_lease_redeemed(lease: &Lease) {
+    use crate::ops::audit::emitter::emit;
+    use crate::ops::audit::types::{AuditEvent, EventResult, EventSource, EventType};
+    let mut event = AuditEvent::new(
+        EventType::LeaseRedeemed,
+        EventSource::AiGuard,
+        EventResult::Success,
+    );
+    event.add_metadata("lease_name", serde_json::Value::String(lease.name.clone()));
+    if let Some(t) = &lease.tool_name {
+        event.add_metadata("tool_name", serde_json::Value::String(t.clone()));
+    }
+    let cfg = match audit_config() {
+        Some(c) => c,
+        None => return,
+    };
+    if let Err(e) = emit(event, &cfg) {
+        log::warn!("audit emit (LeaseRedeemed) failed: {e}");
+    }
+}
+
+fn audit_emit_lease_revoked(lease: Option<&Lease>, reason: RevokeReason) {
+    use crate::ops::audit::emitter::emit;
+    use crate::ops::audit::types::{AuditEvent, EventResult, EventSource, EventType};
+    let mut event = AuditEvent::new(
+        EventType::LeaseRevoked,
+        EventSource::AiGuard,
+        EventResult::Success,
+    );
+    if let Some(l) = lease {
+        event.add_metadata("lease_name", serde_json::Value::String(l.name.clone()));
+    }
+    event.add_metadata("reason", serde_json::Value::String(format!("{reason:?}")));
+    let cfg = match audit_config() {
+        Some(c) => c,
+        None => return,
+    };
+    if let Err(e) = emit(event, &cfg) {
+        log::warn!("audit emit (LeaseRevoked) failed: {e}");
+    }
+}
+
+fn audit_config() -> Option<crate::ops::audit::emitter::EmitterConfig> {
+    use crate::ops::audit::emitter::EmitterConfig;
+    let dir = crate::config::config_dir().ok()?.join("audit");
+    Some(EmitterConfig::new(dir))
+}
 
 #[cfg(test)]
 mod tests {
@@ -365,6 +777,7 @@ mod tests {
             expires_at: expires.to_rfc3339(),
             keys,
             revoked: false,
+            ..Default::default()
         }
     }
 
@@ -377,6 +790,7 @@ mod tests {
             expires_at: (past + chrono::Duration::seconds(60)).to_rfc3339(),
             keys: None,
             revoked: false,
+            ..Default::default()
         }
     }
 
@@ -389,6 +803,7 @@ mod tests {
             expires_at: expires.to_rfc3339(),
             keys: None,
             revoked: true,
+            ..Default::default()
         }
     }
 
@@ -428,8 +843,162 @@ mod tests {
     #[test]
     fn test_parse_lease_duration_invalid() {
         assert!(parse_lease_duration("abc").is_err());
-        assert!(parse_lease_duration("10s").is_err());
         assert!(parse_lease_duration("").is_err());
+        assert!(parse_lease_duration("10x").is_err());
+    }
+
+    #[test]
+    fn test_parse_lease_duration_seconds() {
+        assert_eq!(parse_lease_duration("30s").unwrap(), 30);
+        assert_eq!(parse_lease_duration("0s").unwrap(), 0);
+        assert_eq!(parse_lease_duration("3600s").unwrap(), 3600);
+    }
+
+    #[test]
+    fn test_jit_grant_rejects_pid_zero() {
+        let req = GrantRequest {
+            key: "TEST".into(),
+            pid: 0,
+            ttl_secs: 30,
+            tool_name: "test".into(),
+            single_redeem: true,
+        };
+        let r = jit_grant(req);
+        assert!(matches!(r, Err(LeaseError::InvalidPid(0))));
+    }
+
+    #[test]
+    fn test_jit_grant_rejects_self_pid() {
+        let req = GrantRequest {
+            key: "TEST".into(),
+            pid: std::process::id(),
+            ttl_secs: 30,
+            tool_name: "test".into(),
+            single_redeem: true,
+        };
+        let r = jit_grant(req);
+        assert!(matches!(r, Err(LeaseError::InvalidPid(_))));
+    }
+
+    #[test]
+    fn test_jit_grant_rejects_ttl_zero() {
+        let req = GrantRequest {
+            key: "TEST".into(),
+            pid: 1,
+            ttl_secs: 0,
+            tool_name: "test".into(),
+            single_redeem: true,
+        };
+        let r = jit_grant(req);
+        assert!(matches!(r, Err(LeaseError::InvalidTtl(_))));
+    }
+
+    #[test]
+    fn test_jit_grant_rejects_ttl_too_long() {
+        let req = GrantRequest {
+            key: "TEST".into(),
+            pid: 1,
+            ttl_secs: 8 * 86_400, // > 7 days
+            tool_name: "test".into(),
+            single_redeem: true,
+        };
+        let r = jit_grant(req);
+        assert!(matches!(r, Err(LeaseError::InvalidTtl(_))));
+    }
+
+    #[test]
+    fn test_jit_grant_rejects_empty_key() {
+        let req = GrantRequest {
+            key: String::new(),
+            pid: 1,
+            ttl_secs: 30,
+            tool_name: "test".into(),
+            single_redeem: true,
+        };
+        let r = jit_grant(req);
+        assert!(matches!(r, Err(LeaseError::InvalidKey(_))));
+    }
+
+    #[test]
+    fn test_pid_alive_self() {
+        // Our own PID must be reported alive.
+        assert!(pid_alive(std::process::id()));
+    }
+
+    #[test]
+    fn test_pid_alive_high_pid_likely_dead() {
+        // PIDs above ~4 million on Linux are above the default pid_max (4194304).
+        // On macOS the cap is even lower (99999 historically; 99999_999 is
+        // definitively above any allocation). kill(-1, 0) is broadcast and
+        // therefore returns success — so we use a positive but unallocated
+        // PID instead.
+        assert!(!pid_alive(99_999_999));
+    }
+
+    #[test]
+    fn test_default_lease_serializes_v1_compatible() {
+        // A lease without JIT fields must serialize to TOML that is loadable
+        // by older code via the same struct (round-trip).
+        let l = Lease {
+            name: "manual".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            expires_at: "2026-01-02T00:00:00Z".into(),
+            keys: Some(vec!["A".into()]),
+            revoked: false,
+            ..Default::default()
+        };
+        let s = toml::to_string(&l).unwrap();
+        let back: Lease = toml::from_str(&s).unwrap();
+        assert_eq!(back.name, "manual");
+        assert!(back.pid.is_none());
+        assert!(!back.single_redeem);
+        assert!(!back.redeemed);
+        assert!(back.tool_name.is_none());
+    }
+
+    #[test]
+    fn test_legacy_toml_loads_with_serde_default() {
+        // Simulate a TOML file written by a pre-JIT version of envforge.
+        let legacy = r#"
+name = "old-lease"
+created_at = "2026-01-01T00:00:00Z"
+expires_at = "2026-01-02T00:00:00Z"
+revoked = false
+"#;
+        let l: Lease = toml::from_str(legacy).unwrap();
+        assert_eq!(l.name, "old-lease");
+        assert!(l.pid.is_none());
+        assert!(!l.single_redeem);
+        assert!(!l.redeemed);
+        assert!(l.tool_name.is_none());
+    }
+
+    #[test]
+    fn test_revoke_reason_serializes_round_trip() {
+        for r in [
+            RevokeReason::Explicit,
+            RevokeReason::PidExit,
+            RevokeReason::TtlExpired,
+            RevokeReason::Panic,
+        ] {
+            let s = serde_json::to_string(&r).unwrap();
+            let back: RevokeReason = serde_json::from_str(&s).unwrap();
+            assert_eq!(r, back);
+        }
+    }
+
+    #[test]
+    fn test_watcher_count_starts_zero_or_consistent() {
+        // We can't assume zero (other tests may have affected it), but the
+        // call must not panic and must return a usize.
+        let n = watcher_count();
+        let _ = n; // sanity only
+    }
+
+    #[test]
+    fn test_jit_revoke_unknown_lease_is_noop() {
+        let did = jit_revoke("non-existent-jit-lease", RevokeReason::Explicit).unwrap();
+        assert!(!did);
     }
 
     #[test]

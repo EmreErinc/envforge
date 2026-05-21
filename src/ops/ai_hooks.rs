@@ -50,6 +50,9 @@ const CLAUDE_PRE_TOOL_COMMAND: &str =
 const CLAUDE_POST_TOOL_MATCHER: &str = "Write|Edit|Bash|MultiEdit";
 const CLAUDE_POST_TOOL_COMMAND: &str =
     "envforge ai-guard post-tool \"$TOOL_NAME\" \"$TOOL_INPUT\" 2>/dev/null; true";
+// MCP supply-chain verification at session start (Bolt 080)
+const CLAUDE_SESSION_START_MATCHER: &str = "";
+const CLAUDE_SESSION_START_COMMAND: &str = "envforge mcp verify --json 2>/dev/null; true";
 
 /// Build the Claude Code settings path for a project.
 fn claude_settings_path(project_dir: &Path) -> PathBuf {
@@ -90,7 +93,7 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
 
     let hooks_obj = hooks.as_object_mut().ok_or("hooks is not an object")?;
 
-    // Check if already installed (check both stages)
+    // Check if already installed (check all three stages)
     let pre_arr = hooks_obj
         .get("PreToolUse")
         .and_then(|v| v.as_array())
@@ -101,8 +104,16 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    let session_arr = hooks_obj
+        .get("SessionStart")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
 
-    if has_envforge_hook(&pre_arr) || has_envforge_hook(&post_arr) {
+    if has_envforge_hook(&pre_arr)
+        || has_envforge_hook(&post_arr)
+        || has_envforge_hook(&session_arr)
+    {
         return Ok(HookInstallResult {
             tool: "Claude Code".to_string(),
             config_path: settings_path,
@@ -135,6 +146,18 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
         "hook": CLAUDE_POST_TOOL_COMMAND,
     }));
 
+    // Install SessionStart hook for MCP pin verification (Bolt 080)
+    let session_start = hooks_obj
+        .entry("SessionStart")
+        .or_insert_with(|| serde_json::json!([]));
+    let session_arr = session_start
+        .as_array_mut()
+        .ok_or("SessionStart is not an array")?;
+    session_arr.push(serde_json::json!({
+        "matcher": CLAUDE_SESSION_START_MATCHER,
+        "hook": CLAUDE_SESSION_START_COMMAND,
+    }));
+
     // Write back
     if let Some(parent) = settings_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -146,8 +169,9 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
         tool: "Claude Code".to_string(),
         config_path: settings_path,
         installed: true,
-        message: "Installed EnvForge PreToolUse + PostToolUse hooks in Claude Code settings"
-            .to_string(),
+        message:
+            "Installed EnvForge PreToolUse + PostToolUse + SessionStart hooks in Claude Code settings"
+                .to_string(),
     })
 }
 
@@ -182,7 +206,7 @@ fn remove_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpEr
     let mut removed = false;
     if let Some(hooks) = settings.get_mut("hooks") {
         // Remove from all hook stages
-        for stage in &["PreToolUse", "PostToolUse"] {
+        for stage in &["PreToolUse", "PostToolUse", "SessionStart"] {
             if let Some(stage_val) = hooks.get_mut(*stage) {
                 if let Some(arr) = stage_val.as_array_mut() {
                     if remove_envforge_from_array(arr) {
@@ -220,6 +244,11 @@ const CURSOR_RULES_BLOCK: &str = r#"
 - Never read .env files; use .env.schema or .env.ai.md for context
 - If you need a secret value, use process.env.KEY_NAME, not the actual value
 - Run `envforge scan --staged` before suggesting commits
+
+### EnvForge MCP Pin Verification
+- Before using any MCP tool, the user should have run `envforge mcp launch cursor` to verify .envforge/mcp.lock against the resolved state
+- Cursor lacks a pre-load hook surface; hard enforcement comes only from the launch wrapper
+- This block is advisory — treat unverified MCP servers as untrusted
 "#;
 
 /// Determine the Cursor rules file path. Prefer `.cursor/rules` if the dir exists.
@@ -461,6 +490,56 @@ mod tests {
             post[0]["matcher"].as_str().unwrap(),
             "Write|Edit|Bash|MultiEdit"
         );
+
+        // SessionStart hook for MCP pin verification (Bolt 080)
+        let session = &content["hooks"]["SessionStart"];
+        assert!(session.is_array());
+        assert_eq!(session.as_array().unwrap().len(), 1);
+        assert!(session[0]["hook"]
+            .as_str()
+            .unwrap()
+            .contains("envforge mcp verify"));
+    }
+
+    #[test]
+    fn test_claude_code_remove_clears_session_start() {
+        let tmp = TempDir::new().unwrap();
+        install_claude_code_hook(tmp.path()).unwrap();
+        let settings_path = tmp.path().join(".claude").join("settings.json");
+        let content_before: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert!(content_before["hooks"]["SessionStart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["hook"]
+                .as_str()
+                .unwrap_or("")
+                .contains("envforge mcp verify")));
+
+        let _ = remove_claude_code_hook(tmp.path()).unwrap();
+
+        let content_after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        let session = &content_after["hooks"]["SessionStart"];
+        // Either empty array or no envforge entries remaining.
+        if session.is_array() {
+            assert!(!session
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["hook"].as_str().unwrap_or("").contains("envforge")));
+        }
+    }
+
+    #[test]
+    fn test_cursor_block_contains_mcp_advisory() {
+        let tmp = TempDir::new().unwrap();
+        install_cursor_hook(tmp.path()).unwrap();
+        let path = tmp.path().join(".cursorrules");
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("EnvForge MCP Pin Verification"));
+        assert!(content.contains("mcp launch cursor"));
     }
 
     #[test]

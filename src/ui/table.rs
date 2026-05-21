@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use ratatui::layout::Constraint;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -9,12 +11,34 @@ use super::app::{App, TableRow};
 
 const MASK: &str = "•••••";
 
+/// Per-process cache: whether any MCP-pinned server is currently KnownBad.
+/// Computed lazily on first table render; never recomputed (refresh requires
+/// process restart). Avoids per-frame doctor-section build.
+fn mcp_has_known_bad() -> bool {
+    static CACHED: OnceLock<bool> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        use crate::ops::doctor::{build_mcp_section, DoctorOpts};
+        let opts = DoctorOpts {
+            include_unknown: false,
+        };
+        match build_mcp_section(&opts) {
+            Some(section) => section.has_critical_findings(),
+            None => false,
+        }
+    })
+}
+
 /// Build the ENV table widget with group support.
 pub fn build_table(app: &App) -> (Table<'_>, TableState) {
     let rows_data = app.visible_rows();
 
+    let mut key_header = String::from("KEY");
+    if mcp_has_known_bad() {
+        key_header.push_str(" [!M KnownBad MCP server pinned]");
+    }
+
     let header = Row::new(vec![
-        Cell::from("KEY").style(
+        Cell::from(key_header).style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),

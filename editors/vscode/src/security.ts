@@ -305,7 +305,7 @@ export function registerSecurityCommands(
       );
       if (confirm !== 'Remove') return;
       try {
-        await cliRun(['canary', 'remove', key]);
+        await cliRun(['canary', 'delete', key]);
         vscode.window.showInformationMessage(`Canary token removed: ${key}`);
         securityProvider.refresh();
       } catch (e: any) {

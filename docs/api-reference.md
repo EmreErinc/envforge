@@ -1,4 +1,4 @@
-# EnvForge API Reference v0.7.4
+# EnvForge API Reference v0.7.7
 
 > Rust library reference for integrating envforge types and functions into your own tools.  
 > IDE extension authors, CI/CD tool builders, custom shell managers — this is your dictionary.
@@ -422,27 +422,67 @@ envforge::ops::validation →  rule-based value validation
 
 ### LSP (`envforge::lsp`)
 
-#### `start_lsp_server()`
+Run the server with `envforge lsp` (stdio transport). Every plugin / editor client that speaks LSP can connect; VS Code (`envforge-env-manager` 0.1.6+) and IntelliJ (lsp4ij-based plugin) are first-party. Configs for Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, and Lapce live in [`docs/lsp-clients.md`](lsp-clients.md).
+
+#### `run_lsp()`
 
 ```rust
-pub async fn start_lsp_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+pub fn run_lsp()
 ```
 
-Starts a TCP-based Language Server Protocol server on stdin/stdout. Provides:
+Boots the tokio runtime and serves the language-server backend over stdin/stdout via `tower-lsp`. Single entry point — same call used by `envforge lsp` CLI subcommand.
 
-| Feature | LSP capability |
-|---------|---------------|
-| Diagnostics | `textDocument/diagnostic` — missing required vars, type errors, secret leaks |
-| Hover | `textDocument/hover` — type, description, default from `.env.schema` |
-| Completions | `textDocument/completion` — envforge-managed vars + schema keys |
-| Go-to-definition | `textDocument/definition` — click key in `.env` → jump to `.env.schema` section |
-| Code actions | `textDocument/codeAction` — quick fixes for schema violations |
-| Code lenses | `textDocument/codeLens` — inline hints for encrypted/referenced values |
-| Document symbols | `textDocument/documentSymbol` — hierarchical symbol outline |
-| Workspace symbols | `workspace/symbol` — project-wide env var search |
-| Folding ranges | `textDocument/foldingRange` — fold managed zones and profile sections |
+#### Declared `textDocument/*` capabilities
 
-Uses `rowLock<HashMap>` for concurrent document access. Managed vars are loaded from envforge's shell files at startup.
+| Feature | LSP method | Notes |
+|---|---|---|
+| Diagnostics | `textDocument/publishDiagnostics` | Schema validation, unknown-key warnings (`envforge`), MCP credential findings (`envforge-mcp`), save-time AI-guard prompt-injection scan (`envforge-aiguard`) |
+| Hover | `textDocument/hover` | Schema info + provenance: source file, current value (redacted if sensitive), defined-by |
+| Completion | `textDocument/completion` | Schema-aware. Sensitive values redacted in `label`; raw value flows through `text_edit.new_text` only |
+| Go-to-definition | `textDocument/definition` | `.env` key → schema, source-language identifier (TS/JS/Py/Rust/Go/Java/Kotlin/Ruby/PHP/C#/Shell) → schema via UPPER_SNAKE extraction |
+| Find references | `textDocument/references` | Schema declaration + every open `.env*` entry |
+| Rename | `textDocument/rename` | Atomic `WorkspaceEdit` across schema + open `.env*` docs |
+| Code actions | `textDocument/codeAction` | `Add to schema`, `Use secret reference`, `Mark as secret`, `Use default`, `Plant canary tripwire`, `Add all missing keys`, `Generate .env from schema` |
+| Code lens | `textDocument/codeLens` | Actionable `Plant canary` + `Activate fence` on sensitive lines |
+| Inlay hints | `textDocument/inlayHint` | `(default)`, `→ <redacted>`, `(<type>)` for unset keys |
+| Formatting | `textDocument/formatting` | Canonical `.env` — whitespace normalization, blank-line collapse, trailing newline |
+| Semantic tokens | `textDocument/semanticTokens/full` | `variable` / `string` / `comment` with `readonly` modifier on sensitive keys |
+| Document symbols | `textDocument/documentSymbol` | Hierarchical outline |
+| Workspace symbols | `workspace/symbol` | Project-wide env var search |
+| Folding ranges | `textDocument/foldingRange` | Comment / blank-region folds |
+
+#### `workspace/executeCommand` provider (15 commands)
+
+```
+envforge.fence.enable    envforge.fence.disable   envforge.fence.toggle   envforge.fence.status
+envforge.canary.plant    envforge.canary.list     envforge.canary.scan    envforge.canary.check
+envforge.volatile.status envforge.volatile.extend
+envforge.sync.push       envforge.sync.pull       envforge.sync.status
+envforge.run.volatile    envforge.reveal.value
+```
+
+All commands return a stable `{ok: bool, result|error, ...}` JSON shape. See `docs/ide-behavior-contract.md` for per-command argument schemas.
+
+#### Custom request: `envforge/exposureMap`
+
+Per-line AI-exposure classification used to render the gutter heatmap and file-explorer badges.
+
+```jsonc
+// → request
+{ "uri": "file:///path/to/.env" }
+// ← response
+{
+  "entries": [
+    { "line": 0, "key": "DB_HOST",     "level": "red",   "reason": "...", "canary": false },
+    { "line": 1, "key": "API_KEY",     "level": "amber", "reason": "...", "canary": true  }
+  ],
+  "fence_active": false
+}
+```
+
+Levels: `red` (plaintext, no protection) → `amber` (sensitive, AI-guard will redact) → `green` (fence active or no exposure). `canary: true` marks lines that have a registered tripwire — plugins render a shield glyph instead of a dot.
+
+Concurrency: backend stores docs / schema / managed-vars in `RwLock<HashMap>`. Fence status is probed live on each exposure request — small disk-stat cost, never out of date.
 
 ---
 

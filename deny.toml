@@ -15,6 +15,10 @@ allow = [
     "BSL-1.0",
     "Zlib",
     "MPL-2.0",
+    # Community Data License Agreement Permissive 2.0 — used by
+    # `webpki-roots` for the Mozilla CA bundle. Permissive, OSI-compatible
+    # for distribution; pulled in indirectly via TLS deps.
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 

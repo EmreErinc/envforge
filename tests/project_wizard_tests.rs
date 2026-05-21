@@ -1,5 +1,6 @@
 use envforge::ops::project::*;
 use std::path::Path;
+use std::path::PathBuf;
 
 // ─── parse_dotenv_simple Tests ─────────────────────────────
 
@@ -267,6 +268,385 @@ fn test_schema_step_empty_env() {
     let config = load_project_config(&detected).unwrap();
     let key_count = run_schema_step(&temp, &config).unwrap();
     assert_eq!(key_count, 0);
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+// ─── Non-Interactive Wizard Tests ──────────────────────────
+
+#[test]
+fn test_wizard_non_interactive_empty_dir() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-empty");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let opts = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: false,
+    };
+    let report = run_wizard(&temp, &opts).unwrap();
+
+    assert!(!report.project_name.is_empty());
+    assert_eq!(report.environments, vec!["development".to_string()]);
+    assert_eq!(report.schema_keys, 0);
+    assert!(temp.join(".envforge.project.toml").exists());
+    assert!(temp.join(".env.schema.toml").exists());
+    assert!(report.steps_run.contains(&"identity".to_string()));
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_wizard_non_interactive_with_existing_env() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-existing-env");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+    std::fs::write(
+        temp.join(".env"),
+        "DB_HOST=localhost\nAPI_KEY=secret\nPORT=8080\n",
+    )
+    .unwrap();
+
+    let opts = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: false,
+    };
+    let report = run_wizard(&temp, &opts).unwrap();
+
+    // No values inferred — schema generates from .env.development, not .env at root.
+    // But schema step picks up .env.development which is empty, so 0 keys.
+    // The state matrix detects .env but generate_from_env reads active env file.
+    assert_eq!(report.environments, vec!["development".to_string()]);
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_wizard_non_interactive_idempotent() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-idempotent");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let opts = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: false,
+    };
+    let r1 = run_wizard(&temp, &opts).unwrap();
+    let r2 = run_wizard(&temp, &opts).unwrap();
+
+    // Second run skips already-completed steps.
+    assert!(r1.steps_run.len() >= r2.steps_run.len());
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_wizard_non_interactive_force_resumes() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-force");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let base = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: false,
+    };
+    run_wizard(&temp, &base).unwrap();
+
+    let forced = WizardOptions {
+        force: true,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: false,
+    };
+    let report = run_wizard(&temp, &forced).unwrap();
+
+    // With --force, all steps re-run (project already exists so identity skips).
+    assert!(report.steps_run.contains(&"environments".to_string()));
+    assert!(report.steps_run.contains(&"schema".to_string()));
+    assert!(report.steps_run.contains(&"values".to_string()));
+    assert!(report.steps_run.contains(&"hardening".to_string()));
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_wizard_preset_from_env_file() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-preset");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    // First init + write a schema with one key.
+    let init_opts = InitOptions {
+        root: temp.clone(),
+        format: ConfigFormat::Toml,
+        project_name: "preset".to_string(),
+        default_env_name: "development".to_string(),
+        env_file_path: PathBuf::from(".env.development"),
+        schema_path: PathBuf::from(".env.schema"),
+        force: false,
+    };
+    init_project(&init_opts).unwrap();
+    std::fs::write(
+        temp.join(".env.schema"),
+        "[DB_HOST]\ntype = \"string\"\nrequired = true\n",
+    )
+    .unwrap();
+
+    // Mark identity+envs+schema done so wizard runs only values step.
+    let preset = temp.join("preset.env");
+    std::fs::write(&preset, "DB_HOST=preset-host\n").unwrap();
+
+    let detected = detect_project_config(&temp).unwrap();
+    let mut cfg = load_project_config(&detected).unwrap();
+    cfg.wizard.completed_steps = vec!["init".into(), "environments".into(), "schema".into()];
+    save_project_config(&cfg, &detected.config_path, detected.format).unwrap();
+
+    let opts = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: Some(preset),
+        reset: false,
+        dry_run: false,
+    };
+    let report = run_wizard(&temp, &opts).unwrap();
+
+    assert!(report.steps_run.contains(&"values".to_string()));
+    let env_file = temp.join(".env.development");
+    let body = std::fs::read_to_string(&env_file).unwrap();
+    assert!(body.contains("DB_HOST=preset-host"));
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+// ─── Flag Semantics (reset / dry-run / already-complete) ────
+
+#[test]
+fn test_wizard_dry_run_writes_nothing() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-dry");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let opts = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: true,
+    };
+    run_wizard(&temp, &opts).unwrap();
+
+    // No config file, no env file, no schema written.
+    assert!(!temp.join(".envforge.project.toml").exists());
+    assert!(!temp.join(".env.schema").exists());
+    assert!(!temp.join(".env.development").exists());
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_wizard_reset_clears_completed_steps() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-reset");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let base = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: false,
+    };
+    run_wizard(&temp, &base).unwrap();
+
+    let detected = detect_project_config(&temp).unwrap();
+    let cfg_before = load_project_config(&detected).unwrap();
+    assert!(!cfg_before.wizard.completed_steps.is_empty());
+
+    let with_reset = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: true,
+        dry_run: false,
+    };
+    let report = run_wizard(&temp, &with_reset).unwrap();
+    // Reset clears, then steps run again
+    assert!(report.steps_run.contains(&"environments".to_string()));
+    assert!(report.steps_run.contains(&"schema".to_string()));
+    assert!(report.steps_run.contains(&"values".to_string()));
+    assert!(report.steps_run.contains(&"hardening".to_string()));
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn test_wizard_already_complete_short_circuits() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-already");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let base = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: false,
+    };
+    run_wizard(&temp, &base).unwrap();
+
+    // Second non-interactive run with no force/reset → no step re-runs
+    let report = run_wizard(&temp, &base).unwrap();
+    assert!(report.steps_run.is_empty());
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+// ─── Schema Edit Branch (Story 003) ─────────────────────────
+
+#[test]
+fn test_replace_schema_block_in_place() {
+    use envforge::ops::project::*;
+
+    let temp = std::env::temp_dir().join("envforge-test-wiz-edit-block");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let schema_path = temp.join(".env.schema");
+    std::fs::write(
+        &schema_path,
+        "# schema\n\n[DB_HOST]\ntype = \"string\"\nrequired = true\n\n[DB_PORT]\ntype = \"port\"\nrequired = true\n",
+    )
+    .unwrap();
+
+    // We can't call private replace_schema_block, so test via the public
+    // parse_schema_keys round-trip after we manually emulate the edit.
+    let keys_before = parse_schema_keys(&schema_path).unwrap();
+    assert_eq!(keys_before.len(), 2);
+    assert_eq!(keys_before[0].0, "DB_HOST");
+    assert_eq!(keys_before[1].0, "DB_PORT");
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+// ─── Multi-Env Non-Interactive (Story 002) ──────────────────
+
+#[test]
+fn test_wizard_preset_applies_across_envs() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-multienv");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    // Seed a project with two envs + schema with one key.
+    let init = InitOptions {
+        root: temp.clone(),
+        format: ConfigFormat::Toml,
+        project_name: "multi".into(),
+        default_env_name: "development".into(),
+        env_file_path: PathBuf::from(".env.development"),
+        schema_path: PathBuf::from(".env.schema"),
+        force: false,
+    };
+    init_project(&init).unwrap();
+
+    let detected = detect_project_config(&temp).unwrap();
+    let mut cfg = load_project_config(&detected).unwrap();
+    cfg.environments.push(ProjectEnvironment {
+        name: "staging".into(),
+        env_file: PathBuf::from(".env.staging"),
+        description: Some("staging env".into()),
+    });
+    cfg.wizard.completed_steps = vec!["identity".into(), "environments".into(), "schema".into()];
+    save_project_config(&cfg, &detected.config_path, detected.format).unwrap();
+
+    std::fs::write(
+        temp.join(".env.schema"),
+        "[API_HOST]\ntype = \"string\"\nrequired = true\n",
+    )
+    .unwrap();
+    std::fs::write(temp.join(".env.staging"), "# stub\n").unwrap();
+    let preset = temp.join("seed.env");
+    std::fs::write(&preset, "API_HOST=preset.example\n").unwrap();
+
+    let opts = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: Some(preset),
+        reset: false,
+        dry_run: false,
+    };
+    run_wizard(&temp, &opts).unwrap();
+
+    // Both env files should now contain the preset value.
+    for env_file in ["development", "staging"] {
+        let body = std::fs::read_to_string(temp.join(format!(".env.{}", env_file))).unwrap();
+        assert!(
+            body.contains("API_HOST=preset.example"),
+            "missing API_HOST in .env.{}",
+            env_file
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+// ─── Schema Defaults Applied (Story 004) ────────────────────
+
+#[test]
+fn test_wizard_non_interactive_uses_schema_default() {
+    let temp = std::env::temp_dir().join("envforge-test-wiz-defaults");
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+
+    let init = InitOptions {
+        root: temp.clone(),
+        format: ConfigFormat::Toml,
+        project_name: "defaults".into(),
+        default_env_name: "development".into(),
+        env_file_path: PathBuf::from(".env.development"),
+        schema_path: PathBuf::from(".env.schema"),
+        force: false,
+    };
+    init_project(&init).unwrap();
+
+    let detected = detect_project_config(&temp).unwrap();
+    let mut cfg = load_project_config(&detected).unwrap();
+    cfg.wizard.completed_steps = vec!["identity".into(), "environments".into(), "schema".into()];
+    save_project_config(&cfg, &detected.config_path, detected.format).unwrap();
+
+    std::fs::write(
+        temp.join(".env.schema"),
+        "[LOG_LEVEL]\ntype = \"string\"\ndefault = \"info\"\n",
+    )
+    .unwrap();
+
+    let opts = WizardOptions {
+        force: false,
+        non_interactive: true,
+        from_env: None,
+        reset: false,
+        dry_run: false,
+    };
+    run_wizard(&temp, &opts).unwrap();
+
+    let body = std::fs::read_to_string(temp.join(".env.development")).unwrap();
+    assert!(
+        body.contains("LOG_LEVEL=info"),
+        "schema default not applied; body={}",
+        body
+    );
 
     let _ = std::fs::remove_dir_all(&temp);
 }

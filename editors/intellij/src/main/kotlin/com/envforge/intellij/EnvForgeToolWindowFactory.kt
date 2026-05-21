@@ -342,7 +342,7 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
         val binary = EnvForgeLspFactory.findEnvforgeBinary()
         Thread {
             try {
-                val process = ProcessBuilder(binary, "list", "--json")
+                val process = ProcessBuilder(binary, "list", "--json", "--reveal")
                     .directory(project.basePath?.let { java.io.File(it) })
                     .redirectErrorStream(true)
                     .start()
@@ -359,7 +359,7 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
         val binary = EnvForgeLspFactory.findEnvforgeBinary()
         Thread {
             try {
-                val process = ProcessBuilder(binary, "search", query, "--json")
+                val process = ProcessBuilder(binary, "search", query, "--json", "--reveal")
                     .directory(project.basePath?.let { java.io.File(it) })
                     .redirectErrorStream(true)
                     .start()
@@ -401,7 +401,7 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
         Thread {
             try {
                 // Get all environment variables from envforge
-                val process = ProcessBuilder(binary, "list", "--json")
+                val process = ProcessBuilder(binary, "list", "--json", "--reveal")
                     .directory(project.basePath?.let { java.io.File(it) })
                     .redirectErrorStream(true)
                     .start()

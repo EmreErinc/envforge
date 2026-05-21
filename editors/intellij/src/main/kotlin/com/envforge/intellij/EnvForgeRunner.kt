@@ -1,14 +1,21 @@
 package com.envforge.intellij
 
-import com.intellij.execution.configurations.GeneralCommandLine
-import com.intellij.execution.process.OSProcessHandler
-import com.intellij.execution.process.ProcessAdapter
-import com.intellij.execution.process.ProcessEvent
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Key
 
+/**
+ * Runs envforge CLI subcommands silently on a background thread and
+ * surfaces the result via the IDE's standard notification group.
+ *
+ * We deliberately do NOT use `OSProcessHandler` / `GeneralCommandLine`
+ * here — those paths pipe their command-line text through IntelliJ's
+ * process consoles (`/Users/…/envforge …`), which clutters the
+ * user-visible UI with implementation detail. A plain `ProcessBuilder`
+ * keeps the subprocess invisible; only the result content ever
+ * reaches the user.
+ */
 object EnvForgeRunner {
 
     fun run(
@@ -17,32 +24,35 @@ object EnvForgeRunner {
         title: String,
         onSuccess: ((String) -> Unit)? = null,
     ) {
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
-        val cmd = GeneralCommandLine(binary).apply {
-            addParameters(args)
-            workDirectory = project.basePath?.let { java.io.File(it) }
-        }
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val binary = EnvForgeLspFactory.findEnvforgeBinary()
+            val cwd = project.basePath?.let { java.io.File(it) }
 
-        val handler = OSProcessHandler(cmd)
-        val output = StringBuilder()
-
-        handler.addProcessListener(object : ProcessAdapter() {
-            override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
-                output.append(event.text)
+            val (exitCode, output) = try {
+                val proc = ProcessBuilder(listOf(binary) + args)
+                    .directory(cwd)
+                    .redirectErrorStream(true)
+                    .start()
+                val text = proc.inputStream.bufferedReader().readText()
+                proc.waitFor()
+                proc.exitValue() to text
+            } catch (e: Exception) {
+                -1 to (e.message ?: "subprocess error")
             }
 
-            override fun processTerminated(event: ProcessEvent) {
-                val text = output.toString().trim()
-                if (event.exitCode == 0) {
-                    onSuccess?.invoke(text)
-                        ?: notify(project, title, text, NotificationType.INFORMATION)
+            val trimmed = output.trim()
+            ApplicationManager.getApplication().invokeLater {
+                if (exitCode == 0) {
+                    if (onSuccess != null) {
+                        onSuccess(trimmed)
+                    } else {
+                        notify(project, title, trimmed, NotificationType.INFORMATION)
+                    }
                 } else {
-                    notify(project, "$title failed", text, NotificationType.ERROR)
+                    notify(project, "$title failed", trimmed, NotificationType.ERROR)
                 }
             }
-        })
-
-        handler.startNotify()
+        }
     }
 
     fun notify(project: Project, title: String, content: String, type: NotificationType) {

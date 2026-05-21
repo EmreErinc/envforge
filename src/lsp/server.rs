@@ -7,15 +7,26 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::ops::schema::{parse_schema_content, EnvSchema};
 
+use super::ai_guard_diagnostics::compute_ai_guard_diagnostics;
 use super::code_action::code_actions;
 use super::code_lens::code_lenses;
+use super::commands::{dispatch_command, SUPPORTED_COMMANDS};
 use super::completion::completions;
-use super::definition::goto_definition;
+use super::definition::{
+    extract_upper_snake_identifier, goto_definition, goto_definition_from_source,
+};
 use super::diagnostics::compute_diagnostics;
 use super::document::{parse_env_document, schema_line_map, DocumentState};
 use super::document_symbol::document_symbols;
+use super::exposure::{compute_exposure_map, ExposureEntry};
 use super::folding_range::compute_folding_ranges;
+use super::format::format_text_edits;
 use super::hover::hover_info;
+use super::inlay::compute_inlay_hints;
+use super::mcp_diagnostics::compute_mcp_diagnostics;
+use super::references::find_references;
+use super::rename::build_rename_edit;
+use super::semantic_tokens::{compute_semantic_tokens, TOKEN_MODIFIERS, TOKEN_TYPES};
 use super::workspace_symbol::workspace_symbols;
 
 /// A known env var from envforge's managed files.
@@ -32,6 +43,7 @@ pub struct Backend {
     schema: RwLock<Option<EnvSchema>>,
     schema_uri: RwLock<Option<Url>>,
     schema_lines: RwLock<HashMap<String, u32>>,
+    schema_line_count: RwLock<Option<u32>>,
     workspace_root: RwLock<Option<Url>>,
     managed_vars: RwLock<Vec<ManagedVar>>,
 }
@@ -44,6 +56,7 @@ impl Backend {
             schema: RwLock::new(None),
             schema_uri: RwLock::new(None),
             schema_lines: RwLock::new(HashMap::new()),
+            schema_line_count: RwLock::new(None),
             workspace_root: RwLock::new(None),
             managed_vars: RwLock::new(Vec::new()),
         }
@@ -63,7 +76,39 @@ impl Backend {
     }
 
     fn is_schema_file(uri: &Url) -> bool {
-        uri.path().ends_with(".env.schema")
+        let p = uri.path();
+        p.ends_with(".env.schema") || p.ends_with(".env.schema.toml")
+    }
+
+    /// Identify MCP configuration files we want to lint inline.
+    /// Conservative: only known config filenames in known directories,
+    /// not arbitrary `*.json`. Keeps the diagnostic from misfiring on
+    /// unrelated JSON files in a workspace.
+    fn is_mcp_config_file(uri: &Url) -> bool {
+        let path = uri.path();
+        let fname = path.rsplit('/').next().unwrap_or("");
+        if fname == "mcp.json" || fname == ".mcp.json" {
+            return true;
+        }
+        if fname == "claude_desktop_config.json" {
+            return true;
+        }
+        // .cursor/mcp.json or .claude/settings.json under any parent
+        path.contains("/.cursor/") && fname == "mcp.json"
+            || path.contains("/.claude/") && fname == "settings.json"
+    }
+
+    fn publish_mcp_diagnostics(&self, uri: &Url, content: &str, version: i32) {
+        let path = match uri.to_file_path() {
+            Ok(p) => p,
+            Err(_) => std::path::PathBuf::from(uri.path()),
+        };
+        let diags = compute_mcp_diagnostics(content, &path);
+        let client = self.client.clone();
+        let uri = uri.clone();
+        tokio::spawn(async move {
+            client.publish_diagnostics(uri, diags, Some(version)).await;
+        });
     }
 
     fn load_schema_from_workspace(&self) {
@@ -80,10 +125,18 @@ impl Backend {
                     Ok(p) => p,
                     Err(_) => return,
                 };
-                let schema_path = root_path.join(".env.schema");
+                // Prefer .env.schema.toml; fall back to legacy .env.schema.
+                let schema_path = {
+                    let toml_path = root_path.join(".env.schema.toml");
+                    if toml_path.exists() {
+                        toml_path
+                    } else {
+                        root_path.join(".env.schema")
+                    }
+                };
                 // Resolve `schema_path` and require it stays under
-                // `root_path` (defense-in-depth — `.env.schema` join
-                // doesn't traverse, but we guard anyway).
+                // `root_path` (defense-in-depth — the join with a literal
+                // filename doesn't traverse, but we guard anyway).
                 let canonical_schema = match std::fs::canonicalize(&schema_path) {
                     Ok(p) => p,
                     Err(_) => return,
@@ -107,6 +160,7 @@ impl Backend {
                 if canonical_schema.exists() {
                     if let Ok(content) = std::fs::read_to_string(&canonical_schema) {
                         let lines = schema_line_map(&content);
+                        let line_count = content.lines().count() as u32;
                         if let Ok(schema) = parse_schema_content(&content) {
                             if let Ok(mut w) = self.schema.write() {
                                 *w = Some(schema);
@@ -119,6 +173,9 @@ impl Backend {
                                 *w = lines;
                             } else {
                                 eprintln!("LSP: Failed to acquire write lock on schema_lines (lock poisoned)");
+                            }
+                            if let Ok(mut w) = self.schema_line_count.write() {
+                                *w = Some(line_count);
                             }
                             if let Ok(uri) = Url::from_file_path(&canonical_schema) {
                                 if let Ok(mut w) = self.schema_uri.write() {
@@ -173,9 +230,108 @@ impl Backend {
         }
     }
 
+    /// Read a non-env source file from disk for goto-definition lookups
+    /// originating outside `.env*` / schema files. Enforces:
+    /// - File must canonicalize successfully and stay inside the
+    ///   canonicalized workspace root (defends against `..`, symlink
+    ///   escape, or a malicious `textDocument/definition` URI).
+    /// - File extension must be on the allow-list of common source
+    ///   languages; we never read binaries or arbitrary user data.
+    /// - Size capped to `MAX_DOCUMENT_BYTES`.
+    fn read_source_text_for_uri(&self, uri: &Url) -> Option<String> {
+        let path = uri.to_file_path().ok()?;
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())?;
+        if !matches!(
+            ext.as_str(),
+            "ts" | "tsx"
+                | "js"
+                | "jsx"
+                | "mjs"
+                | "cjs"
+                | "py"
+                | "rs"
+                | "go"
+                | "java"
+                | "kt"
+                | "rb"
+                | "php"
+                | "cs"
+                | "sh"
+        ) {
+            return None;
+        }
+
+        let canonical = std::fs::canonicalize(&path).ok()?;
+
+        let root = self.workspace_root.read().ok().and_then(|r| r.clone())?;
+        let root_path = root.to_file_path().ok()?;
+        let canonical_root = std::fs::canonicalize(&root_path).ok()?;
+        if !canonical.starts_with(&canonical_root) {
+            return None;
+        }
+
+        let meta = std::fs::metadata(&canonical).ok()?;
+        if meta.len() > Self::MAX_DOCUMENT_BYTES as u64 {
+            return None;
+        }
+
+        std::fs::read_to_string(&canonical).ok()
+    }
+
+    /// Compute the AI-exposure map for a given env-file URI. Reads the
+    /// document state, current schema, and fence status (probed live
+    /// from disk on each call — `.envforgeignore` etc. can be edited by
+    /// other tools without going through us). Returns an empty vec for
+    /// unknown URIs or non-env files rather than erroring so plugin
+    /// clients can safely poll on every keystroke.
+    pub fn exposure_for(&self, uri: &Url) -> Vec<ExposureEntry> {
+        if !Self::is_env_file(uri) {
+            return Vec::new();
+        }
+        let doc = self
+            .documents
+            .read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let Some(doc) = doc else { return Vec::new() };
+
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+        let fence_active = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|url| url.to_file_path().ok())
+            .and_then(|root| crate::ops::fence::check_fence_status(&root).ok())
+            .map(|status| status.all_fenced)
+            .unwrap_or(false);
+
+        compute_exposure_map(&doc.entries, schema.as_ref(), fence_active)
+    }
+
     fn publish_diagnostics_for(&self, uri: &Url, doc: &DocumentState) {
         let schema = self.schema.read().ok().and_then(|r| r.clone());
         let diags = compute_diagnostics(&doc.entries, schema.as_ref());
+        let client = self.client.clone();
+        let uri = uri.clone();
+        let version = doc.version;
+        tokio::spawn(async move {
+            client.publish_diagnostics(uri, diags, Some(version)).await;
+        });
+    }
+
+    /// Publish the union of schema diagnostics plus the AI-guard prompt
+    /// injection scan. Called on `did_save` rather than `did_change` so
+    /// the heavier scanner does not run on every keystroke and so users
+    /// only see the warnings on intentional save points (pasted content
+    /// from outside sources is the high-risk surface for injection).
+    fn publish_diagnostics_with_ai_guard(&self, uri: &Url, doc: &DocumentState) {
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+        let mut diags = compute_diagnostics(&doc.entries, schema.as_ref());
+        diags.extend(compute_ai_guard_diagnostics(&doc.content));
         let client = self.client.clone();
         let uri = uri.clone();
         let version = doc.version;
@@ -223,7 +379,7 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec!["=".into(), "$".into()]),
+                    trigger_characters: Some(vec!["=".into(), "$".into(), "{".into()]),
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
@@ -234,6 +390,30 @@ impl LanguageServer for Backend {
                 }),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+                inlay_hint_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: SUPPORTED_COMMANDS
+                        .iter()
+                        .map(|s| (*s).to_string())
+                        .collect(),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                }),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions::default(),
+                            legend: SemanticTokensLegend {
+                                token_types: TOKEN_TYPES.to_vec(),
+                                token_modifiers: TOKEN_MODIFIERS.to_vec(),
+                            },
+                            range: Some(false),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    ),
+                ),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -269,6 +449,7 @@ impl LanguageServer for Backend {
         if Self::is_schema_file(&uri) {
             let content = &params.text_document.text;
             let lines = schema_line_map(content);
+            let line_count = content.lines().count() as u32;
             if let Ok(schema) = parse_schema_content(content) {
                 if let Ok(mut w) = self.schema.write() {
                     *w = Some(schema);
@@ -276,11 +457,23 @@ impl LanguageServer for Backend {
                 if let Ok(mut w) = self.schema_lines.write() {
                     *w = lines;
                 }
+                if let Ok(mut w) = self.schema_line_count.write() {
+                    *w = Some(line_count);
+                }
                 if let Ok(mut w) = self.schema_uri.write() {
                     *w = Some(uri);
                 }
                 self.republish_all();
             }
+            return;
+        }
+
+        if Self::is_mcp_config_file(&uri) {
+            self.publish_mcp_diagnostics(
+                &uri,
+                &params.text_document.text,
+                params.text_document.version,
+            );
             return;
         }
 
@@ -321,6 +514,7 @@ impl LanguageServer for Backend {
         if Self::is_schema_file(&uri) {
             if let Some(change) = params.content_changes.first() {
                 let lines = schema_line_map(&change.text);
+                let line_count = change.text.lines().count() as u32;
                 if let Ok(schema) = parse_schema_content(&change.text) {
                     if let Ok(mut w) = self.schema.write() {
                         *w = Some(schema);
@@ -328,11 +522,21 @@ impl LanguageServer for Backend {
                     if let Ok(mut w) = self.schema_lines.write() {
                         *w = lines;
                     }
+                    if let Ok(mut w) = self.schema_line_count.write() {
+                        *w = Some(line_count);
+                    }
                     if let Ok(mut w) = self.schema_uri.write() {
                         *w = Some(uri);
                     }
                     self.republish_all();
                 }
+            }
+            return;
+        }
+
+        if Self::is_mcp_config_file(&uri) {
+            if let Some(change) = params.content_changes.first() {
+                self.publish_mcp_diagnostics(&uri, &change.text, params.text_document.version);
             }
             return;
         }
@@ -360,6 +564,18 @@ impl LanguageServer for Backend {
         if Self::is_schema_file(&uri) {
             self.load_schema_from_workspace();
             self.republish_all();
+            return;
+        }
+
+        if Self::is_env_file(&uri) {
+            let doc = self
+                .documents
+                .read()
+                .ok()
+                .and_then(|docs| docs.get(&uri).cloned());
+            if let Some(doc) = doc {
+                self.publish_diagnostics_with_ai_guard(&uri, &doc);
+            }
         }
     }
 
@@ -384,7 +600,13 @@ impl LanguageServer for Backend {
         };
 
         let schema = self.schema.read().ok().and_then(|r| r.clone());
-        Ok(hover_info(pos, &doc.entries, schema.as_ref()))
+        let managed = self
+            .managed_vars
+            .read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
+        Ok(hover_info(pos, &doc.entries, schema.as_ref(), &managed))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -424,16 +646,6 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
 
-        let doc = self
-            .documents
-            .read()
-            .ok()
-            .and_then(|docs| docs.get(uri).cloned());
-        let doc = match doc {
-            Some(d) => d,
-            None => return Ok(None),
-        };
-
         let schema_uri = self.schema_uri.read().ok().and_then(|r| r.clone());
         let schema_lines = self
             .schema_lines
@@ -442,12 +654,37 @@ impl LanguageServer for Backend {
             .map(|lines| lines.clone())
             .unwrap_or_default();
 
-        Ok(goto_definition(
-            pos,
-            &doc.entries,
-            schema_uri.as_ref(),
-            &schema_lines,
-        ))
+        // .env file → existing key → schema dispatch.
+        if Self::is_env_file(uri) {
+            let doc = self
+                .documents
+                .read()
+                .ok()
+                .and_then(|docs| docs.get(uri).cloned());
+            let Some(doc) = doc else { return Ok(None) };
+            return Ok(goto_definition(
+                pos,
+                &doc.entries,
+                schema_uri.as_ref(),
+                &schema_lines,
+            ));
+        }
+
+        // Source-file dispatch — extract the UPPER_SNAKE_CASE identifier
+        // at the cursor and resolve via the schema line map. We do a
+        // disk-backed read with workspace-root containment + size cap so
+        // a hostile client cannot direct us into reading files the user
+        // never intended to expose through the LSP.
+        if let Some(source_text) = self.read_source_text_for_uri(uri) {
+            return Ok(goto_definition_from_source(
+                pos,
+                &source_text,
+                schema_uri.as_ref(),
+                &schema_lines,
+            ));
+        }
+
+        Ok(None)
     }
 
     async fn document_symbol(
@@ -505,7 +742,10 @@ impl LanguageServer for Backend {
         };
 
         let schema = self.schema.read().ok().and_then(|r| r.clone());
-        let lenses = code_lenses(&doc.entries, schema.as_ref());
+        let canary_keys: std::collections::HashSet<String> = crate::ops::canary::list_canaries()
+            .map(|cs| cs.into_iter().map(|c| c.key).collect())
+            .unwrap_or_default();
+        let lenses = code_lenses(&doc.entries, schema.as_ref(), Some(&canary_keys), Some(uri));
 
         if lenses.is_empty() {
             Ok(None)
@@ -528,12 +768,23 @@ impl LanguageServer for Backend {
         };
 
         let schema = self.schema.read().ok().and_then(|r| r.clone());
+        let schema_uri = self.schema_uri.read().ok().and_then(|r| r.clone());
+        let schema_line_count = self.schema_line_count.read().ok().and_then(|r| *r);
+        let schema_lines = self
+            .schema_lines
+            .read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
 
         Ok(code_actions(
             uri,
             &doc.entries,
             &params.context.diagnostics,
             schema.as_ref(),
+            schema_uri.as_ref(),
+            schema_line_count,
+            Some(&schema_lines),
         ))
     }
 
@@ -559,6 +810,229 @@ impl LanguageServer for Backend {
         }
     }
 
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> Result<Option<serde_json::Value>> {
+        let workspace_path = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|url| url.to_file_path().ok());
+
+        let result = dispatch_command(
+            &params.command,
+            &params.arguments,
+            workspace_path.as_deref(),
+        );
+
+        Ok(Some(result))
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = &params.text_document.uri;
+        if !Self::is_env_file(uri) {
+            return Ok(None);
+        }
+
+        let doc = self
+            .documents
+            .read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let Some(doc) = doc else { return Ok(None) };
+
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+        let tokens = compute_semantic_tokens(&doc.entries, schema.as_ref());
+
+        if tokens.data.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(SemanticTokensResult::Tokens(tokens)))
+        }
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let uri = &params.text_document.uri;
+        if !Self::is_env_file(uri) {
+            return Ok(None);
+        }
+
+        let content = self
+            .documents
+            .read()
+            .ok()
+            .and_then(|docs| docs.get(uri).map(|d| d.content.clone()));
+        let Some(content) = content else {
+            return Ok(None);
+        };
+
+        let edits = format_text_edits(&content);
+        if edits.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(edits))
+        }
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        // Resolve cursor → key. Mirrors rename's resolution: env files
+        // use document entry hit-testing; source files use the same
+        // UPPER_SNAKE_CASE extraction as L4 go-to-def.
+        let key = if Self::is_env_file(uri) {
+            let docs = match self.documents.read() {
+                Ok(g) => g,
+                Err(_) => return Ok(None),
+            };
+            let Some(doc) = docs.get(uri) else {
+                return Ok(None);
+            };
+            doc.entries
+                .iter()
+                .find(|e| {
+                    e.line == pos.line
+                        && pos.character >= e.key_range.start.character
+                        && pos.character <= e.key_range.end.character
+                })
+                .map(|e| e.key.clone())
+        } else if let Some(source_text) = self.read_source_text_for_uri(uri) {
+            let line = source_text
+                .lines()
+                .nth(pos.line as usize)
+                .map(str::to_string);
+            line.and_then(|l| extract_upper_snake_identifier(&l, pos.character as usize))
+        } else {
+            None
+        };
+
+        let Some(key) = key else { return Ok(None) };
+
+        let schema_uri = self.schema_uri.read().ok().and_then(|r| r.clone());
+        let schema_lines = self
+            .schema_lines
+            .read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
+        let open_docs = self
+            .documents
+            .read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
+
+        let locs = find_references(
+            &key,
+            schema_uri.as_ref(),
+            &schema_lines,
+            &open_docs,
+            include_declaration,
+        );
+
+        if locs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(locs))
+        }
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let new_name = params.new_name;
+
+        // Resolve the key at the cursor.
+        let old_key = if Self::is_env_file(uri) {
+            let docs = match self.documents.read() {
+                Ok(g) => g,
+                Err(_) => return Ok(None),
+            };
+            let Some(doc) = docs.get(uri) else {
+                return Ok(None);
+            };
+            doc.entries
+                .iter()
+                .find(|e| {
+                    e.line == pos.line
+                        && pos.character >= e.key_range.start.character
+                        && pos.character <= e.key_range.end.character
+                })
+                .map(|e| e.key.clone())
+        } else if let Some(source_text) = self.read_source_text_for_uri(uri) {
+            let line = source_text
+                .lines()
+                .nth(pos.line as usize)
+                .map(str::to_string);
+            line.and_then(|l| extract_upper_snake_identifier(&l, pos.character as usize))
+        } else {
+            None
+        };
+
+        let Some(old_key) = old_key else {
+            return Ok(None);
+        };
+
+        let schema_uri = self.schema_uri.read().ok().and_then(|r| r.clone());
+        let schema_lines = self
+            .schema_lines
+            .read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
+        let open_docs = self
+            .documents
+            .read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
+
+        Ok(build_rename_edit(
+            &old_key,
+            &new_name,
+            schema_uri.as_ref(),
+            &schema_lines,
+            &open_docs,
+        ))
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = &params.text_document.uri;
+
+        let doc = self
+            .documents
+            .read()
+            .ok()
+            .and_then(|docs| docs.get(uri).cloned());
+        let doc = match doc {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+        let managed = self
+            .managed_vars
+            .read()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default();
+
+        let hints = compute_inlay_hints(params.range, &doc.entries, schema.as_ref(), &managed);
+
+        if hints.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(hints))
+        }
+    }
+
     async fn shutdown(&self) -> Result<()> {
         Ok(())
     }
@@ -579,10 +1053,55 @@ fn find_envforge_binary() -> String {
     "envforge".into()
 }
 
+/// Parameters for the custom `envforge/exposureMap` request. Plugin
+/// clients pass the URI of an `.env*` file they want classified.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct ExposureMapParams {
+    pub uri: Url,
+}
+
+/// Response for `envforge/exposureMap`. Carries the per-line
+/// classification plus a global `fence_active` snapshot so the client
+/// can render a consistent legend without an additional round trip.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct ExposureMapResponse {
+    pub entries: Vec<ExposureEntry>,
+    pub fence_active: bool,
+}
+
+impl Backend {
+    /// Custom-request handler for `envforge/exposureMap`. Mirrors
+    /// `exposure_for` but is shaped for the LSP RPC frame.
+    ///
+    /// The async signature is required by tower-lsp's custom-method
+    /// registration even though no awaits occur — we read state from
+    /// `RwLock`s synchronously and probe fence status off a fast disk
+    /// stat. The trait bound forces this shape.
+    #[allow(clippy::unused_async)]
+    pub async fn exposure_map(&self, params: ExposureMapParams) -> Result<ExposureMapResponse> {
+        let entries = self.exposure_for(&params.uri);
+        let fence_active = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|url| url.to_file_path().ok())
+            .and_then(|root| crate::ops::fence::check_fence_status(&root).ok())
+            .map(|status| status.all_fenced)
+            .unwrap_or(false);
+        Ok(ExposureMapResponse {
+            entries,
+            fence_active,
+        })
+    }
+}
+
 pub async fn serve() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(Backend::new);
+    let (service, socket) = LspService::build(Backend::new)
+        .custom_method("envforge/exposureMap", Backend::exposure_map)
+        .finish();
     Server::new(stdin, stdout, socket).serve(service).await;
 }
