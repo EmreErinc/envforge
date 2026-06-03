@@ -217,9 +217,7 @@ fn test_zeroize_on_drop_should_compile_and_drop_without_panic() {
     assert_eq!(secret.len(), 43);
 
     {
-        let _s = ZeroizingSecret {
-            data: secret.clone(),
-        };
+        let _s = ZeroizingSecret { data: secret };
         // _s is dropped here — zeroize fires on the clone
     }
 

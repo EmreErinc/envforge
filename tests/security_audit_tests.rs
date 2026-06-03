@@ -175,13 +175,11 @@ fn test_audit_log_returns_empty_for_nonexistent_marker() {
     start_persistent_audit_log();
 
     let entries = read_audit_entries(50).unwrap_or_default();
-    let filtered: Vec<_> = entries
-        .iter()
-        .filter(|e| e.message.contains("__nonexistent_unique_marker_xyz__"))
-        .collect();
 
     assert!(
-        filtered.is_empty(),
+        !entries
+            .iter()
+            .any(|e| e.message.contains("__nonexistent_unique_marker_xyz__")),
         "nonexistent marker must not match any audit entry"
     );
 }

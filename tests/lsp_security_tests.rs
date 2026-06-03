@@ -47,13 +47,6 @@ fn make_schema(key: &str, var_type: VarType, sensitive: bool) -> EnvSchema {
     schema
 }
 
-fn make_managed(key: &str, source_file: &str) -> ManagedVar {
-    ManagedVar {
-        key: key.to_string(),
-        source_file: source_file.to_string(),
-    }
-}
-
 fn make_managed_entries(content: &str) -> (Vec<EnvDocEntry>, Vec<ManagedVar>) {
     let entries = parse_env_document(content);
     let managed: Vec<ManagedVar> = entries
@@ -86,7 +79,7 @@ fn test_token_bucket_no_concurrent_overconsumption() {
         let bucket = bucket.clone();
         let total = total.clone();
         handles.push(thread::spawn(move || {
-            while start.elapsed().as_millis() < DURATION_MS as u128 {
+            while start.elapsed().as_millis() < u128::from(DURATION_MS) {
                 if bucket.try_consume(1) {
                     total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
@@ -316,10 +309,9 @@ fn test_semantic_tokens_no_value_token_for_sensitive() {
     );
 
     let tokens = compute_semantic_tokens(&entries, Some(&schema));
-    let value_tokens: Vec<_> = tokens.data.iter().filter(|t| t.token_type == 1).collect();
 
     assert_eq!(
-        value_tokens.len(),
+        tokens.data.iter().filter(|t| t.token_type == 1).count(),
         1,
         "only PUBLIC_VAR must have a value token; SECRET_KEY value token must be omitted"
     );
@@ -454,7 +446,7 @@ fn test_detect_sensitivity_downgrade_new_key_not_in_old() {
 
     // Old: has EXISTING (sensitive). New: has EXISTING (sensitive) + NEW_KEY (non-sensitive).
     // NEW_KEY is not in old, so there's no downgrade for it.
-    let mut old = make_schema("EXISTING", VarType::String, true);
+    let old = make_schema("EXISTING", VarType::String, true);
     let mut new = make_schema("EXISTING", VarType::String, true);
     new.variables.insert(
         "NEW_KEY".to_string(),
@@ -495,7 +487,7 @@ fn test_run_volatile_rejects_shell_metacharacters() {
                 result["ok"].as_bool() == Some(false)
                     || result["error"]
                         .as_str()
-                        .map_or(false, |e| e.contains("shell metacharacters")
+                        .is_some_and(|e| e.contains("shell metacharacters")
                             || e.contains("rejected for safety")),
                 "command '{}' must be rejected but got: {:?}",
                 cmd,

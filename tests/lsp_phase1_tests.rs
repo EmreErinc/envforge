@@ -1097,7 +1097,7 @@ fn test_inlay_hint_ref_resolution_redacted_for_sensitive() {
     let hints = inlay::compute_inlay_hints(whole_range(), &entries, None);
     // API_KEY=${SECRET} → resolved inlay hint + SECRET=value → sensitive redacted hint
     assert!(
-        hints.len() >= 1,
+        !hints.is_empty(),
         "expected at least 1 inlay hint, got {}",
         hints.len()
     );

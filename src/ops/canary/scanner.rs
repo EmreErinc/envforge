@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn detects_zero_width_joiner_bypass_attempt() {
-        let token = dummy_token();
+        let _token = dummy_token();
         // Insert zero-width joiner between 'c' and 'n'
         let mutated = format!("c\u{200D}nry_{}_{}", "A".repeat(39), "B".repeat(13));
         let matches = scan_text(&mutated);
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn detects_zero_width_space_bypass() {
-        let token = dummy_token();
+        let _token = dummy_token();
         let mutated = format!("c\u{200B}nry_{}_{}", "A".repeat(39), "B".repeat(13));
         let matches = scan_text(&mutated);
         assert!(!matches.is_empty(), "ZWSP-mutated token should be detected");

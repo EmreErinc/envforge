@@ -132,13 +132,13 @@ pub fn test_secret() -> String {
 
 /// Generate a long test secret (used for redaction boundary tests).
 pub fn test_secret_long() -> String {
-    format!(
-        "sk-{}",
-        (0..48)
-            .map(|_| rand::random::<u8>())
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-    )
+    let mut s = String::with_capacity(2 + 48 * 2);
+    s.push_str("sk-");
+    for _ in 0..48 {
+        use std::fmt::Write;
+        write!(&mut s, "{:02x}", rand::random::<u8>()).unwrap();
+    }
+    s
 }
 
 // ── Assertion Helpers ─────────────────────────────────────────

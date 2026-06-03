@@ -2,7 +2,6 @@ mod common;
 
 use std::path::Path;
 
-use envforge::model::*;
 use envforge::parser::*;
 
 // ══════════════════════════════════════════════════════════════

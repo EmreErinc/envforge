@@ -1,5 +1,5 @@
 use envforge::ops::secrets::modes::VolatileMode;
-use envforge::ops::secrets::provider::{CredentialEncryptionPolicy, ProviderRegistry};
+use envforge::ops::secrets::provider::CredentialEncryptionPolicy;
 use envforge::ops::secrets::providers;
 use envforge::ops::sync::model::SyncEncryptionPolicy;
 

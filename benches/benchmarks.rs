@@ -21,10 +21,15 @@ fn bench_parser_roundtrip_small(c: &mut Criterion) {
 
 fn bench_parser_roundtrip_large(c: &mut Criterion) {
     // Build a large shell file with 500 exports
-    let content: String = (0..500)
-        .map(|i| format!("export VAR_{i:04}=\"value_{i:08}_with_some_longer_padding\"\n"))
-        .collect::<Vec<_>>()
-        .join("");
+    let mut content = String::with_capacity(500 * 64);
+    for i in 0..500 {
+        use std::fmt::Write;
+        writeln!(
+            &mut content,
+            "export VAR_{i:04}=\"value_{i:08}_with_some_longer_padding\""
+        )
+        .unwrap();
+    }
     c.bench_function("parser/roundtrip_large_500_exports", |b| {
         b.iter(|| {
             let sf = envforge::parser::parse_shell_content(
