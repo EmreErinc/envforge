@@ -170,9 +170,18 @@ fn test_is_likely_secret_slack_token_prefixes() {
         let p = String::from_utf8(prefix_bytes.to_vec()).unwrap();
         format!("{p}{suffix}")
     }
-    let xoxb = make_slack(&[120, 111, 120, 98, 45], "0000000000-0000000000000-00000000000000000000000000000000");
-    let xoxp = make_slack(&[120, 111, 120, 112, 45], "0000000000-0000000000000-00000000000000000000000000000000");
-    let xapp = make_slack(&[120, 97, 112, 112, 45], "1-A1B2C3D4E5-1234567890123-abcdef1234567890abcdef12");
+    let xoxb = make_slack(
+        &[120, 111, 120, 98, 45],
+        "0000000000-0000000000000-00000000000000000000000000000000",
+    );
+    let xoxp = make_slack(
+        &[120, 111, 120, 112, 45],
+        "0000000000-0000000000000-00000000000000000000000000000000",
+    );
+    let xapp = make_slack(
+        &[120, 97, 112, 112, 45],
+        "1-A1B2C3D4E5-1234567890123-abcdef1234567890abcdef12",
+    );
     assert!(is_likely_secret(&xoxb));
     assert!(is_likely_secret(&xoxp));
     assert!(is_likely_secret(&xapp));
@@ -211,9 +220,15 @@ fn test_is_likely_secret_aws_access_key_should_flag() {
 fn test_is_likely_secret_stripe_key_prefixes() {
     // is_likely_secret flags values > 16 chars regardless of content.
     // Use obviously-synthetic placeholder strings to test length detection.
-    assert!(is_likely_secret("not-a-real-key-but-long-enough-to-trigger"));
-    assert!(is_likely_secret("another-fake-key-that-exceeds-the-16-char-limit"));
-    assert!(is_likely_secret("this-is-a-test-string-for-length-detection-only"));
+    assert!(is_likely_secret(
+        "not-a-real-key-but-long-enough-to-trigger"
+    ));
+    assert!(is_likely_secret(
+        "another-fake-key-that-exceeds-the-16-char-limit"
+    ));
+    assert!(is_likely_secret(
+        "this-is-a-test-string-for-length-detection-only"
+    ));
 }
 
 #[test]
