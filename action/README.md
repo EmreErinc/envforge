@@ -231,6 +231,18 @@ jobs:
 - Values are masked in GitHub Actions logs by default (`mask-values: true`)
 - `run` mode injects secrets only into the subprocess — they don't persist in `GITHUB_ENV`
 - Use `export-env: false` with `secrets-pull` to prevent secrets from leaking to subsequent steps
+- **CI Key Provisioning:** Set `ENVFORGE_AGE_KEY` as a GitHub secret for encrypted credential access in CI:
+
+```yaml
+- uses: emreerinc/envforge/action@v1
+  env:
+    ENVFORGE_AGE_KEY: ${{ secrets.ENVFORGE_AGE_KEY }}
+  with:
+    mode: secrets-pull
+    provider: vault
+```
+
+The `ENVFORGE_AGE_KEY` is the raw age identity key content. Generate it locally with `envforge encrypt --generate-key` and add it to GitHub Secrets. Without it, the action auto-generates a new keypair — which cannot decrypt credentials encrypted with a different key.
 
 ## License
 

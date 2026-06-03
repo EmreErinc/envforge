@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 // ─── Error Types ─────────────────────────────────────────────
 
@@ -22,6 +26,14 @@ pub enum SecretsError {
     #[error("provider error ({provider}): {message}")]
     ProviderError { provider: String, message: String },
 
+    #[error("binary hash mismatch for '{provider}': binary at '{canonical_path}' has been modified or replaced. Stored hash: {stored_hash}. To accept the new binary, run: envforge secrets config {provider} --pin-hash")]
+    BinaryHashMismatch {
+        provider: String,
+        canonical_path: PathBuf,
+        stored_hash: String,
+        current_hash: String,
+    },
+
     #[error("credential not configured for '{provider}'. Run: envforge secrets config {provider} --token <value>")]
     CredentialNotFound { provider: String },
 
@@ -31,7 +43,7 @@ pub enum SecretsError {
     #[error("cache error: {0}")]
     CacheError(String),
 
-    #[error("I/O error at '{path}': {source}")]
+    #[error("I/O error: {source}")]
     IoError {
         path: PathBuf,
         source: std::io::Error,
@@ -39,6 +51,53 @@ pub enum SecretsError {
 
     #[error("JSON parse error from {provider}: {message}")]
     ParseError { provider: String, message: String },
+}
+
+// ─── Credential Encryption Policy ────────────────────────────
+
+/// Mandatory-by-construction credential encryption posture.
+///
+/// Every provider MUST declare its encryption capability via
+/// [`SecretProvider::encryption_mode()`].  There is **no** implicit
+/// default — the trait method has no body, so a provider that forgets
+/// to implement it will fail to compile.
+///
+/// `Reporting` (the old permissive variant) has been **deleted**.
+/// The only escape hatch is [`NotSupported`] which requires an explicit
+/// technical justification string and the name of the reviewer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum CredentialEncryptionPolicy {
+    /// Encryption is mandatory.  Every call to `store_credential()`
+    /// produces `ENC[age:…]` — the credential never touches disk as
+    /// plaintext.
+    Mandatory,
+
+    /// Encryption is **not** supported by this provider (e.g. the
+    /// provider's own storage is already encrypted, or the provider
+    /// binary cannot be wrapped by an age layer).
+    ///
+    /// **Compensating controls are enforced at runtime:**
+    /// - Volatile mode is forced ON for every pull.
+    /// - Every access is audited at `Critical` severity.
+    /// - AI fence blocks plaintext disclosure to agent tools.
+    NotSupported {
+        /// Technical justification (≥16 characters, must be substantive).
+        reason: String,
+        /// Name or handle of the security reviewer who approved this exception.
+        reviewed_by: Option<String>,
+        /// Unix timestamp after which this exception auto-expires and the
+        /// provider MUST be re-evaluated for Mandatory support.  0 = no expiry.
+        #[serde(default)]
+        re_evaluate_after_secs: u64,
+    },
+}
+
+impl CredentialEncryptionPolicy {
+    /// `true` when the provider encrypts all credentials at rest.
+    pub fn is_encrypted(&self) -> bool {
+        matches!(self, Self::Mandatory)
+    }
 }
 
 // ─── Secret Provider Trait ───────────────────────────────────
@@ -145,7 +204,8 @@ pub trait SecretProvider: Send + Sync {
     /// Returns the detected version string, or a warning if below minimum.
     fn verify_version(&self) -> Result<Option<String>, SecretsError> {
         let binary = self.binary_name();
-        let output = Command::new(binary)
+        let binary_path = resolve_binary_path(binary, self.name())?;
+        let output = Command::new(&binary_path)
             .arg("--version")
             .output()
             .map_err(|_| SecretsError::BinaryNotFound {
@@ -175,6 +235,13 @@ pub trait SecretProvider: Send + Sync {
 
         Ok(Some(detected))
     }
+
+    /// Declare this provider's credential encryption posture.
+    ///
+    /// **No default implementation** — every provider MUST explicitly
+    /// return a [`CredentialEncryptionPolicy`].  The compiler enforces this
+    /// at every `impl SecretProvider for …` block.
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy;
 
     /// Pull secrets from the provider at the given path.
     fn pull(
@@ -214,6 +281,89 @@ pub trait SecretProvider: Send + Sync {
         _credentials: &HashMap<String, String>,
     ) -> Vec<(&'static str, String)> {
         vec![]
+    }
+
+    /// Binary names to verify SHA-256 hashes for.
+    /// Default: `[self.binary_name()]`. Override for providers with
+    /// dynamic binary selection (e.g., pass uses either "pass" or "gopass").
+    fn hash_names(&self) -> Vec<&str> {
+        vec![self.binary_name()]
+    }
+
+    /// Recommended credential rotation cadence for this provider.
+    /// Returns `None` if the provider does not support or require
+    /// automated rotation.  Override for providers whose credentials
+    /// should be rotated on a schedule.
+    fn rotation_policy(&self) -> Option<RotationPolicy> {
+        None
+    }
+
+    /// GPG public key fingerprint used to verify provider binary
+    /// signatures.  Return `None` if the provider does not publish
+    /// signed binaries.
+    ///
+    /// Used by `envforge provider verify` to validate binary integrity
+    /// at registration time.  Load-time verification uses SHA-256
+    /// hash pinning (see `hash_names()`).
+    fn gpg_fingerprint(&self) -> Option<&str> {
+        None
+    }
+
+    /// URL where the provider's detached signature file (.asc or .sig)
+    /// can be downloaded for the currently installed version.
+    /// Return `None` if the provider does not publish signatures.
+    fn signature_url(&self) -> Option<String> {
+        None
+    }
+}
+
+/// Recommended credential rotation policy for a provider.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotationPolicy {
+    /// Recommended rotation interval in days (e.g. 90).
+    pub interval_days: u32,
+    /// Whether the rotation can be automated by EnvForge.
+    pub automatable: bool,
+    /// Human-readable instructions for manual rotation.
+    #[serde(default)]
+    pub instructions: Option<String>,
+}
+
+// ─── FD Isolation (T-001 mitigation) ─────────────────────────
+
+/// Set `FD_CLOEXEC` on all non-stdio file descriptors before exec.
+///
+/// This closes the FD inheritance attack vector (see `.threatmodel/T-001.yaml`).
+/// A co-resident attacker (same UID — AI agent, malware) that is the spawned child
+/// cannot read EnvForge's open FDs because they are all marked close-on-exec.
+///
+/// Runs in the child process between fork() and exec(). Only libc calls are safe here
+/// (async-signal-safe). fcntl is safe; memory allocation is NOT on Linux (fork),
+/// but IS safe on macOS (posix_spawn).
+///
+/// We iterate FDs 3..max_fd because stdin=0, stdout=1, stderr=2 should remain open.
+pub fn close_fds_before_exec() -> std::io::Result<()> {
+    let max_fd = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) };
+    let max_fd: i32 = if max_fd <= 0 { 1024 } else { max_fd as i32 };
+
+    for fd in 3..max_fd {
+        unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFD);
+            if flags != -1 {
+                libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Attach FD isolation (`close_fds_before_exec`) to a `Command`.
+///
+/// Call this on every `Command` before `.output()` or `.spawn()` to ensure
+/// the child process cannot inherit EnvForge's open file descriptors.
+pub fn sandbox_command(cmd: &mut Command) {
+    unsafe {
+        cmd.pre_exec(close_fds_before_exec);
     }
 }
 
@@ -368,29 +518,194 @@ pub fn sanitize_error_output(output: &str) -> String {
         .join("\n")
 }
 
-/// Run an external CLI command and return stdout.
-pub fn run_cli(
-    binary: &str,
-    args: &[&str],
-    env_vars: &[(&str, &str)],
-    provider_name: &str,
-) -> Result<String, SecretsError> {
-    // Validate binary name does not contain path traversal or null bytes
-    if binary.contains('\0') || binary.contains('/') || binary.contains('\\') {
+pub fn resolve_binary_path(binary: &str, provider_name: &str) -> Result<PathBuf, SecretsError> {
+    if binary.is_empty() || binary.contains('\0') || binary.contains('/') || binary.contains('\\') {
         return Err(SecretsError::ProviderError {
             provider: provider_name.to_string(),
             message: format!("invalid binary name: '{}'", binary),
         });
     }
 
-    let mut cmd = Command::new(binary);
-    cmd.args(args);
+    let output =
+        Command::new("which")
+            .arg(binary)
+            .output()
+            .map_err(|_| SecretsError::BinaryNotFound {
+                binary: binary.to_string(),
+                install_hint: String::new(),
+            })?;
+
+    if !output.status.success() {
+        return Err(SecretsError::BinaryNotFound {
+            binary: binary.to_string(),
+            install_hint: String::new(),
+        });
+    }
+
+    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let path = Path::new(&path_str);
+
+    if !path.is_file() {
+        return Err(SecretsError::BinaryNotFound {
+            binary: binary.to_string(),
+            install_hint: format!("resolved path '{}' is not a file", path_str),
+        });
+    }
+
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| SecretsError::BinaryNotFound {
+            binary: binary.to_string(),
+            install_hint: format!("cannot canonicalize '{}': {}", path_str, e),
+        })?;
+
+    // Verify binary hash if a pinned hash exists for this provider+name.
+    // Skipped if no hash stored — hash pinning is opt-in per provider.
+    verify_binary_hash(&canonical, binary, provider_name)?;
+
+    Ok(canonical)
+}
+
+/// Compute SHA-256 hash of the file at the given path.
+/// Returns the hex-encoded hash.
+pub fn compute_binary_hash(path: &Path) -> Result<String, SecretsError> {
+    let bytes = std::fs::read(path).map_err(|e| SecretsError::IoError {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let hash_bytes = hasher.finalize();
+    Ok(hex::encode(hash_bytes))
+}
+
+/// Verify the binary at `canonical_path` matches the stored hash (if any).
+/// Looks up stored hash from the credentials store via `{provider}._meta` →
+/// `binary_{name}_sha256`. Returns `Ok(())` if no hash is stored (pin not yet
+/// configured) or if the hash matches exactly.
+fn verify_binary_hash(
+    canonical_path: &Path,
+    binary_name: &str,
+    provider: &str,
+) -> Result<(), SecretsError> {
+    let stored = super::credentials::read_binary_hash(provider, binary_name)?;
+    let Some(ref stored_hash) = stored else {
+        return Ok(());
+    };
+
+    let current_hash = compute_binary_hash(canonical_path)?;
+
+    if *stored_hash != current_hash {
+        return Err(SecretsError::BinaryHashMismatch {
+            provider: provider.to_string(),
+            canonical_path: canonical_path.to_path_buf(),
+            stored_hash: stored_hash.clone(),
+            current_hash,
+        });
+    }
+
+    Ok(())
+}
+
+/// Verify a provider binary against its GPG detached signature.
+///
+/// Uses the system `gpg` binary.  Falls back gracefully when `gpg` is
+/// not installed or the provider does not publish signatures.
+pub fn verify_gpg_signature(
+    binary: &Path,
+    sig_path: &Path,
+    expected_fingerprint: &str,
+) -> Result<(), SecretsError> {
+    let output = Command::new("gpg")
+        .args(["--verify", "--status-fd", "1", "--quiet"])
+        .arg(sig_path)
+        .arg(binary)
+        .output()
+        .map_err(|_| SecretsError::ProviderError {
+            provider: "gpg".into(),
+            message: "gpg not found in PATH. Install gnupg to verify provider signatures.".into(),
+        })?;
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    if !combined.contains("GOODSIG") {
+        return Err(SecretsError::ProviderError {
+            provider: "gpg".into(),
+            message: format!("GPG signature verification failed for {}", binary.display()),
+        });
+    }
+
+    if !combined.contains(expected_fingerprint) {
+        return Err(SecretsError::ProviderError {
+            provider: "gpg".into(),
+            message: format!(
+                "GPG signature valid but fingerprint mismatch for {}. Expected: {}",
+                binary.display(),
+                expected_fingerprint
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+/// Verify the binary hash for a provider. Resolves the binary via `which`,
+/// computes SHA-256, and checks against stored hash (if any).
+/// Use this in custom `authenticate()` methods that spawn `Command` directly.
+pub fn verify_provider_binary(binary: &str, provider: &str) -> Result<(), SecretsError> {
+    let _ = resolve_binary_path(binary, provider)?;
+    Ok(())
+}
+
+/// Run an external CLI command and return stdout.
+fn clear_and_set_provider_env(
+    cmd: &mut Command,
+    env_vars: &[(&str, &str)],
+) -> Result<(), SecretsError> {
+    cmd.env_clear();
+    if let Ok(path) = std::env::var("PATH") {
+        cmd.env("PATH", path);
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        cmd.env("HOME", home);
+    }
+    #[cfg(unix)]
+    if let Ok(user) = std::env::var("USER") {
+        cmd.env("USER", user);
+    }
+    cmd.env("HISTFILE", "/dev/null");
+    cmd.env("HISTFILESIZE", "0");
+    cmd.env("HISTSIZE", "0");
+    cmd.env("HISTCONTROL", "ignorespace");
     for (k, v) in env_vars {
         validate_env_pair(k, v)?;
         cmd.env(k, v);
     }
+    Ok(())
+}
 
-    let output = cmd.output().map_err(|e| {
+/// Default timeout for provider CLI calls (30 seconds).
+const PROVIDER_CLI_TIMEOUT_SECS: u64 = 30;
+
+pub fn run_cli(
+    binary: &str,
+    args: &[&str],
+    env_vars: &[(&str, &str)],
+    provider_name: &str,
+) -> Result<String, SecretsError> {
+    let binary_path = resolve_binary_path(binary, provider_name)?;
+
+    let mut cmd = Command::new(&binary_path);
+    cmd.args(args);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    clear_and_set_provider_env(&mut cmd, env_vars)?;
+    sandbox_command(&mut cmd);
+
+    let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             SecretsError::BinaryNotFound {
                 binary: binary.to_string(),
@@ -404,7 +719,16 @@ pub fn run_cli(
         }
     })?;
 
-    if output.status.success() {
+    let status = wait_timeout_or_kill(&mut child, PROVIDER_CLI_TIMEOUT_SECS, provider_name)?;
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| SecretsError::ProviderError {
+            provider: provider_name.to_string(),
+            message: e.to_string(),
+        })?;
+
+    if status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         let stderr = sanitize_error_output(&String::from_utf8_lossy(&output.stderr));
@@ -427,6 +751,40 @@ pub fn run_cli(
     }
 }
 
+fn wait_timeout_or_kill(
+    child: &mut std::process::Child,
+    timeout_secs: u64,
+    provider_name: &str,
+) -> Result<std::process::ExitStatus, SecretsError> {
+    let dur = std::time::Duration::from_secs(timeout_secs);
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {
+                if start.elapsed() >= dur {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(SecretsError::ProviderError {
+                        provider: provider_name.to_string(),
+                        message: format!(
+                            "command timed out after {}s and was killed",
+                            timeout_secs
+                        ),
+                    });
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => {
+                return Err(SecretsError::ProviderError {
+                    provider: provider_name.to_string(),
+                    message: format!("failed to wait on child process: {}", e),
+                });
+            }
+        }
+    }
+}
+
 // ─── Secure CLI Runners (No /proc Leakage) ───────────────────
 
 /// Run an external CLI with secret data piped via stdin.
@@ -440,22 +798,15 @@ pub fn run_cli_with_stdin(
     env_vars: &[(&str, &str)],
     provider_name: &str,
 ) -> Result<String, SecretsError> {
-    if binary.contains('\0') || binary.contains('/') || binary.contains('\\') {
-        return Err(SecretsError::ProviderError {
-            provider: provider_name.to_string(),
-            message: format!("invalid binary name: '{}'", binary),
-        });
-    }
+    let binary_path = resolve_binary_path(binary, provider_name)?;
 
-    let mut cmd = Command::new(binary);
+    let mut cmd = Command::new(&binary_path);
     cmd.args(args);
-    for (k, v) in env_vars {
-        validate_env_pair(k, v)?;
-        cmd.env(k, v);
-    }
+    clear_and_set_provider_env(&mut cmd, env_vars)?;
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    sandbox_command(&mut cmd);
 
     let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -480,6 +831,8 @@ pub fn run_cli_with_stdin(
             })?;
     }
 
+    let status = wait_timeout_or_kill(&mut child, PROVIDER_CLI_TIMEOUT_SECS, provider_name)?;
+
     let output = child
         .wait_with_output()
         .map_err(|e| SecretsError::ProviderError {
@@ -487,7 +840,7 @@ pub fn run_cli_with_stdin(
             message: e.to_string(),
         })?;
 
-    if output.status.success() {
+    if status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         let stderr = sanitize_error_output(&String::from_utf8_lossy(&output.stderr));
@@ -962,6 +1315,9 @@ mod tests {
         fn credential_fields(&self) -> Vec<&str> {
             vec!["token"]
         }
+        fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+            CredentialEncryptionPolicy::Mandatory
+        }
         fn pull(
             &self,
             _creds: &HashMap<String, String>,
@@ -1008,11 +1364,10 @@ mod tests {
     fn test_registry_not_found() {
         let registry = ProviderRegistry::new();
         let result = registry.get("nonexistent");
-        assert!(result.is_err());
-        match result {
-            Err(SecretsError::ProviderNotFound { name, .. }) => assert_eq!(name, "nonexistent"),
-            _ => panic!("expected ProviderNotFound"),
-        }
+        let Err(SecretsError::ProviderNotFound { name, .. }) = result else {
+            panic!("expected ProviderNotFound");
+        };
+        assert_eq!(name, "nonexistent");
     }
 
     #[test]

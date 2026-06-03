@@ -109,7 +109,10 @@ pub enum EventSource {
     Canary,
     Scanner,
     Provider,
+    Reveal,
     Manual,
+    UnsafeArgv,
+    KeyProvisioning,
 }
 
 impl fmt::Display for EventSource {
@@ -121,7 +124,28 @@ impl fmt::Display for EventSource {
             Self::Canary => write!(f, "canary"),
             Self::Scanner => write!(f, "scanner"),
             Self::Provider => write!(f, "provider"),
+            Self::Reveal => write!(f, "reveal"),
             Self::Manual => write!(f, "manual"),
+            Self::UnsafeArgv => write!(f, "unsafe-argv"),
+            Self::KeyProvisioning => write!(f, "key-provisioning"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+pub enum SecuritySeverity {
+    #[default]
+    Info,
+    Warn,
+    Critical,
+}
+
+impl fmt::Display for SecuritySeverity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Info => write!(f, "info"),
+            Self::Warn => write!(f, "warn"),
+            Self::Critical => write!(f, "critical"),
         }
     }
 }
@@ -132,6 +156,8 @@ pub struct RuntimeEvent {
     pub key: Option<String>,
     pub message: String,
     pub timestamp: DateTime<Utc>,
+    #[serde(default)]
+    pub severity: SecuritySeverity,
 }
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
@@ -166,6 +192,7 @@ pub struct HealthResult {
 
 static EVENT_BUS: OnceLock<broadcast::Sender<RuntimeEvent>> = OnceLock::new();
 static BUS_ENABLED: AtomicBool = AtomicBool::new(false);
+static AUDIT_LOG_STARTED: AtomicBool = AtomicBool::new(false);
 
 pub fn init_event_bus(capacity: usize) {
     let (tx, _) = broadcast::channel(capacity.max(64));
@@ -174,20 +201,96 @@ pub fn init_event_bus(capacity: usize) {
 }
 
 pub fn emit_event(event: RuntimeEvent) {
-    if !BUS_ENABLED.load(Ordering::SeqCst) {
-        return;
-    }
+    let redacted = redact_runtime_event(event);
     if let Some(tx) = EVENT_BUS.get() {
-        let _ = tx.send(redact_runtime_event(event));
+        let _ = tx.send(redacted.clone());
+    }
+    if AUDIT_LOG_STARTED.load(Ordering::SeqCst) {
+        write_audit_entry(&redacted);
     }
 }
 
-/// Defensive redaction applied to every `RuntimeEvent` before it reaches
-/// subscribers (CLI streams, external integrations, log shippers).
-/// Replaces anything that looks like a high-entropy token (24+ chars of
-/// `[A-Za-z0-9_\-]`) in the message with `[REDACTED]`. Callers that know
-/// the exact secret value should still redact at the source — this is a
-/// last-line safety net.
+/// Emit a security-classified event with explicit severity.
+/// Convenience wrapper — sets source and auto-populates timestamp.
+pub fn emit_security_event(
+    source: EventSource,
+    severity: SecuritySeverity,
+    key: Option<&str>,
+    message: impl Into<String>,
+) {
+    emit_event(RuntimeEvent {
+        source,
+        key: key.map(|s| s.to_string()),
+        message: message.into(),
+        timestamp: Utc::now(),
+        severity,
+    });
+}
+
+fn resolve_audit_log_path() -> std::path::PathBuf {
+    crate::config::config_dir()
+        .map(|d| d.join("audit.jsonl"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("audit.jsonl"))
+}
+
+fn write_audit_entry(event: &RuntimeEvent) {
+    static AUDIT_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
+    let log_path = AUDIT_PATH.get_or_init(resolve_audit_log_path);
+
+    if let Ok(mut json) = serde_json::to_string(event) {
+        json.push('\n');
+        if let Ok(meta) = std::fs::metadata(log_path) {
+            if meta.len() > 10 * 1024 * 1024 {
+                let old = log_path.with_extension("jsonl.old");
+                let _ = std::fs::rename(log_path, &old);
+            }
+        }
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        if let Ok(mut f) = opts.open(log_path) {
+            use std::io::Write;
+            let _ = f.write_all(json.as_bytes());
+            let _ = f.flush();
+        }
+    }
+}
+
+pub fn start_persistent_audit_log() {
+    AUDIT_LOG_STARTED.store(true, Ordering::SeqCst);
+    init_event_bus(1024);
+}
+
+pub fn audit_log_path() -> Option<std::path::PathBuf> {
+    Some(resolve_audit_log_path())
+}
+
+pub fn read_audit_entries(limit: usize) -> Result<Vec<RuntimeEvent>, String> {
+    let path = resolve_audit_log_path();
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("cannot read audit log: {}", e))?;
+    let mut events: Vec<RuntimeEvent> = Vec::new();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(event) = serde_json::from_str::<RuntimeEvent>(line) {
+            events.push(event);
+        }
+    }
+    if events.len() > limit {
+        events = events.split_off(events.len() - limit);
+    }
+    Ok(events)
+}
+
 fn redact_runtime_event(mut event: RuntimeEvent) -> RuntimeEvent {
     event.message = redact_message(&event.message);
     event
@@ -385,9 +488,9 @@ pub fn mcp_reverify_tick(
     let server_count = lockfile.servers.len();
     state.last_known_bad = current_known_bad;
 
-    if !new_bad.is_empty() {
-        McpReverifyOutcome::NewKnownBad { servers: new_bad }
-    } else {
+    if new_bad.is_empty() {
         McpReverifyOutcome::Ok { server_count }
+    } else {
+        McpReverifyOutcome::NewKnownBad { servers: new_bad }
     }
 }

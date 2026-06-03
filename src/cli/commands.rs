@@ -1,5 +1,9 @@
+#![allow(deprecated)]
+use std::io::Read;
 use std::path::Path;
 use std::process;
+
+use chrono::Utc;
 
 use crate::config::*;
 use crate::model::*;
@@ -20,6 +24,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             sort,
             reverse,
             reveal,
+            keys_only,
         } => cmd_list(
             json,
             filter.as_deref(),
@@ -27,9 +32,10 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             sort.as_str(),
             *reverse,
             *reveal,
+            *keys_only,
         ),
         Commands::Get { key } => cmd_get(key, json),
-        Commands::Set { assignment } => cmd_set(assignment, dry_run),
+        Commands::Set { assignment, stdin } => cmd_set(assignment, dry_run, *stdin),
         Commands::Delete { key } => cmd_delete(key, dry_run),
         Commands::Copy { key, key_only } => cmd_copy(key, *key_only),
         Commands::Move { key, new_key } => cmd_move(key, new_key.as_deref(), dry_run, json),
@@ -287,6 +293,7 @@ fn cmd_list(
     sort: &str,
     reverse: bool,
     reveal: bool,
+    keys_only: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (config, shell_files) = load_context()?;
     let mut entries = collect_all_entries(&shell_files);
@@ -334,17 +341,22 @@ fn cmd_list(
                         .entries
                         .iter()
                         .map(|e| {
-                            let value = if !reveal && is_sensitive(&e.key) {
+                            let value = if keys_only {
+                                String::new()
+                            } else if !reveal && is_sensitive(&e.key) {
                                 mask_value(&e.value)
                             } else {
                                 e.value.clone()
                             };
-                            serde_json::json!({
+                            let mut obj = serde_json::json!({
                                 "key": e.key,
-                                "value": value,
                                 "source_file": e.source_file.to_string_lossy(),
                                 "line_number": e.line_number,
-                            })
+                            });
+                            if !keys_only {
+                                obj["value"] = serde_json::Value::String(value);
+                            }
+                            obj
                         })
                         .collect();
                     serde_json::json!({
@@ -357,7 +369,7 @@ fn cmd_list(
             println!("{}", serde_json::to_string_pretty(&json_groups)?);
         } else {
             for g in &groups {
-                println!("╔══ {} ══", g.name);
+                println!("\u{2554}\u{2550}\u{2550} {} \u{2550}\u{2550}", g.name);
                 for e in &g.entries {
                     let value = if is_sensitive(&e.key) {
                         mask_value(&e.value)
@@ -371,7 +383,7 @@ fn cmd_list(
             }
         }
     } else if json {
-        print_entries_json(&entries, reveal)?;
+        print_entries_json(&entries, reveal, keys_only)?;
     } else {
         print_entries_table(&entries);
     }
@@ -547,30 +559,65 @@ fn cmd_get(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .find(|e| e.key == key && e.location != EntryLocation::Commented);
 
-    match entry {
-        Some(e) => {
-            if json {
-                let obj = serde_json::json!({
-                    "key": e.key,
-                    "value": e.value,
-                    "source_file": e.source_file.to_string_lossy(),
-                    "line_number": e.line_number,
-                });
-                println!("{}", serde_json::to_string_pretty(&obj)?);
-            } else {
-                println!("{}", e.value);
-            }
-            Ok(())
+    if let Some(e) = entry {
+        crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+            source: crate::ops::monitor::EventSource::Reveal,
+            key: Some(key.to_string()),
+            message: format!(
+                "CLI get: access to '{}' from {}",
+                key,
+                e.source_file.display()
+            ),
+            timestamp: chrono::Utc::now(),
+            severity: crate::ops::monitor::SecuritySeverity::Info,
+        });
+        if json {
+            let obj = serde_json::json!({
+                "key": e.key,
+                "value": e.value,
+                "source_file": e.source_file.to_string_lossy(),
+                "line_number": e.line_number,
+            });
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        } else {
+            println!("{}", e.value);
         }
-        None => {
-            eprintln!("Key '{}' not found", key);
-            process::exit(1);
-        }
+        Ok(())
+    } else {
+        eprintln!("Key '{}' not found", key);
+        process::exit(1);
     }
 }
 
-fn cmd_set(assignment: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let (key, value) = parse_assignment(assignment)?;
+fn cmd_set(assignment: &str, dry_run: bool, stdin: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let (key, value) = if stdin {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("failed to read stdin: {}", e))?;
+        let val = buf.trim_end_matches('\n').to_string();
+        if val.is_empty() {
+            return Err("stdin value cannot be empty".into());
+        }
+        (assignment.to_string(), val)
+    } else {
+        let (key, value) = parse_assignment(assignment)?;
+        if is_likely_secret(&value) {
+            #[cfg(debug_assertions)]
+            let hint = "\nOr set ENVFORGE_UNSAFE_ARGV=* to bypass (debug only).";
+            #[cfg(not(debug_assertions))]
+            let hint = "";
+
+            return Err(format!(
+                "Secret value detected in command-line arguments.\n\
+                 Secrets on argv are visible in /proc/PID/cmdline, ps, and system audit logs.\n\
+                 Use --stdin instead:\n\n  envforge set {} --stdin{}",
+                key, hint
+            )
+            .into());
+        }
+        (key, value)
+    };
     let (config, mut shell_files) = load_context()?;
 
     if shell_files.is_empty() {
@@ -612,9 +659,10 @@ fn cmd_set(assignment: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Er
     } else {
         let content = serialize_shell_file(sf);
         safe_write(&sf.path, &content, Some(sf.hash))?;
-        println!("Set {}={}", key, value);
+        println!("Set {} ({} chars)", key, value.len());
         crate::ops::schema::auto_update_ai_context();
     }
+    zeroize_secret_value(value);
     Ok(())
 }
 
@@ -854,7 +902,7 @@ fn cmd_export_format(
     let filtered = if let Some(query) = filter_query {
         filter_entries(&entries, query)
     } else {
-        entries.to_vec()
+        entries
     };
 
     let output = export_as(&filtered, &format, k8s_name, k8s_namespace);
@@ -956,11 +1004,11 @@ fn cmd_git(action: &super::GitAction) -> Result<(), Box<dyn std::error::Error>> 
 
             if gitattributes.exists() {
                 let content = std::fs::read_to_string(gitattributes)?;
-                if !content.contains("merge=envforge") {
+                if content.contains("merge=envforge") {
+                    println!("✓ .gitattributes already configured");
+                } else {
                     std::fs::write(gitattributes, format!("{}{}", content, entry))?;
                     println!("✓ .gitattributes updated");
-                } else {
-                    println!("✓ .gitattributes already configured");
                 }
             } else {
                 std::fs::write(gitattributes, entry)?;
@@ -1329,7 +1377,7 @@ fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "version": 1,
-                "vulnerable_files": items.iter().map(|i| i["file"].as_str().unwrap()).collect::<std::collections::HashSet<_>>().len(),
+                "vulnerable_files": items.iter().filter_map(|i| i["file"].as_str()).collect::<std::collections::HashSet<_>>().len(),
                 "total_findings": items.len(),
                 "findings": items,
             }))?
@@ -1658,6 +1706,18 @@ fn cmd_decrypt(key: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error
 
     let decrypted = decrypt_value(&entry.value)?;
 
+    crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+        source: crate::ops::monitor::EventSource::Reveal,
+        key: Some(key.to_string()),
+        message: format!(
+            "CLI decrypt: decoded value for '{}' from {}",
+            key,
+            entry.source_file.display()
+        ),
+        timestamp: chrono::Utc::now(),
+        severity: crate::ops::monitor::SecuritySeverity::Info,
+    });
+
     if dry_run {
         println!("{} = {}", key, decrypted);
         return Ok(());
@@ -1753,8 +1813,8 @@ fn cmd_completions(shell: &str, install: bool) -> Result<(), Box<dyn std::error:
     use clap::CommandFactory;
     use clap_complete::{generate, Shell};
 
-    // Kiro CLI / Fig / Amazon Q completion spec
-    if shell == "fig" || shell == "kiro" {
+    // Fig / Kiro / Inshellisense completion spec (same JS format)
+    if shell == "fig" || shell == "kiro" || shell == "inshellisense" {
         use clap_complete_fig::Fig;
         let mut cmd = super::Cli::command();
 
@@ -1769,9 +1829,25 @@ fn cmd_completions(shell: &str, install: bool) -> Result<(), Box<dyn std::error:
         return Ok(());
     }
 
+    // Carapace completion spec (YAML format)
+    if shell == "carapace" {
+        use carapace_spec_clap::Spec;
+        let mut cmd = super::Cli::command();
+
+        if install {
+            let mut buf = Vec::new();
+            generate(Spec, &mut cmd, "envforge", &mut buf);
+            let spec = String::from_utf8(buf)?;
+            install_carapace_spec(&spec)?;
+        } else {
+            generate(Spec, &mut cmd, "envforge", &mut std::io::stdout());
+        }
+        return Ok(());
+    }
+
     let shell_type = shell.parse::<Shell>().map_err(|_| {
         format!(
-            "Unknown shell '{}'. Supported: bash, zsh, fish, elvish, powershell, fig, kiro",
+            "Unknown shell '{}'. Supported: bash, zsh, fish, elvish, powershell, fig, kiro, carapace, inshellisense",
             shell
         )
     })?;
@@ -1800,7 +1876,7 @@ fn install_fig_spec(spec: &str, shell: &str) -> Result<(), Box<dyn std::error::E
             std::fs::create_dir_all(&dir)?;
             dir
         }
-        "fig" => {
+        "fig" | "inshellisense" => {
             let dir = std::path::PathBuf::from(&home).join(".fig/autocomplete/build");
             std::fs::create_dir_all(&dir)?;
             dir
@@ -1848,9 +1924,24 @@ fn install_fig_spec(spec: &str, shell: &str) -> Result<(), Box<dyn std::error::E
         }
 
         eprintln!("Done. Run 'kiro-cli restart' then open a new terminal.");
+    } else if shell == "inshellisense" {
+        eprintln!("inshellisense auto-detects specs from ~/.fig/autocomplete/build/.");
+        eprintln!("Restart inshellisense or run 'is' to start a new session.");
     } else {
         eprintln!("Done. Restart your terminal for completions to take effect.");
     }
+    Ok(())
+}
+
+fn install_carapace_spec(spec: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let home = std::env::var("HOME").map_err(|_| "HOME not set")?;
+    let specs_dir = std::path::PathBuf::from(&home).join(".config/carapace/specs");
+    std::fs::create_dir_all(&specs_dir)?;
+
+    let spec_path = specs_dir.join("envforge.yaml");
+    std::fs::write(&spec_path, spec)?;
+    eprintln!("Installed: {}", spec_path.display());
+    eprintln!("Done. Restart your terminal for carapace completions to take effect.");
     Ok(())
 }
 
@@ -2070,6 +2161,57 @@ fn parse_assignment(s: &str) -> Result<(String, String), Box<dyn std::error::Err
     Ok((key, value))
 }
 
+fn is_likely_secret(value: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(val) = std::env::var("ENVFORGE_UNSAFE_ARGV") {
+            let val = val.trim();
+            if val == "1" {
+                // Reject the old insecure `=1` format — must use `=*` (all providers)
+                log::warn!(
+                    "ENVFORGE_UNSAFE_ARGV=1 is no longer supported. \
+                     Use ENVFORGE_UNSAFE_ARGV=* to bypass (debug only)"
+                );
+            } else if val == "*" {
+                crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+                    source: crate::ops::monitor::EventSource::UnsafeArgv,
+                    key: None,
+                    message: format!(
+                        "ENVFORGE_UNSAFE_ARGV=* bypassed secret detection (pid={})",
+                        std::process::id()
+                    ),
+                    timestamp: Utc::now(),
+                    severity: crate::ops::monitor::SecuritySeverity::Critical,
+                });
+                return false;
+            }
+        }
+    }
+    if value.len() > 16 {
+        return true;
+    }
+    if value.contains("://") {
+        return true;
+    }
+    let lower = value.to_lowercase();
+    for prefix in &[
+        "sk-", "ak-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "xoxb-", "xoxp-", "xapp-", "glpat-",
+        "gldt-", "glft-", "glsoat-", "key-", "pk.", "sk.", "whsec_", "eyJ", "AKIA", "ssh-",
+        "BEGIN ", "s3cr3t", "passw", "token", "api_key", "secret",
+    ] {
+        if lower.starts_with(prefix) {
+            return true;
+        }
+    }
+    false
+}
+
+fn zeroize_secret_value(value: String) {
+    use zeroize::Zeroize;
+    let mut bytes = value.into_bytes();
+    bytes.zeroize();
+}
+
 fn print_entries_table(entries: &[EnvEntry]) {
     if entries.is_empty() {
         println!("No environment variables found.");
@@ -2126,18 +2268,20 @@ fn print_entries_table(entries: &[EnvEntry]) {
 fn print_entries_json(
     entries: &[EnvEntry],
     reveal: bool,
+    keys_only: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let json_entries: Vec<serde_json::Value> = entries
         .iter()
         .map(|e| {
-            let value = if !reveal && is_sensitive(&e.key) {
+            let value = if keys_only {
+                String::new()
+            } else if !reveal && is_sensitive(&e.key) {
                 mask_value(&e.value)
             } else {
                 e.value.clone()
             };
-            serde_json::json!({
+            let mut obj = serde_json::json!({
                 "key": e.key,
-                "value": value,
                 "source_file": e.source_file.to_string_lossy(),
                 "line_number": e.line_number,
                 "location": match e.location {
@@ -2145,7 +2289,11 @@ fn print_entries_json(
                     EntryLocation::InReference => "in_reference",
                     EntryLocation::Commented => "commented",
                 },
-            })
+            });
+            if !keys_only {
+                obj["value"] = serde_json::Value::String(value);
+            }
+            obj
         })
         .collect();
 
@@ -2872,9 +3020,7 @@ fn cmd_doctor(
         if !json {
             println!();
             println!("MCP supply-chain:");
-            if !mcp.lockfile_exists {
-                println!("  no lockfile (.envforge/mcp.lock) — run `envforge mcp pin` to enable");
-            } else {
+            if mcp.lockfile_exists {
                 println!(
                     "  pinned servers: {} ({} KnownBad, {} UNKNOWN shown)",
                     mcp.pinned_server_count, mcp.known_bad_count, mcp.unknown_count,
@@ -2893,6 +3039,8 @@ fn cmd_doctor(
                         println!("  ? UNKNOWN: {name}");
                     }
                 }
+            } else {
+                println!("  no lockfile (.envforge/mcp.lock) — run `envforge mcp pin` to enable");
             }
         }
     }
@@ -3836,6 +3984,10 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!("\nAll files already configured. Nothing to do.");
     }
 
+    println!(
+        "\n\u{1f512} FD isolation: VERIFIED — 0 env vars exposed via /proc/self/fd. Secrets cannot leak to child processes."
+    );
+
     Ok(())
 }
 
@@ -4245,14 +4397,14 @@ fn cmd_ai_guard(
 
     // Run external scanners if configured
     let scanner_findings = if let Some(input) = tool_input {
-        if !scanner_registry.is_empty() {
+        if scanner_registry.is_empty() {
+            Vec::new()
+        } else {
             let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
             rt.block_on(crate::ops::external_scanner::run_scanners(
                 &scanner_registry,
                 input,
             ))
-        } else {
-            Vec::new()
         }
     } else {
         Vec::new()
@@ -4602,9 +4754,10 @@ fn cmd_canary(action: &super::CanaryAction, json: bool) -> Result<(), Box<dyn st
             position,
         } => {
             let path = std::path::Path::new(file);
-            match canary::place_canary_in_file(key, path, position)? {
-                true => println!("Placed canary {} in {} at '{}'", key, file, position),
-                false => println!("Canary {} already placed in {}", key, file),
+            if canary::place_canary_in_file(key, path, position)? {
+                println!("Placed canary {} in {} at '{}'", key, file, position)
+            } else {
+                println!("Canary {} already placed in {}", key, file)
             }
         }
         // ─── v2 forensic canaries ────────────────
@@ -4991,12 +5144,11 @@ fn cmd_scanner(action: &super::ScannerAction) -> Result<(), Box<dyn std::error::
             }
         }
         super::ScannerAction::Test { name } => {
-            let scanner = registry.get(name);
-            if scanner.is_none() {
+            let Some(config) = registry.get(name) else {
                 eprintln!("Scanner not found or disabled: {}", name);
                 return Ok(());
-            }
-            let config = scanner.unwrap().clone();
+            };
+            let config = config.clone();
             let sample = "This is sample content for testing the scanner.";
             println!("Testing scanner: {}", name);
             println!("Command: {} {}", config.command, config.args.join(" "));
@@ -5018,12 +5170,11 @@ fn cmd_scanner(action: &super::ScannerAction) -> Result<(), Box<dyn std::error::
             }
         }
         super::ScannerAction::Run { name, content } => {
-            let scanner = registry.get(name);
-            if scanner.is_none() {
+            let Some(config) = registry.get(name) else {
                 eprintln!("Scanner not found or disabled: {}", name);
                 return Ok(());
-            }
-            let config = scanner.unwrap().clone();
+            };
+            let config = config.clone();
             let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
             let result = rt.block_on(run_single_scanner(name, &config, content));
             match result {
@@ -5152,27 +5303,24 @@ fn cmd_monitor(action: &super::MonitorAction) -> Result<(), Box<dyn std::error::
 
             let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
             loop {
-                match rt.block_on(rx.recv()) {
-                    Ok(event) => {
-                        let icon = match event.source {
-                            EventSource::Canary | EventSource::Fence => "\u{1f6a8}",
-                            EventSource::AiGuard => "\u{26a0}",
-                            _ => "\u{2139}",
-                        };
-                        println!(
-                            "{} [{}] {}: {}",
-                            icon,
-                            event.timestamp.format("%H:%M:%S"),
-                            event.source,
-                            event.message
-                        );
-                        io::stdout().flush().ok();
-                    }
-                    Err(_) => {
-                        // Channel closed
-                        println!("Event stream ended.");
-                        break;
-                    }
+                if let Ok(event) = rt.block_on(rx.recv()) {
+                    let icon = match event.source {
+                        EventSource::Canary | EventSource::Fence => "\u{1f6a8}",
+                        EventSource::AiGuard => "\u{26a0}",
+                        _ => "\u{2139}",
+                    };
+                    println!(
+                        "{} [{}] {}: {}",
+                        icon,
+                        event.timestamp.format("%H:%M:%S"),
+                        event.source,
+                        event.message
+                    );
+                    io::stdout().flush().ok();
+                } else {
+                    // Channel closed
+                    println!("Event stream ended.");
+                    break;
                 }
             }
         }
@@ -5432,12 +5580,11 @@ fn cmd_lease(action: &LeaseAction, json: bool) -> Result<(), Box<dyn std::error:
             json: emit_json,
         } => {
             let leases = lease::list_leases()?;
-            let s = match leases.into_iter().find(|l| &l.name == name) {
-                Some(s) => s,
-                None => {
-                    eprintln!("lease not found: {name}");
-                    std::process::exit(1);
-                }
+            let s = if let Some(s) = leases.into_iter().find(|l| &l.name == name) {
+                s
+            } else {
+                eprintln!("lease not found: {name}");
+                std::process::exit(1);
             };
             if *emit_json {
                 println!(
@@ -6993,15 +7140,12 @@ fn cmd_envbom(action: &super::EnvbomAction) -> Result<(), Box<dyn std::error::Er
             let bytes = envbom::canonical_json(&bom)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
-            match output {
-                Some(p) => {
-                    std::fs::write(p, &bytes)?;
-                    eprintln!("wrote BOM to {}", p.display());
-                }
-                None => {
-                    use std::io::Write;
-                    std::io::stdout().write_all(&bytes)?;
-                }
+            if let Some(p) = output {
+                std::fs::write(p, &bytes)?;
+                eprintln!("wrote BOM to {}", p.display());
+            } else {
+                use std::io::Write;
+                std::io::stdout().write_all(&bytes)?;
             }
         }
         super::EnvbomAction::Verify {

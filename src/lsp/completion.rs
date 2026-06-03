@@ -3,6 +3,7 @@ use tower_lsp::lsp_types::{
     MarkupContent, MarkupKind, Position, Range, TextEdit,
 };
 
+use crate::ops::dotenv::is_sensitive_key;
 use crate::ops::schema::{EnvSchema, VarType};
 
 use super::document::EnvDocEntry;
@@ -46,7 +47,7 @@ pub fn completions(
     if before_cursor.ends_with('$') || before_cursor.contains("${") {
         let ref_range = ref_replace_range(line, position);
         let typed_prefix = ref_typed_prefix(before_cursor);
-        return reference_completions(entries, managed_vars, ref_range, &typed_prefix);
+        return reference_completions(entries, managed_vars, ref_range, &typed_prefix, schema);
     }
 
     // Key position
@@ -228,9 +229,9 @@ fn value_completions(
                 VarType::Bool => {
                     for val in &["true", "false"] {
                         items.push(CompletionItem {
-                            label: val.to_string(),
+                            label: (*val).to_string(),
                             kind: Some(CompletionItemKind::VALUE),
-                            text_edit: value_edit(val.to_string()),
+                            text_edit: value_edit((*val).to_string()),
                             ..Default::default()
                         });
                     }
@@ -248,24 +249,38 @@ fn value_completions(
                     }
                 }
                 _ => {
-                    if let Some(ref def) = var_def.default {
-                        items.push(CompletionItem {
-                            label: def.clone(),
-                            kind: Some(CompletionItemKind::VALUE),
-                            detail: Some("default".into()),
-                            text_edit: value_edit(def.clone()),
-                            ..Default::default()
-                        });
-                    }
-                    if let Some(ref ex) = var_def.example {
-                        if var_def.default.as_deref() != Some(ex.as_str()) {
+                    if var_def.sensitive {
+                        if let Some(ref def) = var_def.default {
                             items.push(CompletionItem {
-                                label: ex.clone(),
+                                label: "(sensitive, use your secret)".into(),
                                 kind: Some(CompletionItemKind::VALUE),
-                                detail: Some("example".into()),
-                                text_edit: value_edit(ex.clone()),
+                                detail: Some("sensitive: do not use schema default".into()),
+                                filter_text: Some(String::new()),
+                                text_edit: None,
                                 ..Default::default()
                             });
+                            let _ = def;
+                        }
+                    } else {
+                        if let Some(ref def) = var_def.default {
+                            items.push(CompletionItem {
+                                label: def.clone(),
+                                kind: Some(CompletionItemKind::VALUE),
+                                detail: Some("default".into()),
+                                text_edit: value_edit(def.clone()),
+                                ..Default::default()
+                            });
+                        }
+                        if let Some(ref ex) = var_def.example {
+                            if var_def.default.as_deref() != Some(ex.as_str()) {
+                                items.push(CompletionItem {
+                                    label: ex.clone(),
+                                    kind: Some(CompletionItemKind::VALUE),
+                                    detail: Some("example".into()),
+                                    text_edit: value_edit(ex.clone()),
+                                    ..Default::default()
+                                });
+                            }
                         }
                     }
                 }
@@ -273,35 +288,29 @@ fn value_completions(
         }
     }
 
-    // Suggest current value from managed vars.
+    // Suggest current-value placeholder from managed vars (no raw value leak).
     //
-    // Current-value completion. Uses the raw value as BOTH `label` and
-    // `text_edit.new_text` so the editor's paste path is robust whether
-    // it honors `text_edit` (correct) or falls back to inserting the
-    // label (some Neovim LSP clients, certain VS Code paths). Earlier
-    // attempts used a redacted preview as the label — that caused
-    // clients to paste `***` instead of the real secret when the
-    // text_edit branch wasn't taken. Hover already exposes the raw
-    // value to anyone looking at the screen, so showing it in the
-    // completion popup carries the same secrecy posture.
+    // The label shows a redacted preview or a plain "(managed)" marker.
+    // The text_edit inserts nothing — the user must use `reveal.value`
+    // to obtain the real secret. This closes the fence bypass where raw
+    // secret values appeared in completion popups cached by IDEs.
     for mv in managed_vars {
-        if mv.key == key && !mv.value.is_empty() {
+        if mv.key == key {
             let already = items
                 .iter()
-                .any(|i| i.detail.as_deref() == Some("current value") && i.label == mv.value);
+                .any(|i| i.detail.as_deref() == Some("managed by envforge"));
             if !already {
                 items.push(CompletionItem {
-                    label: mv.value.clone(),
+                    label: "(managed by envforge)".into(),
                     kind: Some(CompletionItemKind::VALUE),
-                    detail: Some("current value".into()),
-                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                        range: value_range,
-                        new_text: mv.value.clone(),
-                    })),
+                    detail: Some("managed by envforge".into()),
+                    filter_text: Some(String::new()),
+                    text_edit: None,
                     sort_text: Some("0_current".into()),
                     ..Default::default()
                 });
             }
+            break;
         }
     }
 
@@ -347,6 +356,7 @@ fn reference_completions(
     managed_vars: &[ManagedVar],
     replace_range: Range,
     typed_prefix: &str,
+    schema: Option<&EnvSchema>,
 ) -> Vec<CompletionItem> {
     // Cap the number of managed-var refs we surface even after the
     // server-side prefix filter, so popups stay quick to read. Same-
@@ -401,12 +411,21 @@ fn reference_completions(
     }
 
     // From managed vars: prefix-filtered server-side, then capped.
+    // Secret keys are excluded to prevent AI enumeration via $ prefix probing.
     let mut managed_added = 0usize;
     for mv in managed_vars {
         if managed_added >= MAX_MANAGED_REF_SUGGESTIONS {
             break;
         }
         if !matches_prefix(&mv.key) {
+            continue;
+        }
+        let sensitive = schema
+            .and_then(|s| s.variables.get(&mv.key))
+            .map(|v| v.sensitive)
+            .unwrap_or(false)
+            || is_sensitive_key(&mv.key);
+        if sensitive {
             continue;
         }
         if seen.insert(mv.key.clone()) {

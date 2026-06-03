@@ -19,7 +19,7 @@ pub enum ProjectAction {
         /// Schema file path (default: .env.schema.toml)
         #[arg(long)]
         schema: Option<String>,
-        /// Env file path (default: .env.<active>)
+        /// Env file path (default: `.env.{active}`)
         #[arg(long)]
         env_file: Option<String>,
     },

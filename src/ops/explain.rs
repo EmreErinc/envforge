@@ -187,7 +187,7 @@ pub fn explain_key(key: &str) -> KeyExplanation {
     } else if is_sensitive {
         mask_value(value)
     } else {
-        value.to_string()
+        value.clone()
     };
 
     explanation

@@ -21,12 +21,19 @@ pub struct EnvEntry {
     pub value: String,
     pub source_file: PathBuf,
     pub line_number: usize,
-    /// Vector index in ShellFile.lines
     pub line_index: usize,
     pub location: EntryLocation,
     pub export_style: ExportStyle,
     pub quote_style: QuoteStyle,
     pub is_dirty: bool,
+}
+
+impl EnvEntry {
+    pub fn zeroize(&mut self) {
+        use zeroize::Zeroize;
+        self.key.zeroize();
+        self.value.zeroize();
+    }
 }
 
 /// Status of an ENV variable relative to the runtime environment.

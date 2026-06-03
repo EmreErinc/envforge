@@ -16,9 +16,11 @@ If you discover a security vulnerability in EnvForge, please report it responsib
 - **File integrity** — Atomic writes prevent corruption. SHA-256 hash verification.
 - **No data loss** — Soft-delete only. Original content preserved as comments.
 - **Secret masking** — Sensitive values never displayed in plain text by default.
-- **Encryption at rest** — Optional age encryption for sensitive values.
+- **Encryption at rest** — Age X25519 encryption for sensitive values. Mandatory by construction for all 13 secret providers.
+- **Credential encryption policy** — Every provider declares its encryption posture via the `SecretProvider` trait (compile-time enforced). No provider returns plaintext credentials to disk without explicit, audited justification.
 - **Credential isolation** — All provider credentials passed via environment variables or stdin pipes (never CLI flags) to prevent `/proc/PID/cmdline` leakage.
 - **Error sanitization** — CLI error output is sanitized to redact credential patterns before logging or display.
+- **Recovery key** — A second age keypair is generated on first run. Store it offline to recover encrypted credentials if the primary key is lost.
 
 ### What EnvForge Does NOT Protect
 
@@ -27,13 +29,16 @@ If you discover a security vulnerability in EnvForge, please report it responsib
 - **Clipboard** — Copied values are in system clipboard (not cleared automatically)
 - **CLI binary integrity** — EnvForge does not verify GPG signatures of provider CLIs. A compromised binary in PATH could exfiltrate secrets. Verify binary integrity yourself.
 - **Cache on disk** — Secret cache files are encrypted at rest with 0600 permissions, but are plaintext TOML within the file. Protect your home directory.
+- **ARGV bypass in debug builds** — `ENVFORGE_UNSAFE_ARGV=*` disables secret detection in debug builds only. This path is audited at `Critical` severity and rejected in release builds. The old `ENVFORGE_UNSAFE_ARGV=1` format is blocked entirely.
 
 ### Encryption Details
 
 - Algorithm: X25519 (via `age` crate, `plugin` feature disabled)
-- Key storage: `~/.config/envforge/age.key` with `0600` permissions (auto-corrected if permissive)
-- Encrypted format: `ENC[age:base64data]` stored in shell files
-- Key generation: Automatic on first `encrypt` command
+- Key storage: `~/.config/envforge/age.key` with `0600` permissions (auto-corrected if permissive). Override via `ENVFORGE_AGE_KEY` (inline) or `ENVFORGE_AGE_KEY_FILE` (custom path).
+- Recovery key: `~/.config/envforge/age-recovery.key` — generated on first run, store offline.
+- Encrypted format: `ENC[age:base64data]` stored in shell files and credentials
+- Key generation: Automatic on first `encrypt` command; auto-generated keypair with explicit permission hardening
+- Credential encryption: Mandatory by construction for all providers except those with explicit `NotSupported` justification
 - RUSTSEC-2024-0433 mitigation: `age` crate compiled without `plugin` feature; arbitrary code execution vector eliminated
 
 ### File Permissions
@@ -41,7 +46,8 @@ If you discover a security vulnerability in EnvForge, please report it responsib
 | File | Permissions | Contents |
 |------|------------|----------|
 | `~/.config/envforge/config.toml` | User default | Configuration (no secrets) |
-| `~/.config/envforge/age.key` | `0600` | Age secret key |
+| `~/.config/envforge/age.key` | `0600` | Age secret key (primary) |
+| `~/.config/envforge/age-recovery.key` | `0600` | Age secret key (recovery — store offline) |
 | `~/.config/envforge/credentials.toml` | `0600` | Encrypted provider credentials |
 | `~/.config/envforge/secrets-cache/` | `0600` per file | Cached secret values (TTL-based) |
 | `~/.config/envforge/backups/` | User default | File backups |

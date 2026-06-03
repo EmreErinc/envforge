@@ -151,7 +151,11 @@ fn test_config_full_roundtrip() {
             auto_push: false,
             conflict_strategy: ConflictStrategy::KeepRemote,
             encrypted: true,
+            encryption_policy: envforge::ops::sync::model::SyncEncryptionPolicy::MigrationUntil(
+                "2099-01-01T00:00:00Z".into(),
+            ),
             verify_signatures: false,
+            enforce_ssh: false,
         },
         manifest: ManifestConfig {
             sync_keys: vec!["DB_URL".to_string(), "API_KEY".to_string()],
@@ -189,7 +193,11 @@ fn test_config_conflict_strategy_serialization_variants() {
                 auto_push: false,
                 conflict_strategy: strategy.clone(),
                 encrypted: true,
+                encryption_policy: envforge::ops::sync::model::SyncEncryptionPolicy::MigrationUntil(
+                    "2099-01-01T00:00:00Z".into(),
+                ),
                 verify_signatures: false,
+                enforce_ssh: false,
             },
             manifest: ManifestConfig::default(),
         };
@@ -240,7 +248,12 @@ fn test_snapshot_file_write_and_read() {
     write_snapshot(&path, &snapshot).unwrap();
     assert!(path.exists());
 
-    let loaded = read_snapshot(&path).unwrap();
+    let loaded = read_snapshot(
+        &path,
+        &envforge::ops::sync::SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+        false,
+    )
+    .unwrap();
     assert_eq!(snapshot, loaded);
 }
 
@@ -263,7 +276,11 @@ fn test_read_snapshot_invalid_toml() {
     let path = dir.path().join("bad.toml");
     std::fs::write(&path, "this is not valid toml [[[").unwrap();
 
-    let result = read_snapshot(&path);
+    let result = read_snapshot(
+        &path,
+        &envforge::ops::sync::SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+        false,
+    );
     assert!(result.is_err());
     match result.unwrap_err() {
         SyncError::SnapshotParseError { .. } => {}
@@ -364,7 +381,12 @@ fn test_init_fresh_creates_complete_structure() {
     assert_eq!(config.sync.conflict_strategy, ConflictStrategy::Ask);
 
     // Verify snapshot
-    let snapshot = read_snapshot(&sync_path.join("snapshot.toml")).unwrap();
+    let snapshot = read_snapshot(
+        &sync_path.join("snapshot.toml"),
+        &envforge::ops::sync::SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+        false,
+    )
+    .unwrap();
     assert_eq!(snapshot.metadata.version, 1);
     assert!(snapshot.entries.is_empty());
 }

@@ -199,7 +199,13 @@ impl Default for AppConfig {
 }
 
 /// Get the default config directory path.
+///
+/// Respects `ENVFORGE_CONFIG_DIR` environment variable for test isolation.
+/// Without the override, returns `$XDG_CONFIG_HOME/envforge` (or platform equivalent).
 pub fn config_dir() -> Result<PathBuf, ParseError> {
+    if let Ok(dir) = std::env::var("ENVFORGE_CONFIG_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
     let base = dirs::config_dir().ok_or(ParseError::HomeDirNotFound)?;
     Ok(base.join("envforge"))
 }
@@ -215,8 +221,9 @@ pub fn backups_dir() -> Result<PathBuf, ParseError> {
 }
 
 /// Load configuration from a TOML file.
+/// Uses O_NOFOLLOW to prevent symlink attacks on config paths.
 pub fn load_config(path: &Path) -> Result<AppConfig, ConfigError> {
-    let content = std::fs::read_to_string(path).map_err(|e| ConfigError::IoError {
+    let content = super::safe_fs::safe_read_to_string(path).map_err(|e| ConfigError::IoError {
         path: path.to_path_buf(),
         source: e,
     })?;
@@ -274,6 +281,7 @@ fn migrate_if_needed(config: &mut AppConfig) -> Result<(), ConfigError> {
 }
 
 /// Save configuration to a TOML file.
+/// Uses O_NOFOLLOW to prevent symlink attacks and enforces 0o600 permissions.
 pub fn save_config(config: &AppConfig, path: &Path) -> Result<(), ConfigError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| ConfigError::IoError {
@@ -285,10 +293,28 @@ pub fn save_config(config: &AppConfig, path: &Path) -> Result<(), ConfigError> {
     let content =
         toml::to_string_pretty(config).map_err(|e| ConfigError::SerializeError(e.to_string()))?;
 
-    std::fs::write(path, content).map_err(|e| ConfigError::IoError {
+    super::safe_fs::safe_write(path, &content).map_err(|e| ConfigError::IoError {
         path: path.to_path_buf(),
         source: e,
     })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(path)
+            .map_err(|e| ConfigError::IoError {
+                path: path.to_path_buf(),
+                source: e,
+            })?
+            .permissions();
+        if perms.mode() & 0o077 != 0 {
+            perms.set_mode(0o600);
+            std::fs::set_permissions(path, perms).map_err(|e| ConfigError::IoError {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
+        }
+    }
 
     Ok(())
 }
@@ -305,13 +331,13 @@ fn shellexpand_tilde(path: &str) -> PathBuf {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("failed to access '{path}': {source}")]
+    #[error("failed to access config: {source}")]
     IoError {
         path: PathBuf,
         source: std::io::Error,
     },
 
-    #[error("invalid config at '{path}': {message}")]
+    #[error("invalid config: {message}")]
     ParseError { path: PathBuf, message: String },
 
     #[error("failed to serialize config: {0}")]

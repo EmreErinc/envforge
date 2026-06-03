@@ -1,6 +1,6 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.7.4
+> Generated for EnvForge v0.8.0
 
 ## Quick Recipes
 
@@ -669,6 +669,25 @@ eval "$(envforge hook bash)"
 envforge hook fish | source
 ```
 
+### envforge env-unload
+
+Unload environment variables from the current shell session (clears exported env vars).
+
+```
+Usage: envforge env-unload [OPTIONS] [PATTERN]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `[PATTERN]` | Unload variables matching this glob pattern (e.g., `API_*`) |
+
+**Examples:**
+
+```bash
+envforge env-unload
+envforge env-unload API_*
+```
+
 ---
 
 ## Profiles
@@ -1221,6 +1240,23 @@ envforge decrypt DATABASE_PASSWORD
 envforge decrypt API_SECRET --json
 ```
 
+### ENVFORGE_AGE_KEY (CI / Headless)
+
+EnvForge resolves the age encryption key in this priority order:
+
+| Priority | Source | Usage |
+|----------|--------|-------|
+| 1 (highest) | `ENVFORGE_AGE_KEY` env var | Raw key content. For CI pipelines and headless environments. |
+| 2 | `ENVFORGE_AGE_KEY_FILE` env var | Path to custom key file. |
+| 3 (default) | `~/.config/envforge/age.key` | Auto-generated on first `envforge encrypt` call. |
+
+**Recovery key:** `~/.config/envforge/age-recovery.key` is generated on first run. Store offline.
+
+```bash
+# CI example
+ENVFORGE_AGE_KEY="$(cat ~/.config/envforge/age.key)" envforge encrypt KEY
+```
+
 ---
 
 ## Snapshots & Undo
@@ -1426,6 +1462,27 @@ envforge sync init
 envforge sync init --remote git@github.com:myorg/env-sync.git
 envforge sync init --force --machine-id macbook-work
 ```
+
+### Sync Encryption Policy
+
+Configure encryption enforcement in `sync-config.toml`:
+
+```toml
+[sync]
+# Mandatory (default) — reject plaintext snapshots
+encryption_policy = "mandatory"
+
+# Migration window — auto-hardens after the given UTC datetime
+encryption_policy = "migration-until 2027-01-01T00:00:00Z"
+```
+
+Use `--force-migration` to bypass the deadline during migration windows:
+
+```bash
+envforge sync pull --force-migration
+```
+
+**Warning:** `--force-migration` bypasses encryption enforcement. A WARN-level audit event is emitted. Re-enable Mandatory as soon as migration is complete.
 
 ---
 
@@ -2134,122 +2191,27 @@ envforge fence --disable
 envforge fence --dry-run
 ```
 
----
+### envforge fence apply
 
-### envforge exposure
-
-Compute AI-exposure classification (red/amber/green per line) for a single `.env*` file. Emits the same JSON shape as the LSP `envforge/exposureMap` custom request — used internally by VS Code + IntelliJ plugins for the gutter heatmap and file-explorer badges, but also useful in CI / scripts.
+Propagate fence rules to a specific AI tool's ignore file. Uses symlinks on Unix (auto-updating when the source changes) and file copies on Windows.
 
 ```
-Usage: envforge exposure --file <FILE>
+Usage: envforge fence apply --tool <TOOL> [--dry-run]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--file <FILE>` | Path to the `.env*` file to classify |
-
-**Output schema:**
-
-```json
-{
-  "entries": [
-    { "line": 0, "key": "DB_HOST", "level": "red",   "reason": "...", "canary": false },
-    { "line": 1, "key": "API_KEY", "level": "amber", "reason": "...", "canary": true  }
-  ],
-  "fence_active": false
-}
-```
+| `--tool <TOOL>` | AI tool name: `cursor`, `claude`, `copilot`, `aider`, `windsurf`, `continue` |
+| `--dry-run` | Show what would be created without writing files |
 
 **Examples:**
 
 ```bash
-envforge exposure --file .env
-envforge exposure --file .env.local | jq '.entries[] | select(.level == "red")'
-```
-
----
-
-### envforge sanitize
-
-Sanitize a file by replacing secret values with ${KEY} placeholders.
-
-```
-Usage: envforge sanitize [OPTIONS] <FILE>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<FILE>` | File to sanitize |
-
-| Flag | Description |
-|------|-------------|
-| `--output <OUTPUT>` | Output file (default: stdout) |
-
-**Examples:**
-
-```bash
-envforge sanitize config.json
-envforge sanitize docker-compose.yml --output docker-compose.sanitized.yml
-envforge sanitize .env --dry-run
-```
-
----
-
-### envforge ai-hook install
-
-Install hooks for an AI coding tool.
-
-```
-Usage: envforge ai-hook install [OPTIONS] <TOOL>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<TOOL>` | Tool name: `claude-code`, `cursor` |
-
-**Examples:**
-
-```bash
-envforge ai-hook install claude-code
-envforge ai-hook install cursor
-```
-
----
-
-### envforge ai-hook remove
-
-Remove hooks from an AI coding tool.
-
-```
-Usage: envforge ai-hook remove [OPTIONS] <TOOL>
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<TOOL>` | Tool name: `claude-code`, `cursor` |
-
-**Examples:**
-
-```bash
-envforge ai-hook remove claude-code
-envforge ai-hook remove cursor
-```
-
----
-
-### envforge ai-hook status
-
-Check if AI tool hooks are installed.
-
-```
-Usage: envforge ai-hook status [OPTIONS]
-```
-
-**Examples:**
-
-```bash
-envforge ai-hook status
-envforge ai-hook status --json
+envforge fence                       # create base .envforgeignore first
+envforge fence apply --tool aider    # propagate to Aider
+envforge fence apply --tool cursor   # propagate to Cursor
+envforge fence apply --tool copilot  # propagate to Copilot
+envforge fence apply --tool windsurf --dry-run
 ```
 
 ---
@@ -3122,6 +3084,56 @@ envforge offset --show --json
 
 ---
 
+## CI Trust
+
+### envforge ci-trust classify
+
+Classify a CI trigger by trust level (pull_request, push, schedule, workflow_dispatch).
+
+```
+Usage: envforge ci-trust classify [OPTIONS] <EVENT>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<EVENT>` | GitHub Actions event name (e.g., `pull_request`, `push`) |
+
+| Flag | Description |
+|------|-------------|
+| `--actor <ACTOR>` | GitHub username who triggered the workflow |
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+envforge ci-trust classify pull_request --actor dependabot
+envforge ci-trust classify push --actor admin --json
+```
+
+### envforge ci-trust quarantine
+
+Scrub environment variables for untrusted CI runs.
+
+```
+Usage: envforge ci-trust quarantine [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge ci-trust quarantine --output .env.safe
+```
+
+### envforge ci-trust summary
+
+Generate a CI Trust summary report in GitHub Step Summary format.
+
+```
+Usage: envforge ci-trust summary
+```
+
+---
+
 ## Secret Lifecycle
 
 ### envforge lifecycle check
@@ -3442,6 +3454,40 @@ envforge analytics prune --before 2026-01-01T00:00:00Z --json
 
 ---
 
+## ENV-BOM (Environment Bill of Materials)
+
+### envforge envbom emit
+
+Generate a cryptographically-signed ENV-BOM for reproducible environment attestation.
+
+```
+Usage: envforge envbom emit [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--output <FILE>` | Output file path |
+| `--reproducible-now <TIMESTAMP>` | Timestamp for reproducible builds |
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+envforge envbom emit
+envforge envbom emit --output env-bom.toml
+envforge envbom emit --reproducible-now "2026-06-03T00:00:00Z"
+```
+
+### envforge envbom verify
+
+Verify an ENV-BOM against the current environment.
+
+```
+Usage: envforge envbom verify [OPTIONS] <FILE>
+```
+
+---
+
 ## Real-Time Monitoring
 
 ### envforge monitor status
@@ -3558,7 +3604,7 @@ Usage: envforge completions [OPTIONS] <SHELL>
 
 | Argument | Description |
 |----------|-------------|
-| `<SHELL>` | Shell type: `zsh`, `bash`, `fish`, `kiro`, `fig` |
+| `<SHELL>` | Shell type: `zsh`, `bash`, `fish`, `elvish`, `powershell`, `fig`, `kiro`, `carapace`, `inshellisense` |
 
 | Flag | Description |
 |------|-------------|
@@ -3573,6 +3619,8 @@ envforge completions bash --install
 envforge completions fish --install
 envforge completions kiro --install
 envforge completions fig --install
+envforge completions carapace --install
+envforge completions inshellisense --install
 ```
 
 #### Kiro CLI Setup
@@ -3594,6 +3642,26 @@ After installation:
 - Open a new terminal and type `envforge <TAB>`
 
 > **Note:** The spec file must use plain JavaScript syntax (not TypeScript). The `--install` flag handles this automatically.
+
+#### Carapace Setup
+
+Carapace is a multi-shell completion engine (bash, zsh, fish, elvish, nushell, xonsh, powershell) that uses YAML-format specs.
+
+```bash
+envforge completions carapace --install
+```
+
+Installs `~/.config/carapace/specs/envforge.yaml`. Restart your terminal to activate.
+
+#### Inshellisense Setup
+
+Inshellisense (Microsoft) provides IDE-style autocomplete in the terminal using Fig-format specs.
+
+```bash
+envforge completions inshellisense --install
+```
+
+Installs the Fig JS spec to `~/.fig/autocomplete/build/envforge.js` — inshellisense auto-detects specs from this directory. Run `is` to start a new session. No additional configuration needed.
 
 ---
 

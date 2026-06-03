@@ -6,7 +6,7 @@ pub mod history;
 mod init;
 pub mod machine;
 pub mod marking;
-mod model;
+pub mod model;
 pub mod pull;
 pub mod push;
 

@@ -41,17 +41,14 @@ pub fn is_initialized(base_path: &Path) -> bool {
 
 /// Generate a machine ID from hostname + random suffix.
 pub fn generate_machine_id(custom: Option<&str>) -> Result<String, SyncError> {
-    match custom {
-        Some(id) => {
-            validate_machine_id(id)?;
-            Ok(id.to_string())
-        }
-        None => {
-            let hostname = get_hostname();
-            let sanitized = sanitize_hostname(&hostname);
-            let suffix = random_hex_suffix();
-            Ok(format!("{}-{}", sanitized, suffix))
-        }
+    if let Some(id) = custom {
+        validate_machine_id(id)?;
+        Ok(id.to_string())
+    } else {
+        let hostname = get_hostname();
+        let sanitized = sanitize_hostname(&hostname);
+        let suffix = random_hex_suffix();
+        Ok(format!("{}-{}", sanitized, suffix))
     }
 }
 
@@ -108,14 +105,17 @@ fn random_hex_suffix() -> String {
 // ─── Snapshot I/O ────────────────────────────────────────────
 
 /// Read a sync snapshot from a file. Auto-detects encrypted vs plaintext.
-pub fn read_snapshot(path: &Path) -> Result<SyncSnapshot, SyncError> {
+pub fn read_snapshot(
+    path: &Path,
+    policy: &crate::ops::sync::model::SyncEncryptionPolicy,
+    force_migration: bool,
+) -> Result<SyncSnapshot, SyncError> {
     let content = std::fs::read_to_string(path).map_err(|e| SyncError::IoError {
         path: path.to_path_buf(),
         source: e,
     })?;
 
-    // Auto-detect and decrypt if needed (backward compatible with plaintext)
-    let toml_content = super::encryption::decrypt_snapshot(&content)?;
+    let toml_content = super::encryption::decrypt_snapshot(&content, policy, force_migration)?;
 
     toml::from_str(&toml_content).map_err(|e| SyncError::SnapshotParseError {
         message: e.to_string(),
@@ -131,22 +131,15 @@ pub fn write_snapshot(path: &Path, snapshot: &SyncSnapshot) -> Result<(), SyncEr
     atomic_write(path, &content)
 }
 
-/// Write a sync snapshot, optionally encrypting it with age.
-pub fn write_snapshot_encrypted(
-    path: &Path,
-    snapshot: &SyncSnapshot,
-    encrypted: bool,
-) -> Result<(), SyncError> {
+/// Write a sync snapshot with mandatory age encryption.
+/// Plaintext sync path has been removed — all snapshots are always encrypted.
+pub fn write_snapshot_encrypted(path: &Path, snapshot: &SyncSnapshot) -> Result<(), SyncError> {
     let toml_content =
         toml::to_string_pretty(snapshot).map_err(|e| SyncError::SnapshotParseError {
             message: e.to_string(),
         })?;
 
-    let content = if encrypted {
-        super::encryption::encrypt_snapshot(&toml_content)?
-    } else {
-        toml_content
-    };
+    let content = super::encryption::encrypt_snapshot(&toml_content)?;
 
     atomic_write(path, &content)
 }
@@ -259,9 +252,9 @@ pub fn init_fresh(base_path: &Path, machine_id: &str) -> Result<(), SyncError> {
     let config = SyncConfig::new(machine_id, None);
     write_config(&base_path.join(CONFIG_FILE), &config)?;
 
-    // Write empty snapshot
+    // Write empty snapshot — encrypted to match encryption_policy default.
     let snapshot = SyncSnapshot::empty(machine_id);
-    write_snapshot(&base_path.join(SNAPSHOT_FILE), &snapshot)?;
+    write_snapshot_encrypted(&base_path.join(SNAPSHOT_FILE), &snapshot)?;
 
     // Initial commit
     git.add_all()?;
@@ -319,7 +312,7 @@ pub fn init_from_remote(
     // Create empty snapshot if none exists
     if !has_existing_snapshot {
         let snapshot = SyncSnapshot::empty(machine_id);
-        write_snapshot(&base_path.join(SNAPSHOT_FILE), &snapshot)?;
+        write_snapshot_encrypted(&base_path.join(SNAPSHOT_FILE), &snapshot)?;
     }
 
     // Ensure .gitignore exists
@@ -359,6 +352,7 @@ pub fn backup_existing(base_path: &Path) -> Result<PathBuf, SyncError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::sync::SyncEncryptionPolicy;
 
     #[test]
     fn test_sanitize_hostname_basic() {
@@ -502,7 +496,11 @@ mod tests {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::KeepLocal,
                 encrypted: true,
+                encryption_policy: crate::ops::sync::model::SyncEncryptionPolicy::MigrationUntil(
+                    "2099-01-01T00:00:00Z".into(),
+                ),
                 verify_signatures: false,
+                enforce_ssh: false,
             },
             manifest: ManifestConfig::default(),
         };
@@ -543,7 +541,12 @@ mod tests {
         assert!(!config.sync.default_sync);
 
         // Verify snapshot content
-        let snapshot = read_snapshot(&sync_path.join(SNAPSHOT_FILE)).unwrap();
+        let snapshot = read_snapshot(
+            &sync_path.join(SNAPSHOT_FILE),
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(snapshot.metadata.version, 1);
         assert_eq!(snapshot.metadata.created_by, "test-machine-a1b2");
         assert!(snapshot.entries.is_empty());
@@ -557,11 +560,10 @@ mod tests {
         init_fresh(&sync_path, "test-a1b2").unwrap();
 
         let result = init_fresh(&sync_path, "test-a1b2");
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SyncError::RepoAlreadyInitialized { .. } => {}
-            other => panic!("expected RepoAlreadyInitialized, got: {:?}", other),
-        }
+        assert!(matches!(
+            result,
+            Err(SyncError::RepoAlreadyInitialized { .. })
+        ));
     }
 
     #[test]

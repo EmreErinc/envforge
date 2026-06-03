@@ -2,20 +2,78 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use age::secrecy::ExposeSecret;
+use zeroize::Zeroizing;
 
 use crate::config::config_dir;
-use crate::model::ParseError;
 
 const ENC_PREFIX: &str = "ENC[age:";
 const ENC_SUFFIX_STR: &str = "]";
 
-/// Get the age key file path.
-pub fn age_key_path() -> Result<PathBuf, ParseError> {
-    Ok(config_dir()?.join("age.key"))
+/// Env var that holds the raw age identity key content.
+/// Takes precedence over `ENVFORGE_AGE_KEY_FILE` and the default key path.
+pub const ENV_AGE_KEY: &str = "ENVFORGE_AGE_KEY";
+
+/// Env var that points to an alternative age key file.
+/// Takes precedence over the default `~/.config/envforge/age.key` path.
+pub const ENV_AGE_KEY_FILE: &str = "ENVFORGE_AGE_KEY_FILE";
+
+/// Get the age key file path, respecting `ENVFORGE_AGE_KEY_FILE`.
+pub fn age_key_path() -> Result<PathBuf, EncryptError> {
+    if let Ok(custom) = std::env::var(ENV_AGE_KEY_FILE) {
+        let p = PathBuf::from(custom);
+        if !p.exists() {
+            return Err(EncryptError::KeyError(format!(
+                "{ENV_AGE_KEY_FILE}={} points to a file that does not exist",
+                p.display()
+            )));
+        }
+        return Ok(p);
+    }
+    Ok(config_dir()
+        .map_err(|_| EncryptError::KeyError("Cannot find config dir".into()))?
+        .join("age.key"))
+}
+
+/// Content of the recovery key, if one has been generated.
+/// Stored alongside the primary key as `age-recovery.key`.
+pub fn recovery_key_path() -> Result<PathBuf, EncryptError> {
+    Ok(config_dir()
+        .map_err(|_| EncryptError::KeyError("Cannot find config dir".into()))?
+        .join("age-recovery.key"))
 }
 
 /// Ensure an age keypair exists, generating one if needed.
-pub fn ensure_age_key() -> Result<String, EncryptError> {
+///
+/// Resolution order:
+/// 1. `ENVFORGE_AGE_KEY` — raw key content (CI / headless). Always preferred.
+/// 2. `ENVFORGE_AGE_KEY_FILE` — custom key file path.
+/// 3. `~/.config/envforge/age.key` — default location, auto-generated.
+///
+/// Returns the key content wrapped in [`Zeroizing`] so the private key
+/// bytes are overwritten on drop. Callers that hold the returned value
+/// should minimize its lifetime and drop it as soon as the key material
+/// is no longer needed.
+pub fn ensure_age_key() -> Result<Zeroizing<String>, EncryptError> {
+    // 1. Inline key via env var (highest priority — CI / headless)
+    if let Ok(key_content) = std::env::var(ENV_AGE_KEY) {
+        if key_content.trim().is_empty() {
+            return Err(EncryptError::KeyError(format!(
+                "{ENV_AGE_KEY} is set but empty"
+            )));
+        }
+        // Emit a distinct audit event for CI/headless key provisioning.
+        // This allows audit tooling to distinguish ephemeral env-var keys
+        // from persistent file-based keys.
+        crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+            source: crate::ops::monitor::EventSource::KeyProvisioning,
+            key: None,
+            message: format!("age key loaded from {ENV_AGE_KEY} (CI/headless mode)"),
+            timestamp: chrono::Utc::now(),
+            severity: crate::ops::monitor::SecuritySeverity::Warn,
+        });
+        return Ok(Zeroizing::new(key_content));
+    }
+
     let path =
         age_key_path().map_err(|_| EncryptError::KeyError("Cannot find config dir".into()))?;
 
@@ -69,7 +127,7 @@ pub fn ensure_age_key() -> Result<String, EncryptError> {
             (&file)
                 .read_to_string(&mut content)
                 .map_err(|e| EncryptError::KeyError(format!("Cannot read age key file: {}", e)))?;
-            Ok(content)
+            Ok(Zeroizing::new(content))
         }
 
         #[cfg(not(unix))]
@@ -122,8 +180,92 @@ pub fn ensure_age_key() -> Result<String, EncryptError> {
             ));
         }
 
-        Ok(content)
+        // Generate a recovery key alongside the primary key.
+        // This is best-effort — a failure here does not prevent the
+        // primary key from being usable.
+        if let Err(e) = generate_recovery_key() {
+            log::warn!("Failed to generate recovery key: {}", e);
+        }
+
+        Ok(Zeroizing::new(content))
     }
+}
+
+/// Generate a recovery (break-glass) age keypair and write it to
+/// `age-recovery.key` alongside the primary key.  The recovery key is
+/// a second keypair that can decrypt everything encrypted with the
+/// primary key.  Users should store the recovery key offline (printed
+/// QR code, hardware token, sealed envelope).
+///
+/// This function is called **once** during first-run key generation.
+/// It is NOT called again — if the recovery key already exists, it is
+/// left untouched (the user may have removed it intentionally).
+pub fn generate_recovery_key() -> Result<(), EncryptError> {
+    let recovery_path = recovery_key_path()
+        .map_err(|_| EncryptError::KeyError("Cannot determine recovery key path".into()))?;
+
+    // Do NOT overwrite an existing recovery key — the user may
+    // have deliberately stored it offline and removed the local copy.
+    if recovery_path.exists() {
+        log::info!(
+            "Recovery key already exists at {}, skipping generation",
+            recovery_path.display()
+        );
+        return Ok(());
+    }
+
+    let key = age::x25519::Identity::generate();
+    let secret = key.to_string();
+    let public = key.to_public().to_string();
+
+    let content = format!(
+        "# envforge recovery key — STORE THIS OFFLINE\n\
+         # If your primary age key is lost or corrupted, this key\n\
+         # can decrypt all encrypted credentials.\n\
+         # public key: {}\n{}\n",
+        public,
+        secret.expose_secret()
+    );
+
+    if let Some(parent) = recovery_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            EncryptError::KeyError(format!("Cannot create dir for recovery key: {}", e))
+        })?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let tempfile =
+            tempfile::NamedTempFile::new_in(recovery_path.parent().unwrap_or(&recovery_path))
+                .map_err(|e| EncryptError::KeyError(format!("Cannot create temp file: {}", e)))?;
+        tempfile
+            .as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| EncryptError::KeyError(format!("Cannot set permissions: {}", e)))?;
+        std::fs::write(tempfile.path(), &content)
+            .map_err(|e| EncryptError::KeyError(format!("Cannot write recovery key: {}", e)))?;
+        tempfile.persist(&recovery_path).map_err(|e| {
+            EncryptError::KeyError(format!("Cannot persist recovery key: {}", e.error))
+        })?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        return Err(EncryptError::KeyError(
+            "secure recovery key storage requires a unix-like OS".into(),
+        ));
+    }
+
+    eprintln!(
+        "\n🔑 Recovery key written to: {}\n\
+         ⚠️  STORE THIS FILE OFFLINE (USB drive, printed QR, secure vault).\n\
+         ⚠️  Without it, losing your primary key means PERMANENT data loss.\n\
+         ⚠️  You will NOT see this message again.\n",
+        recovery_path.display()
+    );
+
+    Ok(())
 }
 
 fn get_recipient(key_content: &str) -> Result<age::x25519::Recipient, EncryptError> {

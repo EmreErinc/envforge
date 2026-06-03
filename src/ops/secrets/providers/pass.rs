@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, sort_secret_pairs, validate_env_pair, validate_provider_arg,
-    validate_provider_response_value, validate_secret_name, validate_secret_value, SecretProvider,
-    SecretsError,
+    env_refs_from_env, run_cli, sandbox_command, sort_secret_pairs, validate_env_pair,
+    validate_provider_arg, validate_provider_response_value, validate_secret_name,
+    validate_secret_value, CredentialEncryptionPolicy, SecretProvider, SecretsError,
 };
 
 pub struct PassProvider;
@@ -69,8 +69,16 @@ impl SecretProvider for PassProvider {
         Some("1.7.0")
     }
 
+    fn hash_names(&self) -> Vec<&str> {
+        vec!["pass", "gopass"]
+    }
+
     fn credential_fields(&self) -> Vec<&str> {
         vec![]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn optional_credential_fields(&self) -> Vec<&str> {
@@ -154,14 +162,22 @@ impl SecretProvider for PassProvider {
             };
 
             // Write value to stdin via a temp file + pipe approach using run_cli
-            // Since run_cli doesn't support stdin, use Command directly
+            // Since run_cli doesn't support stdin, use Command directly with env sanitization
             let mut cmd = std::process::Command::new(binary);
+            cmd.env_clear();
+            if let Ok(path) = std::env::var("PATH") {
+                cmd.env("PATH", path);
+            }
+            if let Ok(home) = std::env::var("HOME") {
+                cmd.env("HOME", home);
+            }
             cmd.args(&insert_args);
             for (k, v) in &env_refs {
                 validate_env_pair(k, v)?;
                 cmd.env(k, v);
             }
             cmd.stdin(std::process::Stdio::piped());
+            sandbox_command(&mut cmd);
 
             let mut child = cmd.spawn().map_err(|e| SecretsError::ProviderError {
                 provider: "pass".to_string(),

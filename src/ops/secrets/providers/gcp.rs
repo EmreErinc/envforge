@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::super::provider::{
     run_cli, sort_secret_pairs, validate_provider_arg, validate_provider_response_label,
-    validate_provider_response_value, validate_secret_name, SecretProvider, SecretsError,
+    validate_provider_response_value, validate_secret_name, CredentialEncryptionPolicy,
+    SecretProvider, SecretsError,
 };
 
 /// Validate `project_id` from credentials before it is interpolated into a
@@ -40,6 +41,10 @@ impl SecretProvider for GcpSecretManagerProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec!["project_id"]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn build_provider_env(

@@ -40,3 +40,38 @@ path = "fuzz_targets/canonical_hasher.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "lsp_document"
+path = "fuzz_targets/lsp_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_scan_fuzz"
+path = "fuzz_targets/mcp_scan_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "poison_scan_fuzz"
+path = "fuzz_targets/poison_scan_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "schema_parser"
+path = "fuzz_targets/schema_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lsp_semantic"
+path = "fuzz_targets/lsp_semantic.rs"
+test = false
+doc = false
+bench = false

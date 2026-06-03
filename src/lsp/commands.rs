@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use serde_json::{json, Value};
+use zeroize::Zeroizing;
 
 use crate::ops::canary::scanner::{scan_reader, scan_text};
 use crate::ops::canary::{check_canaries, create_canary, list_canaries, place_canary_in_file};
@@ -49,32 +50,42 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
     match command_id {
         "envforge.fence.enable" => match workspace_root {
             None => err("workspace root not available"),
-            Some(root) => match create_fence(root, false) {
-                Ok(result) => ok(json!({
-                    "files_created": result.files_created.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-                    "files_updated": result.files_updated.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-                    "files_skipped": result.files_skipped.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-                })),
-                Err(e) => err(format!("create_fence failed: {}", e)),
-            },
+            Some(root) => {
+                if let Err(e) = guard_fence_mutation_rate_limit(workspace_root) {
+                    return err(e);
+                }
+                match create_fence(root, false) {
+                    Ok(result) => ok(json!({
+                        "files_created": result.files_created.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                        "files_updated": result.files_updated.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                        "files_skipped": result.files_skipped.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                    })),
+                    Err(e) => err(format!("create_fence failed: {}", e)),
+                }
+            }
         },
         "envforge.fence.disable" => match workspace_root {
             None => err("workspace root not available"),
-            Some(root) => match remove_fence(root, false) {
-                Ok(result) => ok(json!({
-                    "files_removed": result.files_removed.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-                    "files_updated": result.files_updated.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-                    "files_skipped": result.files_skipped.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-                })),
-                Err(e) => err(format!("remove_fence failed: {}", e)),
-            },
+            Some(root) => {
+                if let Err(e) = guard_fence_mutation_rate_limit(workspace_root) {
+                    return err(e);
+                }
+                match remove_fence(root, false) {
+                    Ok(result) => ok(json!({
+                        "files_removed": result.files_removed.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                        "files_updated": result.files_updated.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                        "files_skipped": result.files_skipped.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                    })),
+                    Err(e) => err(format!("remove_fence failed: {}", e)),
+                }
+            }
         },
         "envforge.fence.toggle" => match workspace_root {
             None => err("workspace root not available"),
             Some(root) => {
-                // Probe current state, then flip. If status check fails we
-                // err out rather than guess — toggling against unknown
-                // state would surprise the user.
+                if let Err(e) = guard_fence_mutation_rate_limit(workspace_root) {
+                    return err(e);
+                }
                 let status = match check_fence_status(root) {
                     Ok(s) => s,
                     Err(e) => return err(format!("check_fence_status failed: {}", e)),
@@ -130,6 +141,9 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             if key.is_empty() {
                 return err("key cannot be empty");
             }
+            if let Err(e) = super::security::guard_key_pattern_with_length(&key) {
+                return err(e);
+            }
             let secret = match create_canary(&key, &pattern) {
                 Ok(s) => s,
                 Err(e) => return err(format!("create_canary failed: {}", e)),
@@ -173,6 +187,9 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             if name.is_empty() {
                 return err("name cannot be empty");
             }
+            if let Err(e) = super::security::guard_payload_safety("volatile.extend name", &name) {
+                return err(e);
+            }
             let Some(ttl) = ttl else {
                 return err("missing or invalid 'ttl' argument");
             };
@@ -214,12 +231,13 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             Err(e) => err(format!("list_leases failed: {}", e)),
         },
         "envforge.canary.scan" => {
-            // Incident-response style scan: walk an arbitrary text blob
-            // or file looking for v2 canary tokens (`cnry_...`). Plugins
-            // wire this to log-paste flows and ad-hoc "did one of my
-            // canaries leak into this stack trace?" investigations.
+            // Incident-response style scan: walk a text blob or workspace-
+            // bounded file looking for v2 canary tokens (`cnry_...`).
+            // Plugins wire this to log-paste flows and ad-hoc "did one of
+            // my canaries leak into this stack trace?" investigations.
             //
             // Argument shape: [{ "text": "<string>" }] OR [{ "file": "<path>" }]
+            // File access is sandboxed to the workspace root.
             let arg = _args.first().cloned().unwrap_or(Value::Null);
             let text = arg.get("text").and_then(|v| v.as_str()).map(str::to_string);
             let file = arg.get("file").and_then(|v| v.as_str()).map(str::to_string);
@@ -227,9 +245,23 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             let matches: Vec<_> = match (text, file) {
                 (Some(t), _) => scan_text(&t),
                 (None, Some(f)) => {
-                    let f_handle = match std::fs::File::open(&f) {
+                    // Sandboxed file scan via reusable security guards.
+                    let canonical =
+                        match super::security::guard_workspace_containment(workspace_root, &f) {
+                            Ok(p) => p,
+                            Err(e) => return err(e),
+                        };
+                    if let Err(e) = super::security::guard_scan_extension(&canonical) {
+                        return err(e);
+                    }
+                    if let Err(e) = super::security::guard_file_size(&canonical, 10 * 1024 * 1024) {
+                        return err(e);
+                    }
+                    let f_handle = match std::fs::File::open(&canonical) {
                         Ok(h) => h,
-                        Err(e) => return err(format!("open {} failed: {}", f, e)),
+                        Err(e) => {
+                            return err(format!("open {} failed: {}", canonical.display(), e));
+                        }
                     };
                     scan_reader(f_handle)
                 }
@@ -299,6 +331,12 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
                     .first()
                     .and_then(|v| v.get("message"))
                     .and_then(|m| m.as_str());
+                if let Some(msg) = message {
+                    if let Err(e) = super::security::guard_payload_safety("sync.push message", msg)
+                    {
+                        return err(e);
+                    }
+                }
                 run_sync_subprocess(root, "push", message)
             }
         },
@@ -311,10 +349,11 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             Some(root) => run_sync_subprocess(root, "status", None),
         },
         "envforge.run.volatile" => {
-            // Build a wrapped command string the plugin should send to
-            // a terminal. We don't spawn the terminal ourselves — LSP
-            // has no concept of one — but we do own the wrapper format
-            // so subprocess vs LSP callers all wrap the same way.
+            // Build a structured subprocess descriptor for the plugin.
+            // We do NOT return a pre-formed shell string — that risks
+            // command injection when downstream plugins eval / sh -c
+            // the wrapper. Instead we return `binary` + `args` as a
+            // JSON array so plugins construct the subprocess directly.
             //
             // Argument shape:
             //   [{ "command": "<user shell command>",
@@ -330,25 +369,30 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             if command.trim().is_empty() {
                 return err("command cannot be empty");
             }
+            if let Err(e) = guard_shell_metacharacters(&command) {
+                return err(e);
+            }
             let ttl = arg
                 .get("ttl")
                 .and_then(|v| v.as_str())
                 .unwrap_or("30m")
                 .to_string();
 
-            let wrapper = format!("envforge run --volatile {} -- {}", ttl, command);
+            let bin = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "envforge".to_string());
             ok(json!({
-                "wrapper": wrapper,
+                "binary": bin,
+                "args": ["run", "--volatile", &ttl, "--", &command],
+                "hint": "spawn binary with these args directly; do NOT evaluate in a shell",
                 "ttl": ttl,
                 "original_command": command,
             }))
         }
         "envforge.reveal.value" => {
-            // Audit-logged value reveal. The raw value crosses the LSP
-            // wire on purpose — the plugin needs it to display — but
-            // every reveal emits a `RuntimeEvent` so security teams
-            // can audit who saw what when. Callers may pass a
-            // free-form `reason` string to attach to the audit record.
+            // Audit-logged value reveal. Security gates enforced via
+            // reusable guard functions (src/lsp/security.rs).
             let arg = _args.first().cloned().unwrap_or(Value::Null);
             let key = arg.get("key").and_then(|v| v.as_str()).map(str::to_string);
             let Some(key) = key else {
@@ -357,19 +401,36 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             if key.is_empty() {
                 return err("key cannot be empty");
             }
+
+            if let Err(e) = super::security::guard_key_pattern(&key) {
+                return err(e);
+            }
+            if let Err(e) = super::security::guard_fence_check(workspace_root, "secret reveal") {
+                return err(e);
+            }
+
+            if let Err(e) = guard_reveal_rate_limit(workspace_root) {
+                return err(e);
+            }
+
             let reason = arg
                 .get("reason")
                 .and_then(|v| v.as_str())
                 .unwrap_or("LSP reveal request")
                 .to_string();
 
+            if let Err(e) = super::security::guard_message_length("reveal.reason", &reason) {
+                return err(e);
+            }
+
             let exe = match std::env::current_exe() {
                 Ok(p) => p,
                 Err(e) => return err(format!("current_exe failed: {}", e)),
             };
-            let output = std::process::Command::new(&exe)
-                .args(["get", &key, "--json"])
-                .output();
+            let mut cmd = std::process::Command::new(&exe);
+            cmd.args(["get", &key, "--json"]);
+            spawn_clean(&mut cmd);
+            let output = cmd.output();
             let output = match output {
                 Ok(o) => o,
                 Err(e) => return err(format!("spawn failed: {}", e)),
@@ -378,34 +439,165 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 return err(format!("get failed: {}", stderr.trim()));
             }
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stdout = {
+                let raw = String::from_utf8_lossy(&output.stdout).to_string();
+                Zeroizing::new(raw)
+            };
             let parsed: Value = match serde_json::from_str(&stdout) {
                 Ok(v) => v,
                 Err(_) => return err("get output was not valid JSON"),
             };
 
-            // Audit emit. Use the source tag `RuntimeEvent::source =
-            // EventSource::Other("lsp.reveal")` via the monitor bus.
-            // The bus redacts high-entropy tokens in `message`
-            // automatically so we deliberately do NOT put the value
-            // into the message — only the key + reason.
+            // Audit emit (no raw value in message).
             crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
-                source: crate::ops::monitor::EventSource::Manual,
+                source: crate::ops::monitor::EventSource::Reveal,
                 key: Some(key.clone()),
                 message: format!("LSP reveal: {} ({})", key, reason),
                 timestamp: chrono::Utc::now(),
+                severity: crate::ops::monitor::SecuritySeverity::Warn,
             });
+
+            let value = parsed.get("value").cloned().unwrap_or(Value::Null);
+            let source_file = parsed.get("source_file").cloned().unwrap_or(Value::Null);
+
+            // Drop Zeroizing-wrapped stdout (trigger heap overwrite).
+            drop(stdout);
+
+            // Zeroize subprocess output buffers.
+            let mut out = output;
+            out.stdout.fill(0);
+            out.stderr.fill(0);
 
             let now = chrono::Utc::now().to_rfc3339();
             ok(json!({
                 "key": key,
-                "value": parsed.get("value").cloned().unwrap_or(Value::Null),
-                "source_file": parsed.get("source_file").cloned().unwrap_or(Value::Null),
+                "value": value,
+                "source_file": source_file,
                 "revealed_at": now,
                 "reason": reason,
             }))
         }
         other => err(format!("unknown command: {}", other)),
+    }
+}
+
+// Rate-limit state for reveal and fence operations — per-workspace isolated
+// to prevent cross-workspace budget exhaustion (one workspace spamming reveal
+// should not starve another).
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+struct WorkspaceRateState {
+    reveal_count: u64,
+    fence_mutation_count: u64,
+    window_start: u64,
+}
+
+static WORKSPACE_RATE_STATE: std::sync::OnceLock<Mutex<HashMap<String, WorkspaceRateState>>> =
+    std::sync::OnceLock::new();
+
+const REVEAL_MAX_PER_WINDOW: u64 = 10;
+const FENCE_MUTATION_MAX_PER_WINDOW: u64 = 3;
+const RATE_WINDOW_SECS: u64 = 300;
+
+fn workspace_key(root: Option<&Path>) -> String {
+    root.and_then(|p| p.to_str().map(String::from))
+        .unwrap_or_else(|| "/".to_string())
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+#[doc(hidden)]
+pub fn __test_reset_rate_limits() {
+    if let Some(state) = WORKSPACE_RATE_STATE.get() {
+        if let Ok(mut state) = state.lock() {
+            state.clear();
+        }
+    }
+}
+
+fn guard_reveal_rate_limit(workspace_root: Option<&Path>) -> Result<(), String> {
+    let state = WORKSPACE_RATE_STATE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut state = state
+        .lock()
+        .map_err(|_| "rate limiter lock poisoned".to_string())?;
+    let key = workspace_key(workspace_root);
+    let entry = state.entry(key).or_insert(WorkspaceRateState {
+        reveal_count: 0,
+        fence_mutation_count: 0,
+        window_start: now_secs(),
+    });
+
+    let now = now_secs();
+    if now.wrapping_sub(entry.window_start) > RATE_WINDOW_SECS {
+        entry.window_start = now;
+        entry.reveal_count = 1;
+        entry.fence_mutation_count = 0;
+    } else {
+        entry.reveal_count += 1;
+        if entry.reveal_count > REVEAL_MAX_PER_WINDOW {
+            return Err(format!(
+                "reveal rate limit exceeded: max {} per {}s for this workspace",
+                REVEAL_MAX_PER_WINDOW, RATE_WINDOW_SECS
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn guard_fence_mutation_rate_limit(workspace_root: Option<&Path>) -> Result<(), String> {
+    let state = WORKSPACE_RATE_STATE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut state = state
+        .lock()
+        .map_err(|_| "rate limiter lock poisoned".to_string())?;
+    let key = workspace_key(workspace_root);
+    let entry = state.entry(key).or_insert(WorkspaceRateState {
+        reveal_count: 0,
+        fence_mutation_count: 0,
+        window_start: now_secs(),
+    });
+
+    let now = now_secs();
+    if now.wrapping_sub(entry.window_start) > RATE_WINDOW_SECS {
+        entry.window_start = now;
+        entry.fence_mutation_count = 1;
+        entry.reveal_count = 0;
+    } else {
+        entry.fence_mutation_count += 1;
+        if entry.fence_mutation_count > FENCE_MUTATION_MAX_PER_WINDOW {
+            return Err(format!(
+                "fence mutation rate limited: max {} per {}s for this workspace",
+                FENCE_MUTATION_MAX_PER_WINDOW, RATE_WINDOW_SECS
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn guard_shell_metacharacters(command: &str) -> Result<(), String> {
+    static META_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = META_RE
+        .get_or_init(|| regex::Regex::new(r"[];&|`$(){}\[<>!#~*?\n\r]").expect("static regex"));
+    if re.is_match(command) {
+        return Err(format!(
+            "command contains shell metacharacters; rejected for safety: '{}'",
+            command
+        ));
+    }
+    Ok(())
+}
+
+fn spawn_clean(cmd: &mut std::process::Command) {
+    cmd.env_clear();
+    for key in &["HOME", "PATH", "USER", "LANG", "TMPDIR"] {
+        if let Ok(val) = std::env::var(key) {
+            cmd.env(key, val);
+        }
     }
 }
 
@@ -429,10 +621,10 @@ fn run_sync_subprocess(workspace: &Path, action: &str, message: Option<&str>) ->
     }
     args.push("--json".into());
 
-    let output = std::process::Command::new(&exe)
-        .args(&args)
-        .current_dir(workspace)
-        .output();
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.args(&args).current_dir(workspace);
+    spawn_clean(&mut cmd);
+    let output = cmd.output();
 
     let output = match output {
         Ok(o) => o,

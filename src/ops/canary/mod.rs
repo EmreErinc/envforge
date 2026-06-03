@@ -277,6 +277,7 @@ pub fn trigger_canary(key: &str, source: &str, details: &str) -> Result<(), OpEr
             key, safe_source, safe_details
         ),
         timestamp: chrono::Utc::now(),
+        severity: crate::ops::monitor::SecuritySeverity::Critical,
     });
     // Update store
     let mut store = load_canaries()?;

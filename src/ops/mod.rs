@@ -45,6 +45,7 @@ pub mod scanner;
 pub mod schema;
 pub mod schema_json;
 pub mod secrets;
+pub mod secure_memory;
 pub mod session;
 pub mod share;
 pub mod snapshot;

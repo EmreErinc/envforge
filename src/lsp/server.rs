@@ -4,13 +4,13 @@ use std::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use zeroize::Zeroize;
 
 use crate::ops::schema::{parse_schema_content, EnvSchema};
 
 use super::ai_guard_diagnostics::compute_ai_guard_diagnostics;
 use super::code_action::code_actions;
 use super::code_lens::code_lenses;
-use super::commands::{dispatch_command, SUPPORTED_COMMANDS};
 use super::completion::completions;
 use super::definition::{
     extract_upper_snake_identifier, goto_definition, goto_definition_from_source,
@@ -24,16 +24,19 @@ use super::format::format_text_edits;
 use super::hover::hover_info;
 use super::inlay::compute_inlay_hints;
 use super::mcp_diagnostics::compute_mcp_diagnostics;
+use super::rate_limit::RateLimiters;
 use super::references::find_references;
 use super::rename::build_rename_edit;
+use super::security::LspSecurityPolicy;
 use super::semantic_tokens::{compute_semantic_tokens, TOKEN_MODIFIERS, TOKEN_TYPES};
 use super::workspace_symbol::workspace_symbols;
 
 /// A known env var from envforge's managed files.
+/// Values are intentionally NOT stored here — consumers must look up
+/// values on-demand from the document state or the `reveal.value` command.
 #[derive(Debug, Clone)]
 pub struct ManagedVar {
     pub key: String,
-    pub value: String,
     pub source_file: String,
 }
 
@@ -46,6 +49,12 @@ pub struct Backend {
     schema_line_count: RwLock<Option<u32>>,
     workspace_root: RwLock<Option<Url>>,
     managed_vars: RwLock<Vec<ManagedVar>>,
+    rate_limiters: RateLimiters,
+    security_policy: LspSecurityPolicy,
+    /// Last LSP method name for audit attribution of security-relevant
+    /// side effects (reveal, fence toggle, sync push, etc.). Tracked so
+    /// the audit log records which LSP endpoint triggered the mutation.
+    request_method: RwLock<String>,
 }
 
 impl Backend {
@@ -59,6 +68,9 @@ impl Backend {
             schema_line_count: RwLock::new(None),
             workspace_root: RwLock::new(None),
             managed_vars: RwLock::new(Vec::new()),
+            rate_limiters: RateLimiters::default(),
+            security_policy: LspSecurityPolicy::default(),
+            request_method: RwLock::new(String::new()),
         }
     }
 
@@ -80,6 +92,32 @@ impl Backend {
         p.ends_with(".env.schema") || p.ends_with(".env.schema.toml")
     }
 
+    fn is_fenced_env_file(&self, uri: &Url) -> bool {
+        let root = match self.workspace_root.read() {
+            Ok(r) => r.clone(),
+            Err(_) => return false,
+        };
+        let Some(root_url) = root else { return false };
+        let Ok(root_path) = root_url.to_file_path() else {
+            return false;
+        };
+        let Ok(file_path) = uri.to_file_path() else {
+            return false;
+        };
+        let Ok(canonical_file) = std::fs::canonicalize(&file_path) else {
+            return false;
+        };
+        let Ok(canonical_root) = std::fs::canonicalize(&root_path) else {
+            return false;
+        };
+        if !canonical_file.starts_with(&canonical_root) {
+            return false;
+        }
+        crate::ops::fence::check_fence_status(&canonical_root)
+            .map(|status| status.all_fenced)
+            .unwrap_or(false)
+    }
+
     /// Identify MCP configuration files we want to lint inline.
     /// Conservative: only known config filenames in known directories,
     /// not arbitrary `*.json`. Keeps the diagnostic from misfiring on
@@ -99,11 +137,45 @@ impl Backend {
     }
 
     fn publish_mcp_diagnostics(&self, uri: &Url, content: &str, version: i32) {
-        let path = match uri.to_file_path() {
-            Ok(p) => p,
-            Err(_) => std::path::PathBuf::from(uri.path()),
+        let file_path = if let Ok(p) = uri.to_file_path() {
+            p
+        } else {
+            eprintln!(
+                "LSP: mcp diagnostics skipped — URI cannot convert to file path: {}",
+                uri
+            );
+            return;
         };
-        let diags = compute_mcp_diagnostics(content, &path);
+        let root = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|url| url.to_file_path().ok());
+        if let Some(root_path) = root {
+            let Ok(canonical_file) = std::fs::canonicalize(&file_path) else {
+                eprintln!(
+                    "LSP: mcp diagnostics skipped — cannot canonicalize path: {}",
+                    file_path.display()
+                );
+                return;
+            };
+            let Ok(canonical_root) = std::fs::canonicalize(&root_path) else {
+                eprintln!(
+                    "LSP: mcp diagnostics skipped — cannot canonicalize workspace root: {}",
+                    root_path.display()
+                );
+                return;
+            };
+            if !canonical_file.starts_with(&canonical_root) {
+                eprintln!(
+                    "LSP: mcp diagnostics blocked — file outside workspace: {}",
+                    canonical_file.display()
+                );
+                return;
+            }
+        }
+        let diags = compute_mcp_diagnostics(content, &file_path);
         let client = self.client.clone();
         let uri = uri.clone();
         tokio::spawn(async move {
@@ -192,41 +264,42 @@ impl Backend {
     }
 
     fn load_managed_vars(&self) {
-        // Find envforge binary
-        let binary = find_envforge_binary();
-        let output = std::process::Command::new(&binary)
-            .args(["list", "--json"])
-            .output();
+        let config = match crate::config::load_or_create_default() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let primary_path = shellexpand(&config.files.primary);
+        let ref_path = shellexpand(&config.files.reference);
 
-        match output {
-            Ok(out) if out.status.success() => {
-                if let Ok(text) = String::from_utf8(out.stdout) {
-                    if let Ok(vars) = serde_json::from_str::<Vec<serde_json::Value>>(&text) {
-                        let managed: Vec<ManagedVar> = vars
-                            .iter()
-                            .filter_map(|v| {
-                                Some(ManagedVar {
-                                    key: v.get("key")?.as_str()?.to_string(),
-                                    value: v.get("value")?.as_str()?.to_string(),
-                                    source_file: v
-                                        .get("source_file")
-                                        .and_then(|s| s.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
-                                })
-                            })
-                            .collect();
-                        if let Ok(mut w) = self.managed_vars.write() {
-                            *w = managed;
-                        } else {
-                            eprintln!(
-                                "LSP: Failed to acquire write lock on managed_vars (lock poisoned)"
-                            );
-                        }
-                    }
-                }
+        let mut shell_files = Vec::new();
+        if primary_path.exists() {
+            if let Ok(sf) = crate::parser::parse_shell_file(&primary_path) {
+                shell_files.push(sf);
             }
-            _ => {}
+        }
+        if config.files.use_reference_file && ref_path.exists() {
+            if let Ok(sf) = crate::parser::parse_shell_file(&ref_path) {
+                shell_files.push(sf);
+            }
+        }
+
+        if shell_files.is_empty() {
+            return;
+        }
+
+        let entries = crate::ops::collect_all_entries(&shell_files);
+        let managed: Vec<ManagedVar> = entries
+            .into_iter()
+            .map(|e| ManagedVar {
+                key: e.key,
+                source_file: e.source_file.to_string_lossy().into_owned(),
+            })
+            .collect();
+
+        if let Ok(mut w) = self.managed_vars.write() {
+            *w = managed;
+        } else {
+            eprintln!("LSP: Failed to acquire write lock on managed_vars (lock poisoned)");
         }
     }
 
@@ -279,6 +352,16 @@ impl Backend {
         }
 
         std::fs::read_to_string(&canonical).ok()
+    }
+
+    /// Record the current LSP method for audit attribution. Called at
+    /// the top of every handler so that security-relevant side effects
+    /// (reveal, fence toggle, sync push) carry the originating endpoint
+    /// in their audit log entries.
+    fn set_request_method(&self, method: &str) {
+        if let Ok(mut m) = self.request_method.write() {
+            *m = method.to_string();
+        }
     }
 
     /// Compute the AI-exposure map for a given env-file URI. Reads the
@@ -394,13 +477,11 @@ impl LanguageServer for Backend {
                 rename_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 document_formatting_provider: Some(OneOf::Left(true)),
-                execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: SUPPORTED_COMMANDS
-                        .iter()
-                        .map(|s| (*s).to_string())
-                        .collect(),
-                    work_done_progress_options: WorkDoneProgressOptions::default(),
-                }),
+                // execute_command_provider intentionally disabled.
+                // The LSP is a read-only security boundary. All mutations
+                // (fence, canary, sync, reveal) must go through the CLI.
+                // Advertising workspace/executeCommand opens a remote-execution
+                // surface that contradicts envforge's zero-trust posture.
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
@@ -429,10 +510,49 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "envforge LSP initialized")
             .await;
+
+        let managed_count = self.managed_vars.read().map(|m| m.len()).unwrap_or(0);
+        let root_path_opt = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|u| u.to_file_path().ok());
+        if managed_count > 0 {
+            if let Some(root_path) = root_path_opt {
+                match crate::ops::fence::check_fence_status(&root_path) {
+                    Ok(status) if !status.all_fenced => {
+                        match crate::ops::fence::create_fence(&root_path, false) {
+                            Ok(_) => {
+                                self.client
+                                    .log_message(
+                                        MessageType::INFO,
+                                        "envforge: auto-enabled AI secret fence",
+                                    )
+                                    .await;
+                            }
+                            Err(e) => {
+                                eprintln!("LSP: failed to auto-create fence: {}", e);
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("LSP: fence status check failed: {}", e);
+                    }
+                }
+            }
+        }
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
+
+        if !self.rate_limiters.did_open.try_consume(1) {
+            eprintln!("LSP: rate limit exceeded for did_open");
+            return;
+        }
+        self.set_request_method("textDocument/did_open");
 
         // Cap document size before parsing. Without this, a malicious or
         // buggy client can ship a multi-GB `text` and OOM us.
@@ -481,6 +601,11 @@ impl LanguageServer for Backend {
             return;
         }
 
+        if self.is_fenced_env_file(&uri) {
+            eprintln!("LSP: refusing did_open for {} — workspace is fenced", uri);
+            return;
+        }
+
         let entries = parse_env_document(&params.text_document.text);
         let doc = DocumentState {
             content: params.text_document.text.clone(),
@@ -489,12 +614,25 @@ impl LanguageServer for Backend {
         };
         self.publish_diagnostics_for(&uri, &doc);
         if let Ok(mut w) = self.documents.write() {
+            // Cap tracked document count to prevent memory exhaustion.
+            let max_docs = self.security_policy.max_tracked_documents;
+            if w.len() >= max_docs {
+                if let Some(oldest) = w.keys().next().cloned() {
+                    w.remove(&oldest);
+                }
+            }
             w.insert(uri, doc);
         }
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
+
+        if !self.rate_limiters.did_change.try_consume(1) {
+            eprintln!("LSP: rate limit exceeded for did_change ({})", uri);
+            return;
+        }
+        self.set_request_method("textDocument/did_change");
 
         // Same per-document cap as `did_open`. We process only the first
         // content change (full-document sync mode), so it's the relevant
@@ -515,9 +653,17 @@ impl LanguageServer for Backend {
             if let Some(change) = params.content_changes.first() {
                 let lines = schema_line_map(&change.text);
                 let line_count = change.text.lines().count() as u32;
-                if let Ok(schema) = parse_schema_content(&change.text) {
+                if let Ok(new_schema) = parse_schema_content(&change.text) {
+                    let old_schema = self.schema.read().ok().and_then(|r| r.clone());
+                    if detect_sensitivity_downgrade(old_schema.as_ref(), &new_schema) {
+                        eprintln!(
+                            "LSP: refusing schema change for {} — sensitivity downgrade detected",
+                            uri
+                        );
+                        return;
+                    }
                     if let Ok(mut w) = self.schema.write() {
-                        *w = Some(schema);
+                        *w = Some(new_schema);
                     }
                     if let Ok(mut w) = self.schema_lines.write() {
                         *w = lines;
@@ -545,6 +691,11 @@ impl LanguageServer for Backend {
             return;
         }
 
+        if self.is_fenced_env_file(&uri) {
+            eprintln!("LSP: refusing did_change for {} — workspace is fenced", uri);
+            return;
+        }
+
         if let Some(change) = params.content_changes.first() {
             let entries = parse_env_document(&change.text);
             let doc = DocumentState {
@@ -552,7 +703,7 @@ impl LanguageServer for Backend {
                 version: params.text_document.version,
                 entries,
             };
-            self.publish_diagnostics_for(&uri, &doc);
+            self.publish_diagnostics_with_ai_guard(&uri, &doc);
             if let Ok(mut w) = self.documents.write() {
                 w.insert(uri, doc);
             }
@@ -561,6 +712,12 @@ impl LanguageServer for Backend {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
+
+        if !self.rate_limiters.did_save.try_consume(1) {
+            return;
+        }
+        self.set_request_method("textDocument/did_save");
+
         if Self::is_schema_file(&uri) {
             self.load_schema_from_workspace();
             self.republish_all();
@@ -581,11 +738,25 @@ impl LanguageServer for Backend {
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         if let Ok(mut w) = self.documents.write() {
-            w.remove(&params.text_document.uri);
+            if let Some(mut state) = w.remove(&params.text_document.uri) {
+                state.content.zeroize();
+                for entry in &mut state.entries {
+                    entry.key.zeroize();
+                    entry.value.zeroize();
+                }
+            }
         }
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        if !self.rate_limiters.hover.try_consume(1) {
+            return Ok(None);
+        }
+        tokio::time::sleep(std::time::Duration::from_micros(
+            super::rate_limit::timing_jitter_micros(),
+        ))
+        .await;
+
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
 
@@ -612,6 +783,15 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
+
+        if !self.rate_limiters.completion.try_consume(1) {
+            return Ok(None);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_micros(
+            super::rate_limit::timing_jitter_micros(),
+        ))
+        .await;
 
         let doc = self
             .documents
@@ -643,6 +823,10 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
+        if !self.rate_limiters.goto_definition.try_consume(1) {
+            return Ok(None);
+        }
+
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
 
@@ -691,6 +875,14 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
+        if !self.rate_limiters.document_symbol.try_consume(1) {
+            return Ok(None);
+        }
+        tokio::time::sleep(std::time::Duration::from_micros(
+            super::rate_limit::timing_jitter_micros(),
+        ))
+        .await;
+
         let uri = &params.text_document.uri;
 
         let doc = self
@@ -703,13 +895,18 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        Ok(document_symbols(&doc.entries))
+        let schema = self.schema.read().ok().and_then(|r| r.clone());
+        Ok(document_symbols(&doc.entries, schema.as_ref()))
     }
 
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
+        if !self.rate_limiters.document_symbol.try_consume(1) {
+            return Ok(None);
+        }
+
         let query = params.query;
         let managed = self
             .managed_vars
@@ -729,6 +926,10 @@ impl LanguageServer for Backend {
     }
 
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        if !self.rate_limiters.code_lens.try_consume(1) {
+            return Ok(None);
+        }
+
         let uri = &params.text_document.uri;
 
         let doc = self
@@ -755,6 +956,11 @@ impl LanguageServer for Backend {
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        if !self.rate_limiters.code_action.try_consume(1) {
+            return Ok(None);
+        }
+        self.set_request_method("textDocument/code_action");
+
         let uri = &params.text_document.uri;
 
         let doc = self
@@ -777,6 +983,13 @@ impl LanguageServer for Backend {
             .map(|m| m.clone())
             .unwrap_or_default();
 
+        let workspace_root = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|url| url.to_file_path().ok());
+
         Ok(code_actions(
             uri,
             &doc.entries,
@@ -785,10 +998,15 @@ impl LanguageServer for Backend {
             schema_uri.as_ref(),
             schema_line_count,
             Some(&schema_lines),
+            workspace_root.as_deref(),
         ))
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        if !self.rate_limiters.folding_range.try_consume(1) {
+            return Ok(None);
+        }
+
         let uri = &params.text_document.uri;
 
         let doc = self
@@ -810,30 +1028,37 @@ impl LanguageServer for Backend {
         }
     }
 
+    /// executeCommand is permanently disabled regardless of capability
+    /// advertisement. Returning a protocol-level `MethodNotFound` error
+    /// ensures that even if `execute_command_provider` is accidentally
+    /// re-added to `ServerCapabilities`, no command ever dispatches.
+    /// The LSP is a read-only security boundary — all mutations must
+    /// go through the CLI.
     async fn execute_command(
         &self,
-        params: ExecuteCommandParams,
+        _params: ExecuteCommandParams,
     ) -> Result<Option<serde_json::Value>> {
-        let workspace_path = self
-            .workspace_root
-            .read()
-            .ok()
-            .and_then(|r| r.clone())
-            .and_then(|url| url.to_file_path().ok());
-
-        let result = dispatch_command(
-            &params.command,
-            &params.arguments,
-            workspace_path.as_deref(),
-        );
-
-        Ok(Some(result))
+        Err(tower_lsp::jsonrpc::Error {
+            code: tower_lsp::jsonrpc::ErrorCode::MethodNotFound,
+            message:
+                "executeCommand is permanently disabled — use `envforge` CLI for all mutations"
+                    .into(),
+            data: None,
+        })
     }
 
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
+        if !self.rate_limiters.semantic_tokens.try_consume(1) {
+            return Ok(None);
+        }
+        tokio::time::sleep(std::time::Duration::from_micros(
+            super::rate_limit::timing_jitter_micros(),
+        ))
+        .await;
+
         let uri = &params.text_document.uri;
         if !Self::is_env_file(uri) {
             return Ok(None);
@@ -857,6 +1082,10 @@ impl LanguageServer for Backend {
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        if !self.rate_limiters.formatting.try_consume(1) {
+            return Ok(None);
+        }
+
         let uri = &params.text_document.uri;
         if !Self::is_env_file(uri) {
             return Ok(None);
@@ -880,6 +1109,10 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        if !self.rate_limiters.references.try_consume(1) {
+            return Ok(None);
+        }
+
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
@@ -945,6 +1178,10 @@ impl LanguageServer for Backend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        if !self.rate_limiters.rename.try_consume(1) {
+            return Ok(None);
+        }
+
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
         let new_name = params.new_name;
@@ -1004,6 +1241,14 @@ impl LanguageServer for Backend {
     }
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        if !self.rate_limiters.inlay_hint.try_consume(1) {
+            return Ok(None);
+        }
+        tokio::time::sleep(std::time::Duration::from_micros(
+            super::rate_limit::timing_jitter_micros(),
+        ))
+        .await;
+
         let uri = &params.text_document.uri;
 
         let doc = self
@@ -1017,14 +1262,8 @@ impl LanguageServer for Backend {
         };
 
         let schema = self.schema.read().ok().and_then(|r| r.clone());
-        let managed = self
-            .managed_vars
-            .read()
-            .ok()
-            .map(|m| m.clone())
-            .unwrap_or_default();
 
-        let hints = compute_inlay_hints(params.range, &doc.entries, schema.as_ref(), &managed);
+        let hints = compute_inlay_hints(params.range, &doc.entries, schema.as_ref());
 
         if hints.is_empty() {
             Ok(None)
@@ -1038,19 +1277,41 @@ impl LanguageServer for Backend {
     }
 }
 
-fn find_envforge_binary() -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let candidates = [
-        format!("{home}/.cargo/bin/envforge"),
-        "/usr/local/bin/envforge".into(),
-        "/opt/homebrew/bin/envforge".into(),
-    ];
-    for c in &candidates {
-        if std::path::Path::new(c).exists() {
-            return c.clone();
+/// Detect whether a schema update removes sensitive flags from any variable.
+/// Returns true if the new schema has at least one variable whose `sensitive`
+/// field was `true` in the old schema but is now `false` (or not present).
+pub fn detect_sensitivity_downgrade(old: Option<&EnvSchema>, new: &EnvSchema) -> bool {
+    let Some(old) = old else { return false };
+    for (key, new_var) in &new.variables {
+        if let Some(old_var) = old.variables.get(key) {
+            if old_var.sensitive && !new_var.sensitive {
+                eprintln!(
+                    "LSP: sensitivity downgrade detected for '{}': sensitive was true, now false",
+                    key
+                );
+                return true;
+            }
         }
     }
-    "envforge".into()
+    for (key, old_var) in &old.variables {
+        if old_var.sensitive && !new.variables.contains_key(key) {
+            eprintln!(
+                "LSP: sensitivity downgrade detected for '{}': sensitive key removed from schema",
+                key
+            );
+            return true;
+        }
+    }
+    false
+}
+
+fn shellexpand(path: &str) -> std::path::PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    std::path::PathBuf::from(path)
 }
 
 /// Parameters for the custom `envforge/exposureMap` request. Plugin
@@ -1079,7 +1340,14 @@ impl Backend {
     /// stat. The trait bound forces this shape.
     #[allow(clippy::unused_async)]
     pub async fn exposure_map(&self, params: ExposureMapParams) -> Result<ExposureMapResponse> {
-        let entries = self.exposure_for(&params.uri);
+        self.set_request_method("envforge/exposure_map");
+        if !self.rate_limiters.exposure_map.try_consume(1) {
+            return Err(tower_lsp::jsonrpc::Error {
+                code: tower_lsp::jsonrpc::ErrorCode::RequestCancelled,
+                message: "exposure map rate limit exceeded".into(),
+                data: None,
+            });
+        }
         let fence_active = self
             .workspace_root
             .read()
@@ -1089,6 +1357,15 @@ impl Backend {
             .and_then(|root| crate::ops::fence::check_fence_status(&root).ok())
             .map(|status| status.all_fenced)
             .unwrap_or(false);
+        let entries = if fence_active {
+            eprintln!(
+                "LSP: exposure_map request blocked — workspace fence is active for {}",
+                params.uri
+            );
+            Vec::new()
+        } else {
+            self.exposure_for(&params.uri)
+        };
         Ok(ExposureMapResponse {
             entries,
             fence_active,

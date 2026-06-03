@@ -194,7 +194,7 @@ impl AuditEvent {
     }
 
     /// Compute the entry hash (SHA-256 of this event's content, excluding hashes).
-    /// This is set by [`super::tamper::TamperEvidentWriter`].
+    /// This is set by [`super::tamper::write_tamper_evident`].
     pub fn compute_entry_hash(&self) -> String {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();

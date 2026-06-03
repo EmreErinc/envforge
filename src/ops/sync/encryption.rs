@@ -59,10 +59,18 @@ const MAX_SNAPSHOT_PLAINTEXT_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Decrypt an encrypted snapshot back to TOML string.
 ///
-/// Auto-detects encrypted vs plaintext. If the content does not start with the
-/// magic header, it is returned as-is (plaintext passthrough for backward compat).
-pub fn decrypt_snapshot(content: &str) -> Result<String, SyncError> {
+/// Auto-detects encrypted vs plaintext.  The policy controls whether
+/// plaintext payloads are rejected (closes the downgrade attack where
+/// the header is stripped).
+pub fn decrypt_snapshot(
+    content: &str,
+    policy: &crate::ops::sync::model::SyncEncryptionPolicy,
+    force_migration: bool,
+) -> Result<String, SyncError> {
     if !is_encrypted_snapshot(content) {
+        if policy.is_required_with_override(force_migration) {
+            return Err(SyncError::EncryptionRequired);
+        }
         return Ok(content.to_string());
     }
 
@@ -144,6 +152,7 @@ fn base64_decode(data: &str) -> Result<Vec<u8>, SyncError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::sync::SyncEncryptionPolicy;
 
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
@@ -161,7 +170,12 @@ value = "postgres://localhost:5432/db"
         assert!(is_encrypted_snapshot(&encrypted));
         assert!(encrypted.starts_with("ENVFORGE-ENCRYPTED\n"));
 
-        let decrypted = decrypt_snapshot(&encrypted).unwrap();
+        let decrypted = decrypt_snapshot(
+            &encrypted,
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(decrypted, toml_content);
     }
 
@@ -176,7 +190,12 @@ value = "postgres://localhost:5432/db"
     #[test]
     fn test_plaintext_passthrough() {
         let toml_content = "[metadata]\nversion = 1\n";
-        let result = decrypt_snapshot(toml_content).unwrap();
+        let result = decrypt_snapshot(
+            toml_content,
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(result, toml_content);
     }
 
@@ -184,7 +203,12 @@ value = "postgres://localhost:5432/db"
     fn test_encrypt_small_content() {
         let small = "key = \"value\"\n";
         let encrypted = encrypt_snapshot(small).unwrap();
-        let decrypted = decrypt_snapshot(&encrypted).unwrap();
+        let decrypted = decrypt_snapshot(
+            &encrypted,
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(decrypted, small);
     }
 
@@ -192,14 +216,23 @@ value = "postgres://localhost:5432/db"
     fn test_encrypt_multiline_content() {
         let content = "[metadata]\nversion = 1\n\n[[entries]]\nkey = \"A\"\nvalue = \"B\"\n";
         let encrypted = encrypt_snapshot(content).unwrap();
-        let decrypted = decrypt_snapshot(&encrypted).unwrap();
+        let decrypted = decrypt_snapshot(
+            &encrypted,
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(decrypted, content);
     }
 
     #[test]
     fn test_corrupted_encrypted_data() {
         let corrupted = "ENVFORGE-ENCRYPTED\nNotValidBase64!!!@@@";
-        let result = decrypt_snapshot(corrupted);
+        let result = decrypt_snapshot(
+            corrupted,
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        );
         assert!(result.is_err());
     }
 }

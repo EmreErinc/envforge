@@ -181,7 +181,7 @@ pub fn is_sensitive_key(key: &str) -> bool {
         || (lower.contains("key") && !lower.contains("keyboard"))
 }
 
-/// Export ENV entries with sensitive values redacted as [REDACTED].
+/// Export ENV entries with sensitive values redacted as `[REDACTED]`.
 /// Uses pattern-based detection + schema sensitive=true field.
 pub fn export_safe(
     entries: &[EnvEntry],

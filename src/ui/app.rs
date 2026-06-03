@@ -34,6 +34,7 @@ pub enum ViewMode {
     Importing,
     Exporting,
     ProfileSelector(usize), // index in profile list
+    FirstRun,               // first-run security setup wizard
 }
 
 /// Which field is active in the Add dialog.
@@ -109,12 +110,32 @@ pub struct App {
     pub help_page: usize,
     /// Lifecycle info message displayed when 'L' is pressed
     pub lifecycle_info: String,
+    /// Whether the AI tool fence is currently active for this session
+    pub fence_enabled: bool,
+    /// Whether the first-run security setup has been completed
+    pub first_run_completed: bool,
 }
 
 impl App {
     /// Create a new App by loading config and parsing shell files.
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let config = load_or_create_default()?;
+
+        // Detect first run — config file was just created by load_or_create_default
+        let is_first_run = crate::config::config_file_path()
+            .map(|p| {
+                // Check if the config was freshly created (file is new or has first_run not set)
+                p.exists()
+                    && std::fs::metadata(&p)
+                        .map(|m| {
+                            m.created()
+                                .or_else(|_| m.modified())
+                                .map(|t| t.elapsed().map(|d| d.as_secs() < 5).unwrap_or(false))
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false)
+            })
+            .unwrap_or(false);
 
         let primary_path = shellexpand_path(&config.files.primary);
         let mut shell_files = Vec::new();
@@ -173,7 +194,11 @@ impl App {
             shell_files,
             config,
             selected: 0,
-            mode: ViewMode::Normal,
+            mode: if is_first_run {
+                ViewMode::FirstRun
+            } else {
+                ViewMode::Normal
+            },
             search_query: String::new(),
             input: TextInput::empty(),
             add_key_input: TextInput::empty(),
@@ -190,6 +215,8 @@ impl App {
             add_target: AddTarget::Profile,
             help_page: 0,
             lifecycle_info: String::new(),
+            fence_enabled: false,
+            first_run_completed: false,
         })
     }
 
@@ -364,15 +391,11 @@ impl App {
                     }
                 }
             }
-            MouseEventKind::ScrollUp => {
-                if self.selected > 0 {
-                    self.selected -= 1;
-                }
+            MouseEventKind::ScrollUp if self.selected > 0 => {
+                self.selected -= 1;
             }
-            MouseEventKind::ScrollDown => {
-                if row_count > 0 && self.selected < row_count - 1 {
-                    self.selected += 1;
-                }
+            MouseEventKind::ScrollDown if row_count > 0 && self.selected < row_count - 1 => {
+                self.selected += 1;
             }
             _ => {}
         }
@@ -397,6 +420,7 @@ impl App {
             ViewMode::Importing => self.handle_import_key(key),
             ViewMode::Exporting => self.handle_export_key(key),
             ViewMode::ProfileSelector(idx) => self.handle_profile_selector_key(key, *idx),
+            ViewMode::FirstRun => self.handle_first_run_key(key),
         }
     }
 
@@ -412,15 +436,13 @@ impl App {
                     self.should_quit = true;
                 }
             }
-            KeyCode::Char('j') | KeyCode::Down => {
-                if row_count > 0 && self.selected < row_count - 1 {
-                    self.selected += 1;
-                }
+            KeyCode::Char('j') | KeyCode::Down
+                if row_count > 0 && self.selected < row_count - 1 =>
+            {
+                self.selected += 1;
             }
-            KeyCode::Char('k') | KeyCode::Up => {
-                if self.selected > 0 {
-                    self.selected -= 1;
-                }
+            KeyCode::Char('k') | KeyCode::Up if self.selected > 0 => {
+                self.selected -= 1;
             }
             // Enter/Right on group header = expand, on entry = no-op
             KeyCode::Enter | KeyCode::Right => {
@@ -655,6 +677,10 @@ impl App {
                     .unwrap_or(0);
                 self.mode = ViewMode::ProfileSelector(current_idx);
             }
+            KeyCode::Char('F') => {
+                // Toggle AI tool fence for the current project
+                self.toggle_fence();
+            }
             KeyCode::Tab => {}
             _ => {}
         }
@@ -665,15 +691,11 @@ impl App {
         let count = names.len();
 
         match key.code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                if selected_idx < count.saturating_sub(1) {
-                    self.mode = ViewMode::ProfileSelector(selected_idx + 1);
-                }
+            KeyCode::Char('j') | KeyCode::Down if selected_idx < count.saturating_sub(1) => {
+                self.mode = ViewMode::ProfileSelector(selected_idx + 1);
             }
-            KeyCode::Char('k') | KeyCode::Up => {
-                if selected_idx > 0 {
-                    self.mode = ViewMode::ProfileSelector(selected_idx - 1);
-                }
+            KeyCode::Char('k') | KeyCode::Up if selected_idx > 0 => {
+                self.mode = ViewMode::ProfileSelector(selected_idx - 1);
             }
             KeyCode::Enter => {
                 if let Some(name) = names.get(selected_idx) {
@@ -707,17 +729,91 @@ impl App {
         }
     }
 
+    fn handle_first_run_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('1') | KeyCode::Enter => {
+                // Quick protect: create fence
+                let cwd = std::env::current_dir().unwrap_or_default();
+                match crate::ops::fence::create_fence(&cwd, false) {
+                    Ok(result) => {
+                        self.fence_enabled = true;
+                        let count = result.files_created.len() + result.files_updated.len();
+                        self.notify(
+                            &format!("Fence created: {} file(s) protected", count),
+                            NotificationLevel::Success,
+                        );
+                    }
+                    Err(e) => {
+                        self.notify(
+                            &format!("Fence creation failed: {}", e),
+                            NotificationLevel::Error,
+                        );
+                    }
+                }
+                self.first_run_completed = true;
+                self.mode = ViewMode::Normal;
+            }
+            KeyCode::Char('2') => {
+                self.first_run_completed = true;
+                self.mode = ViewMode::Normal;
+                self.notify(
+                    "First-run skipped. Run 'envforge fence' to protect later.",
+                    NotificationLevel::Success,
+                );
+            }
+            KeyCode::Char('q') | KeyCode::Esc => {
+                self.first_run_completed = true;
+                self.mode = ViewMode::Normal;
+            }
+            _ => {}
+        }
+    }
+
+    fn toggle_fence(&mut self) {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if self.fence_enabled {
+            match crate::ops::fence::remove_fence(&cwd, false) {
+                Ok(result) => {
+                    self.fence_enabled = false;
+                    let count = result.files_removed.len() + result.files_updated.len();
+                    self.notify(
+                        &format!("Fence removed: {} file(s) restored", count),
+                        NotificationLevel::Success,
+                    );
+                }
+                Err(e) => {
+                    self.notify(
+                        &format!("Fence removal failed: {}", e),
+                        NotificationLevel::Error,
+                    );
+                }
+            }
+        } else {
+            match crate::ops::fence::create_fence(&cwd, false) {
+                Ok(result) => {
+                    self.fence_enabled = true;
+                    let count = result.files_created.len() + result.files_updated.len();
+                    self.notify(
+                        &format!("Fence created: {} file(s) protected", count),
+                        NotificationLevel::Success,
+                    );
+                }
+                Err(e) => {
+                    self.notify(
+                        &format!("Fence creation failed: {}", e),
+                        NotificationLevel::Error,
+                    );
+                }
+            }
+        }
+    }
+
     fn handle_import_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Enter => {
                 let path_str = self.input.value().to_string();
                 let path = shellexpand_path(&path_str);
-                if !path.exists() {
-                    self.notify(
-                        &format!("File not found: {}", path_str),
-                        NotificationLevel::Error,
-                    );
-                } else {
+                if path.exists() {
                     match parse_dotenv(&path) {
                         Ok(entries) => {
                             if entries.is_empty() {
@@ -743,6 +839,11 @@ impl App {
                             self.notify(&format!("Import error: {}", e), NotificationLevel::Error)
                         }
                     }
+                } else {
+                    self.notify(
+                        &format!("File not found: {}", path_str),
+                        NotificationLevel::Error,
+                    );
                 }
                 self.mode = ViewMode::Normal;
             }
@@ -1095,10 +1196,8 @@ pub fn run_tui() -> Result<(), Box<dyn std::error::Error>> {
 
         if event::poll(timeout)? {
             match event::read()? {
-                Event::Key(key) => {
-                    if key.kind == crossterm::event::KeyEventKind::Press {
-                        app.handle_key(key);
-                    }
+                Event::Key(key) if key.kind == crossterm::event::KeyEventKind::Press => {
+                    app.handle_key(key);
                 }
                 Event::Mouse(mouse) => {
                     app.handle_mouse(mouse);

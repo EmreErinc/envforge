@@ -86,7 +86,7 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
                 let value_display = if app.is_masked(i, &entry.key) {
                     MASK.to_string()
                 } else {
-                    truncate_value(&entry.value, 50)
+                    truncate_value(&super::sanitize::sanitize_for_display(&entry.value), 50)
                 };
 
                 let location = source_display_name(&app.config, &entry.source_file);
@@ -127,13 +127,13 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
                     .map(|m| &m.matched_indices);
 
                 let key_spans = if let Some(indices) = matched_indices {
-                    if !indices.is_empty() {
-                        build_highlighted_spans(&entry.key, indices, style)
-                    } else {
+                    if indices.is_empty() {
                         vec![Span::styled(
                             entry.key.clone(),
                             style.patch(Style::default()),
                         )]
+                    } else {
+                        build_highlighted_spans(&entry.key, indices, style)
                     }
                 } else {
                     vec![Span::styled(

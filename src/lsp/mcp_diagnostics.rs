@@ -35,9 +35,9 @@ fn diagnostic_for_finding(content: &str, finding: McpFinding) -> Diagnostic {
         severity: Some(DiagnosticSeverity::WARNING),
         source: Some("envforge-mcp".into()),
         message: format!(
-            "Hardcoded credential in MCP config: {} at `{}` (value `{}`). \
+            "Hardcoded credential in MCP config: {} at `{}`. \
              Replace with `${{ENV_VAR}}` and load via envforge.",
-            finding.pattern, finding.path, finding.value_preview,
+            finding.pattern, finding.path,
         ),
         ..Default::default()
     }

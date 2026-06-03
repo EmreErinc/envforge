@@ -41,10 +41,15 @@ pub fn rollback_to(sync_path: &Path, commit_hash: &str) -> Result<PathBuf, SyncE
     let old_content = git.show(commit_hash, SNAPSHOT_FILE)?;
 
     // Decrypt if needed, then verify it's valid TOML before writing
-    let toml_content = super::encryption::decrypt_snapshot(&old_content).map_err(|_| {
-        SyncError::SnapshotParseError {
-            message: format!("snapshot at commit {} could not be decrypted", commit_hash),
-        }
+    let toml_content = super::encryption::decrypt_snapshot(
+        &old_content,
+        &crate::ops::sync::model::SyncEncryptionPolicy::MigrationUntil(
+            "2099-01-01T00:00:00Z".into(),
+        ),
+        false,
+    )
+    .map_err(|_| SyncError::SnapshotParseError {
+        message: format!("snapshot at commit {} could not be decrypted", commit_hash),
     })?;
 
     let _: SyncSnapshot =
@@ -183,6 +188,7 @@ mod tests {
     use super::*;
     use crate::ops::sync::init::init_fresh;
     use crate::ops::sync::push::push;
+    use crate::ops::sync::SyncEncryptionPolicy;
 
     fn setup_sync_with_data() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
@@ -264,7 +270,12 @@ mod tests {
         push(&sync_path, &entries, Some("second push"), false).unwrap();
 
         // Verify current state is updated
-        let snapshot = read_snapshot(&sync_path.join(SNAPSHOT_FILE)).unwrap();
+        let snapshot = read_snapshot(
+            &sync_path.join(SNAPSHOT_FILE),
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(snapshot.entries[0].value, "updated_a");
 
         // Rollback to previous
@@ -272,7 +283,12 @@ mod tests {
         assert!(backup.exists());
 
         // Verify rollback restored original values
-        let restored = read_snapshot(&sync_path.join(SNAPSHOT_FILE)).unwrap();
+        let restored = read_snapshot(
+            &sync_path.join(SNAPSHOT_FILE),
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(restored.entries[0].value, "value_a");
         assert_eq!(restored.entries[1].value, "value_b");
     }

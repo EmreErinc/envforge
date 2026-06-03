@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::super::provider::{
     env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
-    validate_secret_name, validate_secret_value, SecretProvider, SecretsError,
+    validate_secret_name, validate_secret_value, CredentialEncryptionPolicy, SecretProvider,
+    SecretsError,
 };
 
 /// Pull the `profile` credential, if present, after validating it cannot
@@ -44,6 +45,10 @@ impl SecretProvider for KeeperProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec![]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn optional_credential_fields(&self) -> Vec<&str> {

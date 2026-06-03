@@ -124,15 +124,12 @@ fn evaluate_cron(expression: &str, context: &EvaluationContext) -> Result<bool, 
 
 fn evaluate_age(max_days: u32, context: &EvaluationContext) -> Result<bool, OpError> {
     if let Some(ref project_dir) = context.project_dir {
-        match crate::ops::secrets::age::get_age_report(i64::from(max_days)) {
-            Ok(entries) => {
-                if entries.iter().any(|e| e.stale) {
-                    return Ok(true);
-                }
+        if let Ok(entries) = crate::ops::secrets::age::get_age_report(i64::from(max_days)) {
+            if entries.iter().any(|e| e.stale) {
+                return Ok(true);
             }
-            Err(_) => {
-                // Age report may fail if no secrets tracked — not a trigger error
-            }
+        } else {
+            // Age report may fail if no secrets tracked — not a trigger error
         }
         let _ = project_dir;
     }

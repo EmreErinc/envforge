@@ -334,13 +334,11 @@ mod tests {
         restore_from_reference(&mut primary, &mut ref_file, "API_KEY").unwrap();
 
         // Primary should have EnvExport restored
-        match &primary.lines[0] {
-            LineNode::EnvExport { key, value, .. } => {
-                assert_eq!(key, "API_KEY");
-                assert_eq!(value, "secret");
-            }
-            other => panic!("Expected restored EnvExport, got: {:?}", other),
-        }
+        let LineNode::EnvExport { key, value, .. } = &primary.lines[0] else {
+            panic!("Expected restored EnvExport, got: {:?}", primary.lines[0]);
+        };
+        assert_eq!(key, "API_KEY");
+        assert_eq!(value, "secret");
     }
 
     #[test]

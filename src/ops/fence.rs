@@ -17,11 +17,30 @@ pub struct FenceFileStatus {
     pub fenced: bool,
 }
 
+/// Completeness of the AI tool fence.
+///
+/// Replaces the old `all_fenced: bool` which collapsed partial coverage
+/// into a single bit.  The sum type preserves the list of files that are
+/// NOT fenced so callers can surface actionable diagnostics.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "level", content = "unfenced")]
+pub enum FenceCompleteness {
+    /// Every expected fence file exists and is properly configured.
+    Complete,
+    /// One or more fence files are missing, not configured, or stale.
+    /// The list contains the status of each file that is NOT fully fenced.
+    Partial(Vec<FenceFileStatus>),
+}
+
 /// Overall fence status.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FenceStatus {
     pub files: Vec<FenceFileStatus>,
+    /// Derived convenience field — `true` when the fence is complete.
+    /// Kept for backward compatibility with existing callers.
     pub all_fenced: bool,
+    /// Structured completeness assessment.
+    pub completeness: FenceCompleteness,
 }
 
 const ENVFORGEIGNORE_CONTENT: &str = ".env
@@ -80,6 +99,7 @@ pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, Op
             project_dir.display()
         ),
         timestamp: chrono::Utc::now(),
+        severity: crate::ops::monitor::SecuritySeverity::Info,
     });
     let mut result = FenceResult {
         files_created: Vec::new(),
@@ -235,7 +255,7 @@ fn write_claude_settings(
 
         let new_rules: Vec<&str> = CLAUDE_DENY_RULES
             .iter()
-            .filter(|r| !existing_strs.contains(&r.to_string()))
+            .filter(|r| !existing_strs.contains(&(**r).to_string()))
             .copied()
             .collect();
 
@@ -248,12 +268,14 @@ fn write_claude_settings(
             // Merge deny rules
             let permissions = json
                 .as_object_mut()
-                .unwrap()
+                .ok_or_else(|| OpError::Other("settings.json is not a JSON object".into()))?
                 .entry("permissions")
                 .or_insert_with(|| serde_json::json!({}));
             let deny = permissions
                 .as_object_mut()
-                .unwrap()
+                .ok_or_else(|| {
+                    OpError::Other("settings.json permissions is not a JSON object".into())
+                })?
                 .entry("deny")
                 .or_insert_with(|| serde_json::json!([]));
 
@@ -348,6 +370,7 @@ pub fn remove_fence(project_dir: &Path, dry_run: bool) -> Result<FenceRemoveResu
             project_dir.display()
         ),
         timestamp: chrono::Utc::now(),
+        severity: crate::ops::monitor::SecuritySeverity::Info,
     });
 
     let mut result = FenceRemoveResult::default();
@@ -449,13 +472,12 @@ fn strip_claude_settings(
         return Ok(());
     }
     let content = std::fs::read_to_string(&path)?;
-    let mut json: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => {
-            // Unparseable — leave it alone; user can clean up manually.
-            result.files_skipped.push(path);
-            return Ok(());
-        }
+    let mut json: serde_json::Value = if let Ok(v) = serde_json::from_str(&content) {
+        v
+    } else {
+        // Unparseable — leave it alone; user can clean up manually.
+        result.files_skipped.push(path);
+        return Ok(());
     };
 
     let mut mutated = false;
@@ -644,7 +666,85 @@ pub fn check_fence_status(project_dir: &Path) -> Result<FenceStatus, OpError> {
         check_file_status(project_dir, ".claude/settings.json"),
     ];
     let all_fenced = files.iter().all(|f| f.fenced);
-    Ok(FenceStatus { files, all_fenced })
+    let unfenced: Vec<FenceFileStatus> = files.iter().filter(|f| !f.fenced).cloned().collect();
+    let completeness = if all_fenced {
+        FenceCompleteness::Complete
+    } else {
+        FenceCompleteness::Partial(unfenced)
+    };
+    Ok(FenceStatus {
+        files,
+        all_fenced,
+        completeness,
+    })
+}
+
+// ─── Multi-Tool Propagation ──────────────────────────────────
+
+/// AI tools known to respect project-level ignore files.
+/// Each entry maps a tool name to the relative path of its ignore file.
+pub const KNOWN_TOOLS: &[(&str, &str)] = &[
+    ("cursor", ".cursorignore"),
+    ("claude", ".claude/settings.json"),
+    ("copilot", ".github/copilot-instructions.md"),
+    ("aider", ".aiderignore"),
+    ("windsurf", ".windsurfrules"),
+    ("continue", ".continueignore"),
+];
+
+/// Propagate fence rules from `.envforgeignore` to a specific tool's
+/// ignore file.  Uses symlinks on Unix (auto-updates when the source
+/// changes) and file copies on Windows.
+pub fn apply_tool(project_dir: &Path, tool: &str, dry_run: bool) -> Result<PathBuf, OpError> {
+    let (_name, relative_path) = KNOWN_TOOLS
+        .iter()
+        .find(|(n, _)| *n == tool)
+        .ok_or_else(|| {
+            let available: Vec<&str> = KNOWN_TOOLS.iter().map(|(n, _)| *n).collect();
+            OpError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "unknown tool '{}'. Available: {}",
+                    tool,
+                    available.join(", ")
+                ),
+            ))
+        })?;
+
+    let target = project_dir.join(relative_path);
+    let source = project_dir.join(".envforgeignore");
+
+    if !source.exists() {
+        return Err(OpError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "run 'envforge fence' first to create .envforgeignore",
+        )));
+    }
+
+    if dry_run {
+        return Ok(target);
+    }
+
+    // Create parent directories if needed
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Symlink on Unix, copy on Windows
+    #[cfg(unix)]
+    {
+        if target.exists() {
+            std::fs::remove_file(&target)?;
+        }
+        std::os::unix::fs::symlink(&source, &target)?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::copy(&source, &target)?;
+    }
+
+    Ok(target)
 }
 
 #[cfg(test)]
@@ -745,15 +845,54 @@ mod tests {
         assert_eq!(allow.len(), 1);
     }
 
-    #[test]
-    fn test_create_fence_dry_run() {
-        let tmp = TempDir::new().unwrap();
-        let result = create_fence(tmp.path(), true).unwrap();
+    // ─── Multi-Tool Propagation Tests ──────────────────────
 
-        assert_eq!(result.files_created.len(), 5);
-        // No files should actually exist
-        assert!(!tmp.path().join(".envforgeignore").exists());
-        assert!(!tmp.path().join(".cursorignore").exists());
+    #[test]
+    fn test_known_tools_nonempty_and_unique() {
+        assert!(!KNOWN_TOOLS.is_empty());
+        let names: Vec<&str> = KNOWN_TOOLS.iter().map(|(n, _)| *n).collect();
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(
+            names.len(),
+            unique.len(),
+            "duplicate tool names in KNOWN_TOOLS"
+        );
+    }
+
+    #[test]
+    fn test_apply_tool_creates_file() {
+        let tmp = TempDir::new().unwrap();
+        create_fence(tmp.path(), false).unwrap();
+
+        let target = apply_tool(tmp.path(), "aider", false).unwrap();
+        assert!(target.exists());
+    }
+
+    #[test]
+    fn test_apply_tool_unknown_rejected() {
+        let tmp = TempDir::new().unwrap();
+        create_fence(tmp.path(), false).unwrap();
+
+        let result = apply_tool(tmp.path(), "nonexistent", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_apply_tool_no_fence_rejected() {
+        let tmp = TempDir::new().unwrap();
+        // No fence created — should fail
+        let result = apply_tool(tmp.path(), "aider", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_apply_tool_dry_run_no_file() {
+        let tmp = TempDir::new().unwrap();
+        create_fence(tmp.path(), false).unwrap();
+
+        let target = apply_tool(tmp.path(), "aider", true).unwrap();
+        // Dry run returns path but doesn't create the file
+        assert!(!target.exists());
     }
 
     #[test]

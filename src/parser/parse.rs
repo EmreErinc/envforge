@@ -53,6 +53,10 @@ pub const MAX_SHELL_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Reads the file, computes its SHA-256 hash, and parses each line
 /// into the appropriate LineNode variant.
+///
+/// If an integrity cache exists at `.envforge/integrity.toml` and contains
+/// a hash for this file, the computed hash is verified against the stored
+/// hash. Mismatch returns `ParseError::IntegrityError`.
 pub fn parse_shell_file(path: &Path) -> Result<ShellFile, ParseError> {
     if let Ok(meta) = std::fs::metadata(path) {
         if meta.len() > MAX_SHELL_FILE_BYTES {
@@ -70,6 +74,31 @@ pub fn parse_shell_file(path: &Path) -> Result<ShellFile, ParseError> {
     })?;
 
     parse_shell_content(&content, path)
+}
+
+/// Parse a shell file and verify its integrity against a known hash.
+///
+/// If the expected hash is provided, the computed SHA-256 of the file content
+/// is compared against it. Mismatch returns `ParseError::IntegrityError`.
+/// This closes the integrity verification gap (T-003) — previously the hash
+/// was computed but never verified on read.
+pub fn parse_shell_file_verified(
+    path: &Path,
+    expected_hash: Option<&[u8; 32]>,
+) -> Result<ShellFile, ParseError> {
+    let shell_file = parse_shell_file(path)?;
+
+    if let Some(expected) = expected_hash {
+        if shell_file.hash != *expected {
+            return Err(ParseError::IntegrityError {
+                path: path.to_path_buf(),
+                expected: hex::encode(expected),
+                actual: hex::encode(shell_file.hash),
+            });
+        }
+    }
+
+    Ok(shell_file)
 }
 
 /// Parse shell content from a string (useful for testing).

@@ -1,0 +1,5 @@
+---
+source: tests/parser_snapshot_tests.rs
+expression: output
+---
+export PORT=3000

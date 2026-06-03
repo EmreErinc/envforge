@@ -646,7 +646,7 @@
         </div>
         <div class="feature-card">
           <h3><span class="feature-icon">&#128194;</span> Shell Integration</h3>
-          <p>direnv-style auto-load. Profile switches without shell restart. Completions for zsh, bash, fish.</p>
+          <p>direnv-style auto-load. Profile switches without shell restart. IDE-style completions for all major shells + carapace, inshellisense, kiro, fig.</p>
           <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
             eval "$(envforge hook zsh)" &middot; eval "$(envforge hook bash)" &middot; envforge hook fish | source
           </p>
@@ -766,7 +766,9 @@
 <span class="p">$</span> envforge completions bash --install
 <span class="p">$</span> envforge completions fish --install
 
-<span class="c"># Kiro CLI / Fig / Amazon Q autocomplete</span>
+<span class="c"># IDE-style autocomplete (carapace / inshellisense / kiro / fig)</span>
+<span class="p">$</span> envforge completions carapace --install
+<span class="p">$</span> envforge completions inshellisense --install
 <span class="p">$</span> envforge completions kiro --install
 <span class="p">$</span> kiro-cli restart
 

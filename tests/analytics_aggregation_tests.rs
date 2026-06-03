@@ -1,8 +1,23 @@
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
+use std::sync::Once;
+
 use envforge::model::*;
 use envforge::ops::analytics::aggregation;
+
+/// Set up a temp config directory for all tests in this binary to avoid
+/// cross-test contamination on the shared `aggregates.jsonl` file.
+static INIT: Once = Once::new();
+fn ensure_isolated_storage() {
+    INIT.call_once(|| {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().to_path_buf();
+        // Leak the temp dir so it lives for the entire test binary lifetime.
+        std::mem::forget(tmp);
+        std::env::set_var("ENVFORGE_CONFIG_DIR", path.as_os_str());
+    });
+}
 
 fn make_test_event(secret_name: &str, hours_ago: i64, accessor_id: &str) -> EnrichedAccessEvent {
     let timestamp = Utc::now() - Duration::hours(hours_ago);
@@ -116,6 +131,7 @@ fn test_bucket_key_format() {
 
 #[test]
 fn test_load_aggregates_returns_vec() {
+    ensure_isolated_storage();
     let result = aggregation::load_aggregates();
     // Should return Ok (empty vec if no file)
     assert!(result.is_ok());
@@ -125,6 +141,9 @@ fn test_load_aggregates_returns_vec() {
 
 #[test]
 fn test_save_and_load_aggregates_roundtrip() {
+    // Isolate from other test binaries by using a temp config directory.
+    ensure_isolated_storage();
+
     let run_id = Uuid::new_v4().to_string();
     let secret = format!("ROUNDTRIP_{}", run_id);
 
@@ -152,6 +171,8 @@ fn test_save_and_load_aggregates_roundtrip() {
 
 #[test]
 fn test_recompute_returns_summary() {
+    ensure_isolated_storage();
+
     let config = AnalyticsConfig::default();
     let result = aggregation::recompute(&config);
     // Should return Ok (even if no events exist)

@@ -156,13 +156,12 @@ pub fn read_cache(provider: &str, key: &str) -> Result<Option<String>, SecretsEr
         source: e,
     })?;
 
-    let mut entry: CacheEntry = match toml::from_str(&content) {
-        Ok(e) => e,
-        Err(_) => {
-            // Corrupt cache, remove it
-            let _ = std::fs::remove_file(&path);
-            return Ok(None);
-        }
+    let mut entry: CacheEntry = if let Ok(e) = toml::from_str(&content) {
+        e
+    } else {
+        // Corrupt cache, remove it
+        let _ = std::fs::remove_file(&path);
+        return Ok(None);
     };
 
     // Check TTL

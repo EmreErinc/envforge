@@ -1,6 +1,10 @@
+#![allow(deprecated)]
+use chrono::Utc;
 use clap::Subcommand;
 use serde_json::json;
+use std::io::Read;
 
+use crate::ops::monitor;
 use crate::ops::secrets::cache;
 use crate::ops::secrets::credentials;
 use crate::ops::secrets::modes;
@@ -94,6 +98,15 @@ pub enum SecretsAction {
         /// Set TTL for the credential (e.g., "8h", "24h", "7d", "30d"). Used with --set.
         #[arg(long)]
         ttl: Option<String>,
+
+        /// Pin the SHA-256 hash of the provider's CLI binary. Prevents execution
+        /// if the binary is modified or replaced (supply-chain hardening).
+        #[arg(long)]
+        pin_hash: bool,
+
+        /// Verify the stored binary hash matches the current binary.
+        #[arg(long)]
+        verify_hash: bool,
     },
 
     /// List available providers and their status
@@ -180,12 +193,16 @@ pub fn execute_secrets(
             show,
             remove,
             ttl,
+            pin_hash,
+            verify_hash,
         } => cmd_secrets_config(
             provider,
             set.as_deref(),
             *show,
             *remove,
             ttl.as_deref(),
+            *pin_hash,
+            *verify_hash,
             json,
         ),
         SecretsAction::Providers => cmd_secrets_providers(json),
@@ -459,14 +476,25 @@ fn shellexpand(path: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(path)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_secrets_config(
     provider: &str,
     set: Option<&str>,
     show: bool,
     remove: bool,
     ttl: Option<&str>,
+    pin_hash: bool,
+    verify_hash: bool,
     json_output: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if pin_hash {
+        return cmd_pin_hash(provider, json_output);
+    }
+
+    if verify_hash {
+        return cmd_verify_hash(provider, json_output);
+    }
+
     if remove {
         let removed = credentials::remove_credentials(provider)?;
         if json_output {
@@ -550,16 +578,46 @@ fn cmd_secrets_config(
             return Err("Format: --set key=value".into());
         }
 
+        let key = parts[0];
+        let value = parts[1];
+        let value = if value == "@stdin" {
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map_err(|e| format!("failed to read stdin: {}", e))?;
+            let val = buf.trim_end_matches('\n').to_string();
+            if val.is_empty() {
+                return Err("stdin value cannot be empty".into());
+            }
+            val
+        } else {
+            value.to_string()
+        };
+        if is_likely_secret(&value) {
+            #[cfg(debug_assertions)]
+            let hint = "\nOr set ENVFORGE_UNSAFE_ARGV=vault (per-provider) to bypass (debug only).";
+            #[cfg(not(debug_assertions))]
+            let hint = "";
+
+            return Err(format!(
+                "Credential value detected in command-line arguments.\n\
+                 Secrets on argv are visible in /proc/PID/cmdline, ps, and audit logs.\n\
+                 Use pipeline instead:\n\n  echo '<value>' | envforge secrets config {} --set {}=@stdin{}",
+                provider, key, hint
+            )
+            .into());
+        }
+
         // Validate TTL format early if provided
         if let Some(ttl_str) = ttl {
             credentials::parse_duration(ttl_str)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
         }
 
-        credentials::store_credential_with_ttl(provider, parts[0], parts[1], ttl)?;
+        credentials::store_credential_with_ttl(provider, key, &value, ttl)?;
 
         if json_output {
-            let mut result = json!({"stored": true, "provider": provider, "key": parts[0]});
+            let mut result = json!({"stored": true, "provider": provider, "key": key});
             if let Some(ttl_str) = ttl {
                 result["ttl"] = json!(ttl_str);
             }
@@ -571,7 +629,7 @@ fn cmd_secrets_config(
             };
             println!(
                 "Credential '{}' stored for '{}' (encrypted{})",
-                parts[0], provider, ttl_msg
+                key, provider, ttl_msg
             );
         }
         return Ok(());
@@ -604,22 +662,147 @@ fn cmd_secrets_config(
     Ok(())
 }
 
+fn cmd_pin_hash(provider: &str, json_output: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let registry = create_default_registry();
+    let p = registry
+        .get(provider)
+        .map_err(|_| -> Box<dyn std::error::Error> {
+            format!("Unknown provider '{}'", provider).into()
+        })?;
+
+    let binary_names = p.hash_names();
+    for binary_name in binary_names {
+        let canonical = crate::ops::secrets::provider::resolve_binary_path(binary_name, provider)
+            .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+        let hash = crate::ops::secrets::provider::compute_binary_hash(&canonical)?;
+
+        credentials::store_binary_hash(provider, binary_name, &hash)?;
+
+        if json_output {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "pinned": true,
+                    "provider": provider,
+                    "binary": binary_name,
+                    "path": canonical.display().to_string(),
+                    "sha256": hash,
+                })
+            );
+        } else {
+            println!(
+                "Pinned {} binary: {} ({})",
+                provider,
+                canonical.display(),
+                hash
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_verify_hash(provider: &str, json_output: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let registry = create_default_registry();
+    let p = registry
+        .get(provider)
+        .map_err(|_| -> Box<dyn std::error::Error> {
+            format!("Unknown provider '{}'", provider).into()
+        })?;
+
+    let binary_names = p.hash_names();
+    let mut all_ok = true;
+
+    for binary_name in binary_names {
+        let stored = credentials::read_binary_hash(provider, binary_name)?;
+        let canonical = crate::ops::secrets::provider::resolve_binary_path(binary_name, provider)
+            .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+        let current_hash = crate::ops::secrets::provider::compute_binary_hash(&canonical)?;
+
+        let matches = match &stored {
+            Some(h) => *h == current_hash,
+            None => false,
+        };
+
+        if json_output {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "provider": provider,
+                    "binary": binary_name,
+                    "path": canonical.display().to_string(),
+                    "pinned": stored.is_some(),
+                    "matches": matches,
+                    "current_sha256": current_hash,
+                    "stored_sha256": stored,
+                })
+            );
+        } else if !matches {
+            if stored.is_none() {
+                println!(
+                    "{}: binary '{}' is NOT pinned. Run: envforge secrets config {} --pin-hash",
+                    provider, binary_name, provider
+                );
+            } else {
+                eprintln!(
+                    "{}: HASH MISMATCH for binary '{}' at {}",
+                    provider,
+                    binary_name,
+                    canonical.display()
+                );
+                eprintln!("  Stored:  {}", stored.unwrap_or_default());
+                eprintln!("  Current: {}", current_hash);
+                eprintln!(
+                    "  Run: envforge secrets config {} --pin-hash  to update",
+                    provider
+                );
+            }
+            all_ok = false;
+        } else {
+            println!("{}: binary '{}' verified OK", provider, binary_name);
+        }
+    }
+
+    if !all_ok {
+        return Err("binary hash verification failed".into());
+    }
+
+    Ok(())
+}
+
 fn cmd_secrets_providers(json_output: bool) -> Result<(), Box<dyn std::error::Error>> {
     let registry = create_default_registry();
     let statuses = registry.list_with_status();
 
     let configured = credentials::list_configured_providers().unwrap_or_default();
+    let audit = credentials::provider_audit().unwrap_or_default();
+    let audit_map: std::collections::HashMap<&str, &credentials::ProviderAuditEntry> =
+        audit.iter().map(|a| (a.provider.as_str(), a)).collect();
 
     if json_output {
         let items: Vec<serde_json::Value> = statuses
             .iter()
             .map(|s| {
+                let a = audit_map.get(s.name.as_str());
                 json!({
                     "name": s.name,
                     "display_name": s.display_name,
                     "binary": s.binary_name,
                     "binary_found": s.binary_found,
                     "configured": configured.contains(&s.name),
+                    "encryption": {
+                        "fields_encrypted": a.map(|x| x.encrypted_fields).unwrap_or(0),
+                        "fields_total": a.map(|x| x.credential_fields).unwrap_or(0),
+                        "all_encrypted": a.map(|x| x.encrypted_fields == x.credential_fields && x.credential_fields > 0).unwrap_or(false),
+                        "has_ttl": a.map(|x| x.has_ttl).unwrap_or(false),
+                    },
+                    "store": {
+                        "exists": a.map(|x| x.store_file_exists).unwrap_or(false),
+                        "permissions": a.map(|x| x.store_permissions.clone()).unwrap_or_else(|| "n/a".into()),
+                    },
+                    "age_key_exists": a.map(|x| x.age_key_exists).unwrap_or(false),
                 })
             })
             .collect();
@@ -631,16 +814,30 @@ fn cmd_secrets_providers(json_output: bool) -> Result<(), Box<dyn std::error::Er
             }))?
         );
     } else {
+        let store_info = audit
+            .first()
+            .map(|a| {
+                format!(
+                    "permissions={} key_exists={}",
+                    a.store_permissions, a.age_key_exists
+                )
+            })
+            .unwrap_or_else(|| "no credentials store".into());
+        println!("Credential store: {}", store_info);
         for s in &statuses {
-            let binary_icon = if s.binary_found { "✓" } else { "✗" };
+            let binary_icon = if s.binary_found { "+" } else { "-" };
             let config_icon = if configured.contains(&s.name) {
-                "✓"
+                "+"
             } else {
-                "·"
+                "-"
             };
+            let enc_info = audit_map
+                .get(s.name.as_str())
+                .map(|a| format!(" [enc:{}/{}]", a.encrypted_fields, a.credential_fields))
+                .unwrap_or_default();
             println!(
-                "  {} [bin:{}] [cfg:{}] {} ({})",
-                s.name, binary_icon, config_icon, s.display_name, s.binary_name
+                "  {} [bin:{}] [cfg:{}]{} {} ({})",
+                s.name, binary_icon, config_icon, enc_info, s.display_name, s.binary_name
             );
         }
     }
@@ -1047,4 +1244,78 @@ fn cmd_secrets_cache_clear(
     }
 
     Ok(())
+}
+
+/// Check if argv protection is explicitly disabled for a specific provider.
+///
+/// Reads `ENVFORGE_UNSAFE_ARGV` which must contain a comma-separated list
+/// of provider names (e.g. `vault,aws-ssm`) or `*` for all providers.
+/// The old `=1` format is **rejected** — it must be a named allowlist.
+/// This is gated behind `#[cfg(debug_assertions)]` and never available
+/// in release builds.
+#[allow(dead_code)]
+fn is_unsafe_argv_allowed(provider: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(val) = std::env::var("ENVFORGE_UNSAFE_ARGV") {
+            let val = val.trim();
+            // Reject the old unsafe `=1` format
+            if val == "1" {
+                log::warn!(
+                    "ENVFORGE_UNSAFE_ARGV=1 is no longer supported. \
+                     Use ENVFORGE_UNSAFE_ARGV=vault,aws-ssm (per-provider) or ENVFORGE_UNSAFE_ARGV=* (all)"
+                );
+                return false;
+            }
+            if val == "*" {
+                monitor::emit_event(monitor::RuntimeEvent {
+                    source: monitor::EventSource::UnsafeArgv,
+                    key: Some(provider.to_string()),
+                    message: format!(
+                        "ENVFORGE_UNSAFE_ARGV=* bypassed all argv protection (pid={}, provider={})",
+                        std::process::id(),
+                        provider
+                    ),
+                    timestamp: Utc::now(),
+                    severity: monitor::SecuritySeverity::Critical,
+                });
+                return true;
+            }
+            if val.split(',').any(|s| s.trim() == provider) {
+                monitor::emit_event(monitor::RuntimeEvent {
+                    source: monitor::EventSource::UnsafeArgv,
+                    key: Some(provider.to_string()),
+                    message: format!(
+                        "ENVFORGE_UNSAFE_ARGV bypassed argv protection for {} (pid={})",
+                        provider,
+                        std::process::id()
+                    ),
+                    timestamp: Utc::now(),
+                    severity: monitor::SecuritySeverity::Critical,
+                });
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn is_likely_secret(value: &str) -> bool {
+    if value.len() > 16 {
+        return true;
+    }
+    if value.contains("://") {
+        return true;
+    }
+    let lower = value.to_lowercase();
+    for prefix in &[
+        "sk-", "ak-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "xoxb-", "xoxp-", "xapp-", "glpat-",
+        "gldt-", "glft-", "glsoat-", "key-", "pk.", "sk.", "whsec_", "eyJ", "AKIA", "ssh-",
+        "BEGIN ", "s3cr3t", "passw", "token", "api_key",
+    ] {
+        if lower.starts_with(prefix) {
+            return true;
+        }
+    }
+    false
 }

@@ -1,0 +1,9 @@
+---
+source: tests/parser_snapshot_tests.rs
+expression: output
+---
+# Configuration file
+export FOO="bar"
+
+# Database settings
+export DB_URL="postgres://localhost"

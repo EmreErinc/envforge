@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use crate::config::{load_or_create_default, AppConfig};
 use crate::model::ShellFile;
 use crate::ops::duplicates::detect_duplicates;

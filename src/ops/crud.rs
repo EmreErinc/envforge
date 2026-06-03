@@ -521,45 +521,42 @@ mod tests {
     fn test_edit_entry_updates_value() {
         let mut sf = make_shell_file("export API_KEY=\"old_value\"");
         edit_entry(&mut sf, "API_KEY", "new_value").unwrap();
-        if let LineNode::EnvExport { value, .. } = &sf.lines[0] {
-            assert_eq!(value, "new_value");
-        } else {
-            panic!("Expected EnvExport");
-        }
+        assert!(
+            matches!(&sf.lines[0], LineNode::EnvExport { value, .. } if value == "new_value"),
+            "Expected EnvExport with value=new_value"
+        );
     }
 
     #[test]
     fn test_edit_entry_preserves_quote_style() {
         let mut sf = make_shell_file("export DB_HOST='localhost'");
         edit_entry(&mut sf, "DB_HOST", "remotehost").unwrap();
-        if let LineNode::EnvExport {
+        let LineNode::EnvExport {
             quote_style,
             original_text,
             ..
         } = &sf.lines[0]
-        {
-            assert_eq!(*quote_style, QuoteStyle::Single);
-            assert!(original_text.contains("'remotehost'"));
-        } else {
+        else {
             panic!("Expected EnvExport");
-        }
+        };
+        assert_eq!(*quote_style, QuoteStyle::Single);
+        assert!(original_text.contains("'remotehost'"));
     }
 
     #[test]
     fn test_edit_entry_preserves_inline_comment() {
         let mut sf = make_shell_file("export PORT=\"8080\" # web server port");
         edit_entry(&mut sf, "PORT", "3000").unwrap();
-        if let LineNode::EnvExport {
+        let LineNode::EnvExport {
             original_text,
             inline_comment,
             ..
         } = &sf.lines[0]
-        {
-            assert!(inline_comment.is_some());
-            assert!(original_text.contains("# web server port"));
-        } else {
+        else {
             panic!("Expected EnvExport");
-        }
+        };
+        assert!(inline_comment.is_some());
+        assert!(original_text.contains("# web server port"));
     }
 
     #[test]
@@ -582,12 +579,10 @@ mod tests {
     fn test_soft_delete_converts_to_managed_comment() {
         let mut sf = make_shell_file("export API_KEY=\"secret\"");
         soft_delete(&mut sf, "API_KEY").unwrap();
-        match &sf.lines[0] {
-            LineNode::ManagedComment { tag, .. } => {
-                assert_eq!(tag, "deleted:API_KEY");
-            }
-            other => panic!("Expected ManagedComment, got: {:?}", other),
-        }
+        assert!(
+            matches!(&sf.lines[0], LineNode::ManagedComment { tag, .. } if tag == "deleted:API_KEY"),
+            "Expected ManagedComment with tag=deleted:API_KEY"
+        );
     }
 
     #[test]
@@ -613,13 +608,11 @@ mod tests {
         assert!(matches!(sf.lines[0], LineNode::ManagedComment { .. }));
 
         undo_delete(&mut sf, "API_KEY").unwrap();
-        match &sf.lines[0] {
-            LineNode::EnvExport { key, value, .. } => {
-                assert_eq!(key, "API_KEY");
-                assert_eq!(value, "secret");
-            }
-            other => panic!("Expected EnvExport after undo, got: {:?}", other),
-        }
+        let LineNode::EnvExport { key, value, .. } = &sf.lines[0] else {
+            panic!("Expected EnvExport after undo");
+        };
+        assert_eq!(key, "API_KEY");
+        assert_eq!(value, "secret");
     }
 
     #[test]
@@ -656,13 +649,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(sf.lines.len(), 3);
-        match &sf.lines[2] {
-            LineNode::EnvExport { key, value, .. } => {
-                assert_eq!(key, "NEW_KEY");
-                assert_eq!(value, "new_val");
-            }
-            other => panic!("Expected EnvExport, got: {:?}", other),
-        }
+        let LineNode::EnvExport { key, value, .. } = &sf.lines[2] else {
+            panic!("Expected EnvExport, got: {:?}", sf.lines[2]);
+        };
+        assert_eq!(key, "NEW_KEY");
+        assert_eq!(value, "new_val");
     }
 
     #[test]
@@ -709,19 +700,18 @@ mod tests {
             0,
         )
         .unwrap();
-        match &sf.lines[1] {
-            LineNode::EnvExport {
-                original_text,
-                export_style,
-                quote_style,
-                ..
-            } => {
-                assert_eq!(original_text, "PORT=3000");
-                assert_eq!(*export_style, ExportStyle::Bare);
-                assert_eq!(*quote_style, QuoteStyle::None);
-            }
-            other => panic!("Expected EnvExport, got: {:?}", other),
-        }
+        let LineNode::EnvExport {
+            original_text,
+            export_style,
+            quote_style,
+            ..
+        } = &sf.lines[1]
+        else {
+            panic!("Expected EnvExport, got: {:?}", sf.lines[1]);
+        };
+        assert_eq!(original_text, "PORT=3000");
+        assert_eq!(*export_style, ExportStyle::Bare);
+        assert_eq!(*quote_style, QuoteStyle::None);
     }
 
     // ─── relocate_into_zone ─────────────────────────────────
@@ -781,13 +771,11 @@ mod tests {
         let mut sf = make_shell_file("export FOO=\"old\"\nexport BAR=\"keep\"\n");
         edit_entry(&mut sf, "FOO", "new").unwrap();
 
-        match &sf.lines[0] {
-            LineNode::EnvExport { key, value, .. } => {
-                assert_eq!(key, "FOO");
-                assert_eq!(value, "new");
-            }
-            other => panic!("Expected EnvExport, got: {:?}", other),
-        }
+        let LineNode::EnvExport { key, value, .. } = &sf.lines[0] else {
+            panic!("Expected EnvExport, got: {:?}", sf.lines[0]);
+        };
+        assert_eq!(key, "FOO");
+        assert_eq!(value, "new");
     }
 
     // ─── ensure_managed_zone wraps existing vars ─────────────

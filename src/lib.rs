@@ -1,3 +1,5 @@
+#![deny(rustdoc::broken_intra_doc_links)]
+
 //! # EnvForge
 //!
 //! A Rust CLI + TUI tool for managing environment variables across multiple shell types with

@@ -323,7 +323,7 @@ fn export_csv(report: &Soc2Report, writer: &mut dyn Write) -> Result<(), ReportE
             "{},{},{},{},{},{}",
             csv_field(&format!("{:?}", v.violation_type)),
             csv_field(&format!("{:?}", v.severity)),
-            csv_field(&v.event_id.to_string()),
+            csv_field(&v.event_id.clone()),
             csv_field(&v.timestamp.to_rfc3339()),
             csv_field(&v.description),
             csv_field(v.secret_key.as_deref().unwrap_or("")),

@@ -62,7 +62,7 @@ pub fn detect_conflicts(
         // Only a conflict if both sides changed AND they differ from each other
         if local_changed && remote_changed && local_val != remote_val {
             conflicts.push(ConflictEntry {
-                key: key.to_string(),
+                key: (*key).to_string(),
                 local_value: local_val.map(String::from),
                 remote_value: remote_val.map(String::from),
             });

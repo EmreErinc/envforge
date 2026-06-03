@@ -79,15 +79,18 @@ pub fn compute_semantic_tokens(
                     });
                 }
 
-                let val_len = entry.value_range.end.character - entry.value_range.start.character;
-                if val_len > 0 {
-                    raws.push(RawToken {
-                        line: entry.line,
-                        start: entry.value_range.start.character,
-                        length: val_len,
-                        token_type: TYPE_STRING,
-                        modifiers: mods,
-                    });
+                if !sensitive {
+                    let val_len =
+                        entry.value_range.end.character - entry.value_range.start.character;
+                    if val_len > 0 {
+                        raws.push(RawToken {
+                            line: entry.line,
+                            start: entry.value_range.start.character,
+                            length: val_len,
+                            token_type: TYPE_STRING,
+                            modifiers: 0,
+                        });
+                    }
                 }
             }
             _ => {}

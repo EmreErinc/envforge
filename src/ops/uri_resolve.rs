@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use std::path::Path;
 
 use crate::ops::secrets::credentials::read_all_credentials;

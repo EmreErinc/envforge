@@ -12,6 +12,14 @@ Environment variable management with schema validation, secret scanning, and mul
 - **13 commands** — Validate, scan, export, sync, profile switch, health check
 - **Status bar** — Variable count, auto-refreshes
 
+## Security Features
+
+- **Secret Fence** — `.env` files protected from AI coding agents (Cursor, Copilot, Claude) via auto-generated ignore rules. Run `envforge fence` to activate. Status indicator in the status bar.
+- **Value Redaction** — Sensitive values never appear in hover cards, completions, or diagnostics. All user-visible strings from env values are replaced with `***`.
+- **MCP Credential Warnings** — Inline diagnostics for hardcoded API keys and tokens in MCP server config files (`.cursor/mcp.json`, `.claude/settings.json`).
+- **AI-Guard Diagnostics** — Save-time prompt-injection scan on `.env` files. Detects canary token payloads and adversarial input patterns.
+- **Canary Tripwire Glyphs** — Gutter icons mark lines containing canary honeypot tokens. Green = untouched, Red = triggered.
+
 ## Requirements
 
 EnvForge CLI must be installed:

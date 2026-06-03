@@ -30,8 +30,8 @@ pub fn compute_diff(
     for (key, value) in &local_map {
         if !snapshot_map.contains_key(key) {
             added.push(DiffEntry {
-                key: key.to_string(),
-                local_value: Some(value.to_string()),
+                key: (*key).to_string(),
+                local_value: Some((*value).to_string()),
                 remote_value: None,
             });
         }
@@ -42,9 +42,9 @@ pub fn compute_diff(
         if let Some(snapshot_val) = snapshot_map.get(key) {
             if local_val != snapshot_val {
                 modified.push(DiffEntry {
-                    key: key.to_string(),
-                    local_value: Some(local_val.to_string()),
-                    remote_value: Some(snapshot_val.to_string()),
+                    key: (*key).to_string(),
+                    local_value: Some((*local_val).to_string()),
+                    remote_value: Some((*snapshot_val).to_string()),
                 });
             }
         }
@@ -54,9 +54,9 @@ pub fn compute_diff(
     for (key, value) in &snapshot_map {
         if !local_map.contains_key(key) {
             removed.push(DiffEntry {
-                key: key.to_string(),
+                key: (*key).to_string(),
                 local_value: None,
-                remote_value: Some(value.to_string()),
+                remote_value: Some((*value).to_string()),
             });
         }
     }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::super::provider::{
     run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
     validate_provider_response_label, validate_provider_response_value, validate_secret_name,
-    validate_secret_value, SecretProvider, SecretsError,
+    validate_secret_value, CredentialEncryptionPolicy, SecretProvider, SecretsError,
 };
 
 /// Validate `vault_name` from credentials before it is interpolated into a
@@ -52,6 +52,10 @@ impl SecretProvider for AzureKeyVaultProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec!["vault_name"]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn build_provider_env(

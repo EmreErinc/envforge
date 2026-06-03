@@ -228,7 +228,7 @@ export function getEnvforgePath(): string {
         return customPath;
     }
 
-    // Check common install locations
+    // Check common install locations (absolute paths only — no PATH fallback)
     const home = os.homedir();
     const candidates = [
         path.join(home, '.cargo', 'bin', 'envforge'),
@@ -242,11 +242,15 @@ export function getEnvforgePath(): string {
         }
     }
 
-    // Fall back to PATH
-    return 'envforge';
+    // No PATH fallback — binary must be found at an absolute path
+    // to prevent supply-chain attacks via PATH manipulation.
+    return '';
 }
 
 async function checkBinary(binaryPath: string): Promise<boolean> {
+    if (!binaryPath) {
+        return false;
+    }
     return new Promise((resolve) => {
         cp.execFile(binaryPath, ['--version'], { timeout: 5000 }, (err, stdout) => {
             if (err) {

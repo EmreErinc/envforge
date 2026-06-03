@@ -37,8 +37,66 @@ pub fn render(f: &mut Frame, app: &App) {
             dialogs::render_path_input(f, app, "Export to .env", "Enter output path:")
         }
         ViewMode::ProfileSelector(idx) => dialogs::render_profile_selector(f, app, *idx),
+        ViewMode::FirstRun => render_first_run(f),
         ViewMode::Normal | ViewMode::Searching => {}
     }
+}
+
+fn render_first_run(f: &mut Frame) {
+    use ratatui::widgets::{Clear, Wrap};
+
+    let area = f.area();
+    let popup_area = ratatui::layout::Rect {
+        x: area.width.saturating_sub(70).saturating_div(2).max(2),
+        y: area.height.saturating_sub(14).saturating_div(2).max(2),
+        width: 66.min(area.width.saturating_sub(4)),
+        height: 14.min(area.height.saturating_sub(4)),
+    };
+
+    f.render_widget(Clear, popup_area);
+
+    let text = vec![
+        Line::from(Span::styled(
+            " EnvForge Security Setup ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("  EnvForge can protect your secrets from AI tools and"),
+        Line::from("  accidental exposure. We recommend enabling the fence"),
+        Line::from("  to block AI assistants (Copilot, Cursor, Claude Code)"),
+        Line::from("  from reading your environment files."),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "  [1]",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Quick protect — create AI ignore rules (recommended)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  [2]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Skip for now — remind me later with 'envforge fence'"),
+        ]),
+        Line::from(vec![
+            Span::styled("  [q]", Style::default().fg(Color::DarkGray)),
+            Span::raw(" Exit — configure later"),
+        ]),
+    ];
+
+    let paragraph = Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(" First Run "),
+        )
+        .wrap(Wrap { trim: false });
+
+    f.render_widget(paragraph, popup_area);
 }
 
 fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
@@ -104,6 +162,16 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let total_count = app.entries.len();
 
     let mut spans = vec![];
+
+    // Fence status
+    if app.fence_enabled {
+        spans.push(Span::styled(
+            " [fence:on] ",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
 
     // Unsaved changes indicator
     if app.has_unsaved_changes {
