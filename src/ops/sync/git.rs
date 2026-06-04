@@ -2,6 +2,108 @@ use super::model::*;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Create a sanitized git Command with environment isolation.
+///
+/// Clears all env vars except PATH and HOME. Suppresses system-level git config
+/// and disables hooks to prevent remote code execution vectors (see T-006, T-007).
+fn sanitized_git_command() -> Command {
+    let mut cmd = Command::new("git");
+    cmd.env_clear();
+    if let Ok(path) = std::env::var("PATH") {
+        cmd.env("PATH", path);
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        cmd.env("HOME", home);
+    }
+    // Suppress system and global git config to prevent filter driver / hook RCE
+    cmd.env("GIT_CONFIG_NOSYSTEM", "1");
+    cmd.env("GIT_CONFIG_GLOBAL", "/dev/null");
+    // Disable hooks (post-checkout, etc.) via config parameter
+    cmd.env("GIT_CONFIG_PARAMETERS", "'core.hooksPath=/dev/null'");
+    cmd
+}
+
+/// Perform a safe git clone that prevents remote code execution via hooks
+/// and filter drivers (see .threatmodel/T-006.yaml).
+///
+/// Uses `--no-checkout` to skip the initial checkout (which would execute
+/// smudge filters and hooks). After cloning, scrubs the repo-local config
+/// to remove any filter driver definitions, then performs a safe checkout.
+pub fn git_safe_clone(url: &str, target: &Path) -> Result<(), SyncError> {
+    validate_remote_url(url)?;
+
+    // Step 1: Clone without checkout — no hooks, no filter drivers
+    let target_str = target.to_string_lossy().to_string();
+    let clone_args = vec![
+        "-c",
+        "protocol.ext.allow=never",
+        "-c",
+        "protocol.file.allow=user",
+        "clone",
+        "--no-checkout",
+        "--",
+        url,
+        &target_str,
+    ];
+
+    let mut clone_cmd = sanitized_git_command();
+    for arg in &clone_args {
+        clone_cmd.arg(arg);
+    }
+    let output = clone_cmd.output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            SyncError::GitNotFound
+        } else {
+            SyncError::GitCommandFailed {
+                command: format!("git {}", clone_args.join(" ")),
+                stderr: e.to_string(),
+            }
+        }
+    })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("Authentication") || stderr.contains("Permission denied") {
+            return Err(SyncError::AuthFailed);
+        }
+        return Err(SyncError::GitCommandFailed {
+            command: format!("git {}", clone_args.join(" ")),
+            stderr: stderr.to_string(),
+        });
+    }
+
+    // Step 2: Scrub repo-local config to remove filter driver definitions.
+    // Filter drivers (filter.<name>.smudge/clean) execute on checkout.
+    // We remove .git/config entirely — git will regenerate defaults on checkout.
+    let git_config = target.join(".git").join("config");
+    if git_config.exists() {
+        std::fs::remove_file(&git_config).map_err(|e| SyncError::IoError {
+            path: git_config.clone(),
+            source: e,
+        })?;
+    }
+
+    // Step 3: Safe checkout with hooks and filter drivers suppressed
+    let checkout_args = vec!["-C", &target_str, "checkout", "HEAD"];
+    let mut checkout_cmd = sanitized_git_command();
+    for arg in &checkout_args {
+        checkout_cmd.arg(arg);
+    }
+    let co_output = checkout_cmd
+        .output()
+        .map_err(|e| SyncError::GitCommandFailed {
+            command: format!("git {}", checkout_args.join(" ")),
+            stderr: e.to_string(),
+        })?;
+    if !co_output.status.success() {
+        return Err(SyncError::GitCommandFailed {
+            command: format!("git {}", checkout_args.join(" ")),
+            stderr: String::from_utf8_lossy(&co_output.stderr).to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 /// Trait for Git operations — enables mocking in tests.
 pub trait GitOps {
     fn check_available(&self) -> Result<GitVersion, SyncError>;
@@ -46,7 +148,7 @@ impl GitCommandRunner {
 
     /// Run a git command in the repo directory and capture output.
     fn run_git(&self, args: &[&str]) -> Result<String, SyncError> {
-        let mut cmd = Command::new("git");
+        let mut cmd = sanitized_git_command();
         cmd.arg("-C").arg(&self.repo_path);
         cmd.args(args);
 
@@ -88,8 +190,9 @@ impl GitCommandRunner {
     }
 
     /// Run a git command without -C (for operations on paths that don't exist yet).
+    #[allow(dead_code)]
     fn run_git_raw(args: &[&str]) -> Result<String, SyncError> {
-        let output = Command::new("git").args(args).output().map_err(|e| {
+        let output = sanitized_git_command().args(args).output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 SyncError::GitNotFound
             } else {
@@ -114,7 +217,7 @@ impl GitCommandRunner {
 
 impl GitOps for GitCommandRunner {
     fn check_available(&self) -> Result<GitVersion, SyncError> {
-        let output = Command::new("git")
+        let output = sanitized_git_command()
             .arg("--version")
             .output()
             .map_err(|_| SyncError::GitNotFound)?;
@@ -146,20 +249,7 @@ impl GitOps for GitCommandRunner {
     }
 
     fn clone_repo(url: &str, target: &Path) -> Result<(), SyncError> {
-        validate_remote_url(url)?;
-        // Disable git-remote-ext (RCE vector) and dumb file/local protocol unless
-        // explicitly allowlisted via validate_remote_url.
-        Self::run_git_raw(&[
-            "-c",
-            "protocol.ext.allow=never",
-            "-c",
-            "protocol.file.allow=user",
-            "clone",
-            "--",
-            url,
-            &target.to_string_lossy(),
-        ])?;
-        Ok(())
+        git_safe_clone(url, target)
     }
 
     fn add(&self, files: &[&str]) -> Result<(), SyncError> {
@@ -289,7 +379,19 @@ impl GitCommandRunner {
 /// (`ext::`), local file disclosure (`file://`), or argument injection
 /// (leading `-`). Only allow `https://`, `http://`, `ssh://`, `git://`,
 /// or scp-like `user@host:path`.
+///
+/// When `enforce_ssh` is true, HTTP/HTTPS schemes are also rejected,
+/// closing the MITM-on-HTTP transport vector (T-005).
 pub fn validate_remote_url(url: &str) -> Result<(), SyncError> {
+    validate_remote_url_with_ssh_policy(url, false)
+}
+
+/// Validate URL with optional SSH enforcement.
+pub fn validate_remote_url_enforce_ssh(url: &str, enforce_ssh: bool) -> Result<(), SyncError> {
+    validate_remote_url_with_ssh_policy(url, enforce_ssh)
+}
+
+fn validate_remote_url_with_ssh_policy(url: &str, enforce_ssh: bool) -> Result<(), SyncError> {
     let trimmed = url.trim();
     let bad = |msg: &str| SyncError::GitCommandFailed {
         command: "clone".to_string(),
@@ -307,7 +409,6 @@ pub fn validate_remote_url(url: &str) -> Result<(), SyncError> {
     }
 
     let lower = trimmed.to_ascii_lowercase();
-    // Block known dangerous protocols outright.
     for danger in [
         "ext::",
         "file://",
@@ -321,7 +422,17 @@ pub fn validate_remote_url(url: &str) -> Result<(), SyncError> {
         }
     }
 
-    // Allow well-formed schemes.
+    // When SSH is enforced, reject HTTP/HTTPS
+    if enforce_ssh {
+        let is_http = lower.starts_with("http://") || lower.starts_with("https://");
+        let is_git_https = lower.starts_with("git+https://");
+        if is_http || is_git_https {
+            return Err(bad(
+                "HTTP/HTTPS not allowed when sync.enforce_ssh=true. Use ssh:// or user@host:path",
+            ));
+        }
+    }
+
     let allowed_scheme = [
         "https://",
         "http://",
@@ -333,8 +444,6 @@ pub fn validate_remote_url(url: &str) -> Result<(), SyncError> {
     .iter()
     .any(|p| lower.starts_with(p));
 
-    // Allow scp-like syntax: user@host:path (no scheme, must contain `@` and `:`,
-    // and the colon must precede any `/`).
     let scp_like = !trimmed.contains("://")
         && trimmed.contains('@')
         && trimmed

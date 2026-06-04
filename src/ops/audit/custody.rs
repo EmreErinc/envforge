@@ -655,11 +655,10 @@ mod tests {
             secret_key: "DB_PASSWORD".to_string(),
         };
         let result = execute_custody_query(&events, &query).unwrap();
-        if let CustodyResult::Lineage(lineage) = result {
-            assert_eq!(lineage.links.len(), 3);
-        } else {
+        let CustodyResult::Lineage(lineage) = result else {
             panic!("Expected Lineage result");
-        }
+        };
+        assert_eq!(lineage.links.len(), 3);
     }
 
     #[test]
@@ -669,11 +668,10 @@ mod tests {
             session_id: SessionId("session-1".to_string()),
         };
         let result = execute_custody_query(&events, &query).unwrap();
-        if let CustodyResult::SessionPath(path) = result {
-            assert!(path.events.len() >= 2);
-        } else {
+        let CustodyResult::SessionPath(path) = result else {
             panic!("Expected SessionPath result");
-        }
+        };
+        assert!(path.events.len() >= 2);
     }
 
     #[test]
@@ -683,16 +681,15 @@ mod tests {
             secret_key: "DB_PASSWORD".to_string(),
         };
         let result = execute_custody_query(&events, &query).unwrap();
-        if let CustodyResult::SecretSessions {
+        let CustodyResult::SecretSessions {
             secret_key,
             sessions,
         } = result
-        {
-            assert_eq!(secret_key, "DB_PASSWORD");
-            assert!(sessions.len() >= 2);
-        } else {
+        else {
             panic!("Expected SecretSessions result");
-        }
+        };
+        assert_eq!(secret_key, "DB_PASSWORD");
+        assert!(sessions.len() >= 2);
     }
 
     #[test]
@@ -702,12 +699,11 @@ mod tests {
             source: EventSource::AiGuard,
         };
         let result = execute_custody_query(&events, &query).unwrap();
-        if let CustodyResult::BySource { source, secrets } = result {
-            assert_eq!(source, EventSource::AiGuard);
-            assert!(secrets.contains(&"DB_PASSWORD".to_string()));
-        } else {
+        let CustodyResult::BySource { source, secrets } = result else {
             panic!("Expected BySource result");
-        }
+        };
+        assert_eq!(source, EventSource::AiGuard);
+        assert!(secrets.contains(&"DB_PASSWORD".to_string()));
     }
 
     #[test]
@@ -717,12 +713,11 @@ mod tests {
             secret_key_pattern: "DB_*".to_string(),
         };
         let result = execute_custody_query(&events, &query).unwrap();
-        if let CustodyResult::Ownership { reports } = result {
-            assert!(!reports.is_empty());
-            assert!(reports.iter().any(|r| r.secret_key == "DB_PASSWORD"));
-        } else {
+        let CustodyResult::Ownership { reports } = result else {
             panic!("Expected Ownership result");
-        }
+        };
+        assert!(!reports.is_empty());
+        assert!(reports.iter().any(|r| r.secret_key == "DB_PASSWORD"));
     }
 
     #[test]
@@ -732,11 +727,10 @@ mod tests {
             secret_key_pattern: "*".to_string(),
         };
         let result = execute_custody_query(&events, &query).unwrap();
-        if let CustodyResult::Ownership { reports } = result {
-            assert!(reports.len() >= 2); // DB_PASSWORD + API_KEY at minimum
-        } else {
+        let CustodyResult::Ownership { reports } = result else {
             panic!("Expected Ownership result");
-        }
+        };
+        assert!(reports.len() >= 2); // DB_PASSWORD + API_KEY at minimum
     }
 
     // ─── Pattern Matching ────────────────────────────────────

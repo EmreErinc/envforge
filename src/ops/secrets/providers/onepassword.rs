@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::super::provider::{
     env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
     validate_provider_response_label, validate_provider_response_value, validate_secret_name,
-    validate_secret_value, SecretProvider, SecretsError,
+    validate_secret_value, CredentialEncryptionPolicy, SecretProvider, SecretsError,
 };
 
 pub struct OnePasswordProvider;
@@ -31,6 +31,10 @@ impl SecretProvider for OnePasswordProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec!["service_account_token"]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn build_provider_env(

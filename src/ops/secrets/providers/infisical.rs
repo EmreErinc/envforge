@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::super::provider::{
     env_refs_from_env, run_cli, run_cli_with_tempfile_batch, sort_secret_pairs,
     validate_provider_arg, validate_provider_response_label, validate_provider_response_value,
-    SecretProvider, SecretsError,
+    CredentialEncryptionPolicy, SecretProvider, SecretsError,
 };
 
 fn checked_env_project(
@@ -51,6 +51,10 @@ impl SecretProvider for InfisicalProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec!["token", "project_id", "environment"]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn build_provider_env(

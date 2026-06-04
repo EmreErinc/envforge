@@ -7,33 +7,18 @@ use crate::ops::schema::EnvSchema;
 
 use super::document::{EnvDocEntry, EnvLineType};
 
-/// Build the CodeLens set rendered above each env-var line. The previous
-/// implementation emitted decorative-only entries with empty command
-/// strings; clients displayed the text but the lenses did nothing on
-/// click. This pass keeps a small amount of schema-info text but adds
-/// real actionable lenses that drive the executeCommand command bus.
-///
-/// Per-line lenses emitted on `EnvVar` entries:
-/// - **Plant canary** (sensitive keys without a registered canary):
-///   invokes `envforge.canary.plant` with `{ key, pattern }`. The
-///   pattern hint mirrors the L6 plant quick-fix so subprocess vs LSP
-///   paths produce the same canary fingerprint.
-/// - **Activate fence** (sensitive keys, always offered): invokes
-///   `envforge.fence.enable`. We do not gate this by current fence
-///   state — the underlying op is idempotent and reading state per
-///   lens request would multiply IO cost.
-/// - **Schema type label** (decorative, kept for parity with the prior
-///   experience): no command attached.
-/// - **Required label** (decorative).
+/// Build the CodeLens set rendered above each env-var line.
+/// Since execute_command_provider is disabled (the LSP is a read-only
+/// security boundary), all lenses are decorative — they convey
+/// information without actionable commands. Mutations (fence, canary,
+/// reveal) must go through the CLI.
 pub fn code_lenses(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     canary_keys: Option<&HashSet<String>>,
     uri: Option<&Url>,
 ) -> Vec<CodeLens> {
-    let file_path: Option<String> = uri
-        .and_then(|u| u.to_file_path().ok())
-        .map(|p| p.to_string_lossy().into_owned());
+    let _ = uri;
     let mut lenses = Vec::new();
 
     for entry in entries {
@@ -60,39 +45,25 @@ pub fn code_lenses(
             let already_canary = canary_keys
                 .map(|set| set.contains(&entry.key))
                 .unwrap_or(false);
-            if !already_canary {
-                let mut plant_args = serde_json::json!({
-                    "key": entry.key,
-                    "pattern": canary_pattern_hint(&entry.key),
-                });
-                if let Some(ref fp) = file_path {
-                    plant_args["file"] = serde_json::Value::String(fp.clone());
-                }
-                lenses.push(CodeLens {
-                    range,
-                    command: Some(Command {
-                        title: "$(bug) Plant canary".to_string(),
-                        command: "envforge.canary.plant".to_string(),
-                        arguments: Some(vec![plant_args]),
-                    }),
-                    data: None,
-                });
+            let canary_label = if already_canary {
+                "$(bug) canary active"
             } else {
-                lenses.push(CodeLens {
-                    range,
-                    command: Some(Command {
-                        title: "$(bug) canary active".to_string(),
-                        command: String::new(),
-                        arguments: None,
-                    }),
-                    data: None,
-                });
-            }
+                "$(bug) canary: use `envforge canary plant`"
+            };
             lenses.push(CodeLens {
                 range,
                 command: Some(Command {
-                    title: "$(shield) Activate fence".to_string(),
-                    command: "envforge.fence.enable".to_string(),
+                    title: canary_label.to_string(),
+                    command: String::new(),
+                    arguments: None,
+                }),
+                data: None,
+            });
+            lenses.push(CodeLens {
+                range,
+                command: Some(Command {
+                    title: "$(shield) fence: use `envforge fence enable`".to_string(),
+                    command: String::new(),
                     arguments: None,
                 }),
                 data: None,
@@ -124,15 +95,4 @@ pub fn code_lenses(
     }
 
     lenses
-}
-
-fn canary_pattern_hint(key: &str) -> &'static str {
-    let upper = key.to_uppercase();
-    if upper.contains("AWS") {
-        "aws_key"
-    } else if upper.contains("TOKEN") || upper.contains("API_KEY") || upper.contains("APIKEY") {
-        "api_token"
-    } else {
-        "generic"
-    }
 }

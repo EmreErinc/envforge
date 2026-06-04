@@ -25,7 +25,7 @@ pub fn push(
     }
 
     // Read current snapshot
-    let current_snapshot = read_snapshot(&snapshot_path)?;
+    let current_snapshot = read_snapshot(&snapshot_path, &config.sync.encryption_policy, false)?;
 
     // Compute diff
     let diff = compute_diff(&sync_entries, &current_snapshot.entries);
@@ -60,7 +60,7 @@ pub fn push(
     let new_snapshot = export_to_snapshot(&sync_entries, &config.sync.machine_id);
 
     // Write snapshot atomically (encrypted if config says so)
-    write_snapshot_encrypted(&snapshot_path, &new_snapshot, config.sync.encrypted)?;
+    write_snapshot_encrypted(&snapshot_path, &new_snapshot)?;
 
     // Git operations
     let git = GitCommandRunner::new(sync_path.to_path_buf());
@@ -72,7 +72,7 @@ pub fn push(
         keys_pushed,
         commit_hash: Some(commit_hash),
         push_result,
-        message: final_msg.to_string(),
+        message: final_msg.clone(),
     })
 }
 
@@ -110,6 +110,7 @@ fn filter_sync_entries(entries: &[(String, String)], config: &SyncConfig) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::sync::SyncEncryptionPolicy;
 
     #[test]
     fn test_export_to_snapshot() {
@@ -136,7 +137,11 @@ mod tests {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
                 encrypted: true,
+                encryption_policy: SyncEncryptionPolicy::MigrationUntil(
+                    "2099-01-01T00:00:00Z".into(),
+                ),
                 verify_signatures: false,
+                enforce_ssh: false,
             },
             manifest: ManifestConfig {
                 sync_keys: vec!["SYNC_KEY".to_string()],
@@ -184,11 +189,7 @@ mod tests {
         let entries = vec![("MY_KEY".to_string(), "val".to_string())];
         let result = push(&sync_path, &entries, None, false);
 
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SyncError::NoKeysMarked => {}
-            other => panic!("expected NoKeysMarked, got: {:?}", other),
-        }
+        assert!(matches!(result, Err(SyncError::NoKeysMarked)));
     }
 
     #[test]
@@ -211,7 +212,12 @@ mod tests {
         assert_eq!(result.message, "test push");
 
         // Verify snapshot was written
-        let snapshot = read_snapshot(&sync_path.join(SNAPSHOT_FILE)).unwrap();
+        let snapshot = read_snapshot(
+            &sync_path.join(SNAPSHOT_FILE),
+            &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+            false,
+        )
+        .unwrap();
         assert_eq!(snapshot.entries.len(), 1);
         assert_eq!(snapshot.entries[0].key, "DB_URL");
         assert_eq!(snapshot.entries[0].value, "postgres://localhost");
@@ -234,10 +240,6 @@ mod tests {
 
         // Push same data again
         let result = push(&sync_path, &entries, None, false);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SyncError::NothingToSync => {}
-            other => panic!("expected NothingToSync, got: {:?}", other),
-        }
+        assert!(matches!(result, Err(SyncError::NothingToSync)));
     }
 }

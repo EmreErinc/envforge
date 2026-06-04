@@ -591,8 +591,8 @@ pub fn generate_docs(schema: &EnvSchema) -> String {
         .filter(|(_, v)| !v.required)
         .collect();
 
-    required.sort_by_key(|(k, _)| k.to_string());
-    optional.sort_by_key(|(k, _)| k.to_string());
+    required.sort_by_key(|(k, _)| (*k).clone());
+    optional.sort_by_key(|(k, _)| (*k).clone());
 
     let mut output = String::new();
     output.push_str("# Environment Variables\n\n");

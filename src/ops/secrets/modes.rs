@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -219,23 +220,68 @@ pub fn glob_match(pattern: &str, text: &str) -> bool {
 
 // ─── Volatile Mode ───────────────────────────────────────────
 
-/// Configuration for volatile (auto-expiring) credential mode.
+/// Volatile (auto-expiring) credential mode configuration.
+///
+/// Replaces the old `enabled: bool` + `ttl_seconds: u64` pair, which
+/// could silently disable volatile mode via a forgotten boolean.
 #[derive(Debug, Clone)]
-pub struct VolatileConfig {
-    /// TTL in seconds after which credentials auto-expire from memory.
-    pub ttl_seconds: u64,
-    /// Whether volatile mode is enabled.
-    pub enabled: bool,
+pub enum VolatileMode {
+    /// Volatile mode is disabled — credentials persist indefinitely
+    /// until explicitly cleared.  This is the default for compatibility.
+    Off,
+
+    /// Volatile mode enabled — credentials auto-expire after the given
+    /// TTL.  On expiry, all in-memory credentials are zeroized and the
+    /// session is marked as expired.
+    On {
+        /// TTL in seconds (e.g. 300 = 5 minutes).
+        ttl_seconds: u64,
+    },
+
+    /// Strict volatile mode — like `On`, but additionally requires
+    /// re-authentication before credentials can be re-loaded after
+    /// expiry.  This prevents the "re-pull without re-auth" bypass.
+    Strict {
+        ttl_seconds: u64,
+        /// If true, the user must re-authenticate to the provider
+        /// after a volatile expiry before new credentials can be pulled.
+        reauth: bool,
+    },
 }
 
-impl Default for VolatileConfig {
+impl VolatileMode {
+    /// `true` when volatile mode is active (on or strict).
+    pub fn is_enabled(&self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    /// The TTL in seconds, or zero when off.
+    pub fn ttl_seconds(&self) -> u64 {
+        match self {
+            Self::Off => 0,
+            Self::On { ttl_seconds } | Self::Strict { ttl_seconds, .. } => *ttl_seconds,
+        }
+    }
+
+    /// `true` when re-authentication is required after volatile expiry.
+    pub fn requires_reauth(&self) -> bool {
+        matches!(self, Self::Strict { reauth: true, .. })
+    }
+}
+
+impl Default for VolatileMode {
     fn default() -> Self {
-        Self {
-            ttl_seconds: 300, // 5 minutes
-            enabled: false,
+        Self::On {
+            ttl_seconds: 300, // 5 minutes default — secure by default
         }
     }
 }
+
+// ─── Backward-compat type alias ────────────────────────────
+/// Kept for external callers that still reference `VolatileConfig`.
+/// New code should use [`VolatileMode`] directly.
+#[deprecated(since = "0.8.0", note = "Use VolatileMode enum instead")]
+pub type VolatileConfig = VolatileMode;
 
 /// Track when credentials were last loaded into memory.
 static LAST_LOAD: Mutex<Option<SystemTime>> = Mutex::new(None);
@@ -245,32 +291,53 @@ static VOLATILE_EXPIRED: AtomicBool = AtomicBool::new(false);
 
 /// Mark credentials as loaded into memory (called before credential operations).
 pub fn mark_credentials_loaded() {
-    if let Ok(mut last) = LAST_LOAD.lock() {
-        *last = Some(SystemTime::now());
-        VOLATILE_EXPIRED.store(false, Ordering::SeqCst);
-    }
+    let mut last = LAST_LOAD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *last = Some(SystemTime::now());
+    VOLATILE_EXPIRED.store(false, Ordering::SeqCst);
 }
 
 /// Check if credentials have expired per volatile mode TTL.
 /// Returns true if TTL has elapsed and credentials should be cleared.
-pub fn check_volatile_expiry(config: &VolatileConfig) -> bool {
-    if !config.enabled {
+pub fn check_volatile_expiry(mode: &VolatileMode) -> bool {
+    if !mode.is_enabled() {
         return false;
     }
     if VOLATILE_EXPIRED.load(Ordering::SeqCst) {
         return true;
     }
-    if let Ok(last) = LAST_LOAD.lock() {
-        if let Some(ts) = *last {
-            if let Ok(elapsed) = ts.elapsed() {
-                if elapsed >= Duration::from_secs(config.ttl_seconds) {
-                    VOLATILE_EXPIRED.store(true, Ordering::SeqCst);
-                    return true;
-                }
+    let last = LAST_LOAD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(ts) = *last {
+        if let Ok(elapsed) = ts.elapsed() {
+            if elapsed >= Duration::from_secs(mode.ttl_seconds()) {
+                VOLATILE_EXPIRED.store(true, Ordering::SeqCst);
+                return true;
             }
         }
     }
     false
+}
+
+/// Remaining time before volatile session expires, if active.
+/// Returns `None` when volatile mode is off or no session is active.
+pub fn volatile_remaining(mode: &VolatileMode) -> Option<Duration> {
+    if !mode.is_enabled() {
+        return None;
+    }
+    let ttl = Duration::from_secs(mode.ttl_seconds());
+    let last = LAST_LOAD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let ts = (*last)?;
+    let elapsed = ts.elapsed().ok()?;
+    if elapsed >= ttl {
+        Some(Duration::ZERO)
+    } else {
+        Some(ttl.checked_sub(elapsed).unwrap_or(Duration::ZERO))
+    }
 }
 
 /// Clear all in-memory credentials and mark session as expired.
@@ -284,9 +351,10 @@ pub fn expire_volatile_session() {
 /// Safe to call at any time. No credentials survive this call in memory.
 pub fn clear_session() {
     clear_all_credentials();
-    if let Ok(mut last) = LAST_LOAD.lock() {
-        *last = None;
-    }
+    let mut last = LAST_LOAD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *last = None;
     VOLATILE_EXPIRED.store(false, Ordering::SeqCst);
 }
 
@@ -294,14 +362,23 @@ pub fn clear_session() {
 /// If volatile mode is active and TTL has elapsed, returns AuthExpired error.
 /// Otherwise, marks load time and executes the operation.
 pub fn with_volatile_guard<T>(
-    config: &VolatileConfig,
+    mode: &VolatileMode,
     provider_name: &str,
     f: impl FnOnce() -> Result<T, SecretsError>,
 ) -> Result<T, SecretsError> {
-    if check_volatile_expiry(config) {
+    if check_volatile_expiry(mode) {
+        let ttl_msg = match mode {
+            VolatileMode::On { ttl_seconds } | VolatileMode::Strict { ttl_seconds, .. } => {
+                format!(" (TTL: {}s)", ttl_seconds)
+            }
+            VolatileMode::Off => String::new(),
+        };
         return Err(SecretsError::AuthFailed {
             provider: provider_name.to_string(),
-            message: "Volatile TTL expired. Re-authenticate to continue.".to_string(),
+            message: format!(
+                "volatile session expired{}. Re-authenticate to continue.",
+                ttl_msg
+            ),
         });
     }
     mark_credentials_loaded();

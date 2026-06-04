@@ -98,23 +98,20 @@ pub fn emit_action_outputs(
         let _ = writeln!(out, "quarantine_preserved_count=0");
     }
 
-    match std::env::var("GITHUB_OUTPUT") {
-        Ok(p) => {
-            use std::io::Write;
-            let mut f = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&p)?;
-            f.write_all(out.as_bytes())?;
-            Ok(())
+    if let Ok(p) = std::env::var("GITHUB_OUTPUT") {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&p)?;
+        f.write_all(out.as_bytes())?;
+        Ok(())
+    } else {
+        // Outside Actions: print to stderr with a marker so it's still inspectable.
+        for line in out.lines() {
+            eprintln!("OUTPUT::{line}");
         }
-        Err(_) => {
-            // Outside Actions: print to stderr with a marker so it's still inspectable.
-            for line in out.lines() {
-                eprintln!("OUTPUT::{line}");
-            }
-            Ok(())
-        }
+        Ok(())
     }
 }
 

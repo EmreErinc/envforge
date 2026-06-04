@@ -1,6 +1,5 @@
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
-use crate::ops::dotenv::is_sensitive_key;
 use crate::ops::schema::{EnvSchema, VarType};
 
 use super::document::EnvDocEntry;
@@ -88,18 +87,17 @@ pub fn hover_info(
     };
     lines.push(format!("- Defined by: `{}`", defined_by));
 
-    let sensitive =
-        schema_var.map(|v| v.sensitive).unwrap_or(false) || is_sensitive_key(&entry.key);
-
+    let entry_value = &entry.value;
+    let is_sensitive = schema_var.map(|v| v.sensitive).unwrap_or(false);
     let current_value_line = match managed_match {
-        Some(mv) if mv.value.is_empty() => "- Current value: `not set`".to_string(),
-        Some(mv) if sensitive => {
+        Some(_mv) if entry_value.is_empty() => "- Current value: `not set`".to_string(),
+        Some(_mv) if is_sensitive => "- Current value: `(sensitive)`".to_string(),
+        Some(_mv) => {
             format!(
                 "- Current value: `{}` (redacted)",
-                redact_for_label(&mv.value)
+                redact_for_label(entry_value, is_sensitive)
             )
         }
-        Some(mv) => format!("- Current value: `{}`", mv.value),
         None => "- Current value: `not managed`".to_string(),
     };
     lines.push(current_value_line);

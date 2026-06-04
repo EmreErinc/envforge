@@ -2,7 +2,7 @@
 
 The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **28 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 100+ commands. Ships with a Language Server (`envforge lsp`) and VS Code + IntelliJ plugins that surface the AI-safety story directly in the editor — gutter exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, source-language goto-definition. **2214 tests passing.**
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **28 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 90+ commands. Ships with a Language Server (`envforge lsp`) and VS Code + IntelliJ plugins that surface the AI-safety story directly in the editor — gutter exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, source-language goto-definition. **929 tests passing.**
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
@@ -118,6 +118,57 @@ envforge revoke --all
 | **Analytics** | Unused detection, low-usage flagging, deprecation timelines, retention management, pruning |
 | **Monitoring** | `envforge monitor status` — real-time health probes (providers, canary, fence, encryption) + event stream |
 | **Security** | Secret scanning, pre-commit hooks, value masking, credential TTL |
+
+## Security Configuration (v0.8.0+)
+
+EnvForge encrypts all provider credentials by default and provides hardened defaults for every security boundary.
+
+### Key Management
+
+| Env Var | Purpose |
+|---------|---------|
+| `ENVFORGE_AGE_KEY` | Raw age identity key for CI/headless environments. Takes highest priority over all other key sources. |
+| `ENVFORGE_AGE_KEY_FILE` | Path to alternative age key file. Overrides default `~/.config/envforge/age.key`. |
+
+**Recovery key:** A second age keypair is generated at `~/.config/envforge/age-recovery.key` on first run. Store this offline — without it, losing your primary key means permanent data loss.
+
+### Sync Encryption Policy
+
+Sync snapshots use `encryption_policy` in `sync-config.toml`:
+
+```toml
+[sync]
+encryption_policy = "mandatory"  # reject plaintext snapshots (default)
+# encryption_policy = "migration-until 2027-01-01T00:00:00Z"  # auto-hardens after deadline
+```
+
+Use `--force-migration` to bypass the deadline during migration windows.
+
+### Fence Multi-Tool Propagation
+
+```bash
+envforge fence                    # create .envforgeignore (base rule set)
+envforge fence apply --tool aider # propagate to a specific AI tool
+envforge fence apply --tool cursor
+envforge fence apply --tool copilot
+```
+
+**Supported tools:** Cursor, Claude, Copilot, Aider, Windsurf, Continue. Uses symlinks on Unix (auto-updating), copies on Windows.
+
+### ARGV Protection
+
+`ENVFORGE_UNSAFE_ARGV` now requires a named provider allowlist:
+
+```bash
+ENVFORGE_UNSAFE_ARGV=vault,aws-ssm envforge get SECRET  # per-provider
+ENVFORGE_UNSAFE_ARGV=* envforge get SECRET               # all (audited at Critical)
+```
+
+The old `ENVFORGE_UNSAFE_ARGV=1` format is rejected. Only available in debug builds.
+
+### Volatile Mode
+
+Volatile mode is **On by default** with a 5-minute TTL. Credentials auto-clear from memory after expiry. Use `envforge session start` to re-authenticate. Strict mode requires full re-auth.
 
 ## Installation
 
@@ -496,8 +547,8 @@ envforge log [KEY] [-n N]                # View change history
 envforge config                          # Show current configuration
 envforge backup list                     # List available backups
 envforge backup restore FILE             # Restore from backup
-envforge completions zsh|bash|fish|kiro|fig  # Generate shell completions
-envforge completions kiro --install          # Install to correct system path
+envforge completions zsh|bash|fish|kiro|fig|carapace|inshellisense  # Generate shell completions
+envforge completions zsh --install    # Install to correct system path
 envforge man [COMMAND]                   # Built-in man pages (offline)
 ```
 
@@ -1441,6 +1492,12 @@ kiro-cli restart
 
 # Fig / Amazon Q
 envforge completions fig --install
+
+# Carapace — YAML spec to ~/.config/carapace/specs/envforge.yaml
+envforge completions carapace --install
+
+# Inshellisense — Fig spec (auto-detected from ~/.fig/autocomplete/build/)
+envforge completions inshellisense --install
 ```
 
 <details>
@@ -1470,6 +1527,14 @@ envforge completions kiro > ~/.kiro/specs/envforge.js
 kiro-cli settings autocomplete.devCompletionsFolder "$HOME/.kiro/specs"
 kiro-cli settings autocomplete.developerMode true
 kiro-cli restart
+
+# Carapace (manual)
+mkdir -p ~/.config/carapace/specs
+envforge completions carapace > ~/.config/carapace/specs/envforge.yaml
+
+# Inshellisense (manual)
+envforge completions inshellisense > ~/.fig/autocomplete/build/envforge.js
+# inshellisense auto-detects specs from ~/.fig/autocomplete/build/
 ```
 </details>
 

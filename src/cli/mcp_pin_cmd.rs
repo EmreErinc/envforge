@@ -500,12 +500,11 @@ fn ide_binary(ide: &str) -> Option<&'static str> {
 }
 
 pub fn cmd_launch(ide: &str, args: &[String], lockfile_override: Option<&PathBuf>) -> CmdResult {
-    let binary = match ide_binary(ide) {
-        Some(b) => b,
-        None => {
-            eprintln!("unknown IDE '{ide}'; supported: claude-code, cursor");
-            std::process::exit(2);
-        }
+    let binary = if let Some(b) = ide_binary(ide) {
+        b
+    } else {
+        eprintln!("unknown IDE '{ide}'; supported: claude-code, cursor");
+        std::process::exit(2);
     };
 
     let path = lockfile_path(lockfile_override);

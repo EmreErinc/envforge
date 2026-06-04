@@ -80,7 +80,8 @@ pub fn format_text_edits(content: &str) -> Vec<TextEdit> {
 fn env_line_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"^(\s*)((?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)$").unwrap()
+        Regex::new(r"^(\s*)((?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)$")
+            .expect("hardcoded env line regex is valid")
     })
 }
 

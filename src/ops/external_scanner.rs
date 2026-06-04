@@ -220,13 +220,13 @@ async fn run_scanner_cmd(
                 .map(|l| l.to_string())
                 .collect();
 
-            if !lines.is_empty() {
+            if lines.is_empty() {
+                None
+            } else {
                 Some(ScannerFinding {
                     scanner_name: name.to_string(),
                     findings: lines,
                 })
-            } else {
-                None
             }
         }
         _ => None,

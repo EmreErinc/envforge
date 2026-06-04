@@ -142,6 +142,11 @@ impl SecretProvider for MyProvider {
     fn install_hint(&self) -> &str { "https://example.com/install" }
     fn credential_fields(&self) -> Vec<&str> { vec!["api_key"] }
 
+    // REQUIRED in v0.8.0+ — declares encryption posture (compiler-enforced)
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
+    }
+
     fn build_provider_env(&self, credentials: &HashMap<String, String>) -> Vec<(&'static str, String)> {
         let mut env = Vec::new();
         if let Some(key) = credentials.get("api_key") {
@@ -238,6 +243,67 @@ fn parse_doppler_output(output: &str) -> Result<Vec<(String, String)>, SecretsEr
 - **1 shared function** `env_refs_from_env()`
 
 **Result:** ~80% LOC reduction in provider-specific code while maintaining identical behavior.
+
+## Security Trait Methods (v0.8.0+)
+
+EnvForge v0.8.0 added mandatory credential encryption and several security-focused trait methods. Every provider MUST implement these correctly.
+
+### `encryption_mode()` — Required
+
+```rust
+fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+    CredentialEncryptionPolicy::Mandatory
+}
+```
+
+**All providers must return `Mandatory`.** The `NotSupported` variant requires an explicit technical justification, security reviewer name, and auto-re-evaluation timer. There is no `Default` implementation — forgetting to implement this method is a compile error.
+
+### `rotation_policy()` — Optional
+
+```rust
+fn rotation_policy(&self) -> Option<RotationPolicy> {
+    Some(RotationPolicy {
+        interval_days: 90,
+        automatable: true,
+        instructions: Some("Run: envforge secrets config <provider> --rotate".into()),
+    })
+}
+```
+
+`RotationPolicy { interval_days, automatable, instructions }` tells EnvForge when and how to rotate this provider's credentials. Return `None` if rotation is not applicable.
+
+### `gpg_fingerprint()` — Optional
+
+```rust
+fn gpg_fingerprint(&self) -> Option<&str> {
+    Some("6A26...") // Full GPG key fingerprint
+}
+```
+
+Used by `envforge provider verify` to validate binary integrity at registration time. Return `None` if the provider does not publish signed binaries.
+
+### `signature_url()` — Optional
+
+```rust
+fn signature_url(&self) -> Option<String> {
+    Some("https://releases.hashicorp.com/vault/1.18.0/vault_1.18.0_linux_amd64.zip.sig".into())
+}
+```
+
+URL to the provider's detached signature file. Used by `verify_gpg_signature()`.
+
+### Compile-Time Enforcement
+
+The `encryption_mode()` method has **no default body** in the `SecretProvider` trait. A provider that fails to implement it will not compile. This is by design — the compiler is the security auditor.
+
+```rust
+// This WON'T COMPILE — encryption_mode() is required
+impl SecretProvider for MyNewProvider {
+    fn name(&self) -> &str { "my-provider" }
+    fn credential_fields(&self) -> Vec<&str> { vec!["token"] }
+    // ERROR: missing encryption_mode()
+}
+```
 
 ## Testing
 

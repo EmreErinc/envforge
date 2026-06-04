@@ -214,36 +214,31 @@ fn cmd_sync_init(
         }
     }
 
-    match remote {
-        Some(url) => {
-            let has_snapshot = init_from_remote(&sync_path, url, &machine_id)?;
-            if json {
-                println!(
-                    "{}",
-                    json!({"version": 1, "initialized": true, "remote": url, "machine_id": machine_id, "existing_snapshot": has_snapshot})
-                );
-            } else {
-                println!("Sync initialized from remote: {}", url);
-                println!("Machine ID: {}", machine_id);
-                if has_snapshot {
-                    println!("Existing snapshot found. Run `envforge sync pull` to apply.");
-                }
+    if let Some(url) = remote {
+        let has_snapshot = init_from_remote(&sync_path, url, &machine_id)?;
+        if json {
+            println!(
+                "{}",
+                json!({"version": 1, "initialized": true, "remote": url, "machine_id": machine_id, "existing_snapshot": has_snapshot})
+            );
+        } else {
+            println!("Sync initialized from remote: {}", url);
+            println!("Machine ID: {}", machine_id);
+            if has_snapshot {
+                println!("Existing snapshot found. Run `envforge sync pull` to apply.");
             }
         }
-        None => {
-            init_fresh(&sync_path, &machine_id)?;
-            if json {
-                println!(
-                    "{}",
-                    json!({"version": 1, "initialized": true, "machine_id": machine_id})
-                );
-            } else {
-                println!("Sync initialized at: {}", sync_path.display());
-                println!("Machine ID: {}", machine_id);
-                println!(
-                    "No remote configured. Use `envforge sync init --remote <url>` to add one."
-                );
-            }
+    } else {
+        init_fresh(&sync_path, &machine_id)?;
+        if json {
+            println!(
+                "{}",
+                json!({"version": 1, "initialized": true, "machine_id": machine_id})
+            );
+        } else {
+            println!("Sync initialized at: {}", sync_path.display());
+            println!("Machine ID: {}", machine_id);
+            println!("No remote configured. Use `envforge sync init --remote <url>` to add one.");
         }
     }
 
@@ -342,7 +337,11 @@ fn cmd_sync_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         .cloned()
         .collect();
 
-    let snapshot = read_snapshot(&sync_path.join("snapshot.toml"))?;
+    let snapshot = read_snapshot(
+        &sync_path.join("snapshot.toml"),
+        &SyncEncryptionPolicy::MigrationUntil("2099-01-01T00:00:00Z".into()),
+        false,
+    )?;
     let status = diff::compute_status(&sync_entries, &snapshot.entries);
     let diff_result = diff::compute_diff(&sync_entries, &snapshot.entries);
 
@@ -397,11 +396,11 @@ fn cmd_sync_mark(
     let result = if all {
         marking::mark_all(&config_path, sync, &available_keys)?
     } else {
-        let key = key.unwrap();
+        let key = key.as_ref().expect("key checked for None above");
         if key.contains('*') || key.contains('?') {
             marking::mark_by_pattern(&config_path, key, sync, &available_keys)?
         } else {
-            let keys = vec![key.to_string()];
+            let keys = vec![(*key).to_string()];
             if sync {
                 marking::mark_sync(&config_path, &keys, &available_keys)?
             } else {

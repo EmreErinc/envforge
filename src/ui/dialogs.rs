@@ -41,12 +41,12 @@ pub fn render_edit_popup(f: &mut Frame, app: &App) {
     let text = vec![
         Line::from(vec![
             Span::styled("Key: ", Style::default().fg(Color::Yellow)),
-            Span::raw(key_name),
+            Span::raw(super::sanitize::sanitize_for_display(key_name)),
         ]),
         Line::from(""),
         Line::from(vec![
             Span::styled("Value: ", Style::default().fg(Color::Yellow)),
-            Span::raw(app.input.value()),
+            Span::raw(super::sanitize::sanitize_for_display(app.input.value())),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -109,7 +109,9 @@ pub fn render_add_popup(f: &mut Frame, app: &App, field: &AddField) {
         Line::from(""),
         Line::from(vec![
             Span::styled("Key:   ", key_style),
-            Span::raw(app.add_key_input.value()),
+            Span::raw(super::sanitize::sanitize_for_display(
+                app.add_key_input.value(),
+            )),
             if *field == AddField::Key {
                 Span::styled("│", Style::default().fg(Color::Cyan))
             } else {
@@ -119,7 +121,9 @@ pub fn render_add_popup(f: &mut Frame, app: &App, field: &AddField) {
         Line::from(""),
         Line::from(vec![
             Span::styled("Value: ", value_style),
-            Span::raw(app.add_value_input.value()),
+            Span::raw(super::sanitize::sanitize_for_display(
+                app.add_value_input.value(),
+            )),
             if *field == AddField::Value {
                 Span::styled("│", Style::default().fg(Color::Cyan))
             } else {
@@ -224,7 +228,7 @@ pub fn render_path_input(f: &mut Frame, app: &App, title: &str, prompt: &str) {
         Line::from(Span::styled(prompt, Style::default().fg(Color::Yellow))),
         Line::from(""),
         Line::from(vec![
-            Span::raw(app.input.value()),
+            Span::raw(super::sanitize::sanitize_for_display(app.input.value())),
             Span::styled("│", Style::default().fg(Color::Cyan)),
         ]),
         Line::from(""),

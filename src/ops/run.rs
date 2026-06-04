@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -71,19 +72,7 @@ pub fn collect_env(run_config: &RunConfig) -> Result<HashMap<String, String>, Ru
     }
 
     // Layer 3: Profile file(s)
-    if !run_config.profiles.is_empty() {
-        // Multi-profile mode: iterate each profile, last wins
-        for profile_name in &run_config.profiles {
-            let profile = config.profiles.entries.get(profile_name).ok_or_else(|| {
-                let available = config.profiles.profile_names().join(", ");
-                RunError::ProfileNotFound(profile_name.to_string(), available)
-            })?;
-            let profile_path = shellexpand(&profile.file);
-            if profile_path.exists() {
-                merge_shell_file(&mut env, &profile_path);
-            }
-        }
-    } else {
+    if run_config.profiles.is_empty() {
         // Single-profile mode (default)
         let profile_name = run_config
             .profile
@@ -94,6 +83,18 @@ pub fn collect_env(run_config: &RunConfig) -> Result<HashMap<String, String>, Ru
             let profile = config.profiles.entries.get(profile_name).ok_or_else(|| {
                 let available = config.profiles.profile_names().join(", ");
                 RunError::ProfileNotFound(profile_name.to_string(), available)
+            })?;
+            let profile_path = shellexpand(&profile.file);
+            if profile_path.exists() {
+                merge_shell_file(&mut env, &profile_path);
+            }
+        }
+    } else {
+        // Multi-profile mode: iterate each profile, last wins
+        for profile_name in &run_config.profiles {
+            let profile = config.profiles.entries.get(profile_name).ok_or_else(|| {
+                let available = config.profiles.profile_names().join(", ");
+                RunError::ProfileNotFound(profile_name.clone(), available)
             })?;
             let profile_path = shellexpand(&profile.file);
             if profile_path.exists() {
@@ -327,6 +328,18 @@ fn resolve_with_fallback(
         .get(&secret_ref.provider)
         .map_err(|e| e.to_string())?;
     let credentials = read_all_credentials(&secret_ref.provider).map_err(|e| e.to_string())?;
+
+    crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+        source: crate::ops::monitor::EventSource::Provider,
+        key: Some(secret_ref.key.clone()),
+        message: format!(
+            "run: resolved secret ref '{}' from provider '{}'",
+            secret_ref.key, secret_ref.provider
+        ),
+        timestamp: chrono::Utc::now(),
+        severity: crate::ops::monitor::SecuritySeverity::Info,
+    });
+
     resolve_reference(secret_ref, provider, &credentials).map_err(|e| e.to_string())
 }
 

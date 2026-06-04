@@ -1,4 +1,4 @@
-# EnvForge API Reference v0.7.7
+# EnvForge API Reference v0.7.8
 
 > Rust library reference for integrating envforge types and functions into your own tools.  
 > IDE extension authors, CI/CD tool builders, custom shell managers — this is your dictionary.
@@ -483,6 +483,64 @@ Per-line AI-exposure classification used to render the gutter heatmap and file-e
 Levels: `red` (plaintext, no protection) → `amber` (sensitive, AI-guard will redact) → `green` (fence active or no exposure). `canary: true` marks lines that have a registered tripwire — plugins render a shield glyph instead of a dot.
 
 Concurrency: backend stores docs / schema / managed-vars in `RwLock<HashMap>`. Fence status is probed live on each exposure request — small disk-stat cost, never out of date.
+
+---
+
+## Security API (v0.8.0+)
+
+EnvForge v0.8.0+ introduces compile-time security invariants and new public API functions.
+
+### `CredentialEncryptionPolicy`
+
+```rust
+pub enum CredentialEncryptionPolicy {
+    Mandatory,
+    NotSupported { reason: String, reviewed_by: Option<String>, re_evaluate_after_secs: u64 },
+}
+```
+
+Every `SecretProvider` must return this via `encryption_mode()`. No `Default` impl — explicit choice required.
+
+### `SyncEncryptionPolicy`
+
+```rust
+pub enum SyncEncryptionPolicy {
+    Mandatory,
+    MigrationUntil(String),  // ISO-8601 datetime
+}
+```
+
+Controls encryption enforcement for sync snapshots. `MigrationUntil` auto-hardens after the deadline. Use `is_required()` to check current state; `is_required_with_override(force_migration)` to respect `--force-migration`.
+
+### `redact_secrets_in_message(msg: &str, secrets: &[String]) -> String`
+
+Centralized LSP secret redaction. Sorts secrets by length descending (longest first) to prevent partial-match escapes. Skips sub-8-char strings to avoid false positives.
+
+### `verify_gpg_signature(binary: &Path, sig_path: &Path, fingerprint: &str) -> Result<(), SecretsError>`
+
+Validates a provider binary against its GPG detached signature. Calls system `gpg` binary. Returns `Ok(())` on GOODSIG + fingerprint match.
+
+### `volatile_remaining(mode: &VolatileMode) -> Option<Duration>`
+
+Returns the remaining time before volatile session expiry. `None` when volatile mode is off or no session is active. Zero when expired.
+
+### `apply_tool(project_dir: &Path, tool: &str, dry_run: bool) -> Result<PathBuf, OpError>`
+
+Propagate fence rules from `.envforgeignore` to a specific AI tool's ignore file. Supported tools: `cursor`, `claude`, `copilot`, `aider`, `windsurf`, `continue`.
+
+### `RotationPolicy`
+
+```rust
+pub struct RotationPolicy {
+    pub interval_days: u32,
+    pub automatable: bool,
+    pub instructions: Option<String>,
+}
+```
+
+### Audit Events
+
+New `EventSource::KeyProvisioning` variant emitted when `ENVFORGE_AGE_KEY` is used for CI/headless key provisioning. Allows audit tooling to distinguish ephemeral env-var keys from persistent file-based keys.
 
 ---
 

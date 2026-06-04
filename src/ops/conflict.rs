@@ -30,14 +30,14 @@ pub fn check_conflict(shell_file: &ShellFile) -> Option<Conflict> {
     let current_content = std::fs::read(&shell_file.path).ok()?;
     let current_hash = compute_hash(&current_content);
 
-    if current_hash != shell_file.hash {
+    if current_hash == shell_file.hash {
+        None
+    } else {
         Some(Conflict {
             path: shell_file.path.clone(),
             stored_hash: shell_file.hash,
             current_hash,
         })
-    } else {
-        None
     }
 }
 

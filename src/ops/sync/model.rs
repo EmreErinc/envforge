@@ -2,6 +2,130 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+// ─── Sync Encryption Policy ──────────────────────────────────
+
+/// Encryption posture for cross-machine sync snapshots.
+///
+/// Replaces the old `require_encryption: bool` (which was a downgrade
+/// attack surface — an attacker who controls the sync config file could
+/// flip it to `false` and push plaintext snapshots).  The sum type makes
+/// the intent explicit and compiler-verifiable.
+///
+/// **Backward compatibility:** Old boolean values (`true`/`false`) in
+/// TOML configs are accepted via custom deserializer and mapped to the
+/// equivalent variant.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum SyncEncryptionPolicy {
+    /// Encryption is mandatory — plaintext (unencrypted) snapshot payloads
+    /// are rejected with [`SyncError::EncryptionRequired`].
+    #[default]
+    Mandatory,
+
+    /// Encryption is required but temporarily relaxed for migration from
+    /// pre-encryption snapshots.  The policy **auto-reverts to Mandatory**
+    /// after the ISO-8601 datetime, preventing the "permanent bypass" bug.
+    MigrationUntil(String),
+}
+
+impl serde::Serialize for SyncEncryptionPolicy {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Mandatory => serializer.serialize_str("mandatory"),
+            Self::MigrationUntil(datetime) => {
+                serializer.serialize_str(&format!("migration-until {}", datetime))
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SyncEncryptionPolicy {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de;
+
+        struct PolicyVisitor;
+
+        impl de::Visitor<'_> for PolicyVisitor {
+            type Value = SyncEncryptionPolicy;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a boolean or a string (\"mandatory\" | \"migration-until\")")
+            }
+
+            fn visit_bool<E: de::Error>(self, v: bool) -> Result<Self::Value, E> {
+                // Old format: require_encryption = true/false
+                if v {
+                    Ok(SyncEncryptionPolicy::Mandatory)
+                } else {
+                    // false → MigrationUntil with a far-future date (effectively never expires)
+                    Ok(SyncEncryptionPolicy::MigrationUntil(
+                        "2099-01-01T00:00:00Z".into(),
+                    ))
+                }
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                match v {
+                    "mandatory" => Ok(SyncEncryptionPolicy::Mandatory),
+                    s if s.starts_with("migration-until") => {
+                        // "migration-until <datetime>"
+                        let datetime = s
+                            .strip_prefix("migration-until")
+                            .unwrap_or(s)
+                            .trim()
+                            .to_string();
+                        Ok(SyncEncryptionPolicy::MigrationUntil(datetime))
+                    }
+                    _ => Err(de::Error::unknown_variant(
+                        v,
+                        &["mandatory", "migration-until"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(PolicyVisitor)
+    }
+}
+
+impl SyncEncryptionPolicy {
+    /// `true` when encryption is currently required.
+    ///
+    /// When `force_migration` is `true`, the operator has explicitly
+    /// requested a bypass (via `--force-migration` CLI flag).  This
+    /// should only be used during migration windows and is audited.
+    pub fn is_required(&self) -> bool {
+        match self {
+            Self::Mandatory => true,
+            Self::MigrationUntil(until) => {
+                // If the datetime string can be parsed and is in the past,
+                // encryption is now required.
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(until) {
+                    dt <= chrono::Utc::now()
+                } else {
+                    // Unparseable datetime — treat as Mandatory (fail-safe).
+                    true
+                }
+            }
+        }
+    }
+
+    /// `true` when encryption is currently required, respecting an
+    /// explicit `--force-migration` operator override.
+    pub fn is_required_with_override(&self, force_migration: bool) -> bool {
+        if force_migration {
+            log::warn!(
+                "sync encryption policy bypassed with --force-migration. \
+                 Re-enable Mandatory as soon as migration is complete."
+            );
+            return false;
+        }
+        self.is_required()
+    }
+}
+
 // ─── Error Types ─────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
@@ -12,7 +136,7 @@ pub enum SyncError {
     #[error("git version {found} is too old. Minimum required: {required}")]
     GitVersionTooOld { found: String, required: String },
 
-    #[error("git command failed: {command}\n{stderr}")]
+    #[error("git command failed: {command}")]
     GitCommandFailed { command: String, stderr: String },
 
     #[error("push rejected: remote has changes. Run `envforge sync pull` first")]
@@ -39,7 +163,7 @@ pub enum SyncError {
     #[error("failed to parse sync config: {message}")]
     ConfigParseError { message: String },
 
-    #[error("I/O error at '{path}': {source}")]
+    #[error("I/O error: {source}")]
     IoError {
         path: PathBuf,
         source: std::io::Error,
@@ -67,6 +191,9 @@ pub enum SyncError {
 
     #[error("encryption failed: {message}")]
     EncryptionFailed { message: String },
+
+    #[error("sync.encryption_policy is Mandatory but received plaintext snapshot")]
+    EncryptionRequired,
 }
 
 // ─── Snapshot Types ──────────────────────────────────────────
@@ -122,12 +249,32 @@ pub struct SyncSettings {
     pub conflict_strategy: ConflictStrategy,
     #[serde(default = "default_encrypted")]
     pub encrypted: bool,
+
+    /// Encryption policy for sync snapshots.
+    ///
+    /// **Default:** `Mandatory` — plaintext snapshots are rejected.
+    /// The old `require_encryption: true/false` bool is accepted via
+    /// serde alias for backward compatibility.
+    ///
+    /// `MigrationUntil("2026-07-01T00:00:00Z")` allows plaintext
+    /// snapshots only until the given UTC datetime, after which
+    /// Mandatory enforcement auto-activates.  This prevents the
+    /// "permanent bypass" bug where a migration flag is never re-enabled.
+    #[serde(default, alias = "require_encryption")]
+    pub encryption_policy: SyncEncryptionPolicy,
+
     /// If true, every pulled commit must carry a verifiable git signature
     /// (`git verify-commit HEAD`). Pulls fail closed if the check fails.
     /// Default false for backwards compatibility; recommended on for
     /// untrusted-remote scenarios.
     #[serde(default)]
     pub verify_signatures: bool,
+
+    /// If true, only SSH-based remote URLs are accepted. HTTP/HTTPS URLs
+    /// are rejected. Closes the MITM-on-HTTP transport vector (T-005).
+    /// Default false for backwards compatibility.
+    #[serde(default)]
+    pub enforce_ssh: bool,
 }
 
 fn default_encrypted() -> bool {
@@ -268,7 +415,9 @@ impl SyncConfig {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
                 encrypted: true,
+                encryption_policy: SyncEncryptionPolicy::Mandatory,
                 verify_signatures: false,
+                enforce_ssh: false,
             },
             manifest: ManifestConfig::default(),
         }

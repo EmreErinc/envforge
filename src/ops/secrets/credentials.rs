@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,25 @@ use crate::ops::encrypt::{decrypt_value, encrypt_value, is_encrypted};
 use super::provider::SecretsError;
 
 const CREDENTIALS_FILE: &str = "credentials.toml";
+
+// ─── In-Memory Credential Registry ─────────────────────────
+//
+// Tracks which providers currently have decrypted credentials loaded in memory.
+// Prevents the re-decrypt bug where clear_all_credentials() re-decrypted secrets
+// from disk just to zeroize them, creating a second copy of secrets in memory.
+//
+// Invariant: no disk I/O on clear. Registry operations are lightweight flags.
+// Actual zeroize is handled by Credentials::drop when callers release their guard.
+
+static LOADED_PROVIDERS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn mark_loaded(provider: &str) {
+    if let Ok(mut reg) = LOADED_PROVIDERS.lock() {
+        if !reg.iter().any(|p| p == provider) {
+            reg.push(provider.to_string());
+        }
+    }
+}
 
 /// Encrypted credential store for secret manager providers.
 /// Each provider's credentials are stored as encrypted key-value pairs.
@@ -59,8 +79,21 @@ impl Credentials {
 
     /// Consume the wrapper without zeroizing — only use when the caller
     /// will manage zeroization itself. Almost always prefer `Deref`.
+    #[deprecated(
+        since = "0.8.0",
+        note = "into_inner() defeats the Drop-zeroize guarantee. Use Deref for borrows, or wrap with Credentials::new and let Drop handle zeroize."
+    )]
     pub fn into_inner(mut self) -> HashMap<String, String> {
         std::mem::take(&mut self.inner)
+    }
+
+    /// Call a closure with a borrow of the inner map, then auto-zeroize on drop.
+    /// The caller never owns the HashMap — Credentials retains ownership and handles cleanup.
+    pub fn with_map<T>(
+        &self,
+        f: impl FnOnce(&HashMap<String, String>) -> Result<T, SecretsError>,
+    ) -> Result<T, SecretsError> {
+        f(&self.inner)
     }
 }
 
@@ -132,12 +165,14 @@ pub fn read_credential(provider: &str, key: &str) -> Result<String, SecretsError
 
 /// Read all credentials for a provider (decrypted).
 ///
-/// **Note:** the returned `HashMap` contains plaintext credentials. Callers
-/// MUST zeroize the map after use — either by manually calling
-/// `Zeroize::zeroize()` on each value, or (preferred) by using
-/// [`with_credentials`] which handles cleanup automatically. New code should
-/// prefer [`read_all_credentials_zeroizing`] which returns a [`Credentials`]
-/// wrapper that wipes values on drop.
+/// **DEPRECATED:** Returns a bare `HashMap<String, String>` that is NOT
+/// automatically zeroized. Use [`read_all_credentials_zeroizing`] which returns a
+/// [`Credentials`] wrapper that zeroizes all values on Drop.
+#[deprecated(
+    since = "0.8.0",
+    note = "Use read_all_credentials_zeroizing which returns a Credentials guard with auto-zeroize on Drop."
+)]
+#[allow(deprecated)]
 pub fn read_all_credentials(provider: &str) -> Result<HashMap<String, String>, SecretsError> {
     Ok(read_all_credentials_zeroizing(provider)?.into_inner())
 }
@@ -167,42 +202,49 @@ pub fn read_all_credentials_zeroizing(provider: &str) -> Result<Credentials, Sec
         decrypted.insert(key.clone(), value);
     }
 
+    crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+        source: crate::ops::monitor::EventSource::Provider,
+        key: Some(provider.to_string()),
+        message: format!(
+            "provider credentials loaded for '{}' ({} fields)",
+            provider,
+            decrypted.len()
+        ),
+        timestamp: chrono::Utc::now(),
+        severity: crate::ops::monitor::SecuritySeverity::Info,
+    });
+
+    mark_loaded(provider);
+
     Ok(Credentials::new(decrypted))
 }
 
-/// Call a closure with decrypted credentials, then zeroize the memory.
-/// Prevents secrets from persisting in memory after use.
+/// Call a closure with decrypted credentials, then auto-zeroize on drop.
+/// Uses the zeroizing Credentials wrapper — no manual zeroize needed.
 pub fn with_credentials<T>(
     provider: &str,
     f: impl FnOnce(&HashMap<String, String>) -> Result<T, SecretsError>,
 ) -> Result<T, SecretsError> {
-    let mut creds = read_all_credentials(provider)?;
-    let result = f(&creds);
-    // Zeroize all credential values in the map
-    for value in creds.values_mut() {
-        value.zeroize();
-    }
-    creds.clear();
-    result
+    let creds = read_all_credentials_zeroizing(provider)?;
+    creds.with_map(f)
 }
 
-/// Clear decrypted credentials from memory for a provider.
-/// Call after credential operations to prevent in-memory persistence.
+/// Clear in-memory credentials for a provider — no disk I/O.
+/// Only marks the registry; the actual zeroize happens when calling code
+/// releases its Credentials guard(s) via Drop. Does NOT re-read or
+/// re-decrypt the credential file from disk.
 pub fn clear_provider_credentials(provider: &str) {
-    if let Ok(mut creds) = read_all_credentials(provider) {
-        for value in creds.values_mut() {
-            value.zeroize();
-        }
-        creds.clear();
+    if let Ok(mut reg) = LOADED_PROVIDERS.lock() {
+        reg.retain(|p| p != provider);
     }
 }
 
-/// Clear all decrypted credentials from all providers.
+/// Clear all in-memory credential registrations — no disk I/O.
+/// Only clears the registry; actual zeroize is handled by Credentials::drop.
+/// Does NOT re-read or re-decrypt the credential file from disk.
 pub fn clear_all_credentials() {
-    if let Ok(providers) = list_configured_providers() {
-        for provider in &providers {
-            clear_provider_credentials(provider);
-        }
+    if let Ok(mut reg) = LOADED_PROVIDERS.lock() {
+        reg.clear();
     }
 }
 
@@ -392,6 +434,50 @@ pub fn store_credential_with_ttl(
     Ok(())
 }
 
+/// Store the SHA-256 hash of a provider's binary in the _meta section.
+/// Key format: `binary_{name}_sha256` (e.g., `binary_vault_sha256`).
+pub fn store_binary_hash(
+    provider: &str,
+    binary_name: &str,
+    hash: &str,
+) -> Result<(), SecretsError> {
+    let path = credentials_path()?;
+    let mut store = load_store(&path)?;
+
+    let meta = meta_section(provider);
+    let key = binary_hash_key(binary_name);
+    store
+        .providers
+        .entry(meta)
+        .or_default()
+        .insert(key, hash.to_string());
+
+    save_store(&path, &store)
+}
+
+/// Read a stored binary hash for a provider's binary name.
+/// Returns `None` if no hash has been stored (pin not yet configured).
+pub fn read_binary_hash(provider: &str, binary_name: &str) -> Result<Option<String>, SecretsError> {
+    let path = credentials_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let store = load_store(&path)?;
+
+    let meta = meta_section(provider);
+    let key = binary_hash_key(binary_name);
+    Ok(store
+        .providers
+        .get(&meta)
+        .and_then(|m| m.get(&key))
+        .cloned())
+}
+
+/// Key name for a binary hash entry in the _meta section.
+fn binary_hash_key(binary_name: &str) -> String {
+    format!("binary_{}_sha256", binary_name)
+}
+
 /// Check if a credential has expired.
 /// Returns `Ok(Some(expired_at_string))` if the credential has expired,
 /// `Ok(None)` if it has no TTL or has not expired yet.
@@ -478,6 +564,67 @@ pub fn format_ttl_remaining(seconds: i64) -> String {
     } else {
         format!("{}m remaining", minutes)
     }
+}
+
+pub fn provider_audit() -> Result<Vec<ProviderAuditEntry>, SecretsError> {
+    let path = credentials_path()?;
+    let store = load_store(&path)?;
+    let configured = list_configured_providers()?;
+    let key_exists = crate::ops::encrypt::age_key_path()
+        .map(|p| p.exists())
+        .unwrap_or(false);
+
+    let has_store_file = path.exists();
+    let permissions = if has_store_file {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::metadata(&path)
+                .map(|m| format!("{:o}", m.permissions().mode() & 0o777))
+                .unwrap_or_else(|_| "unknown".into())
+        }
+        #[cfg(not(unix))]
+        {
+            "unknown".to_string()
+        }
+    } else {
+        "n/a".to_string()
+    };
+
+    let mut entries = Vec::new();
+    for provider in &configured {
+        let fields = store.providers.get(provider.as_str()).cloned();
+        let encrypted_count = fields
+            .as_ref()
+            .map(|f| f.values().filter(|v| is_encrypted(v)).count())
+            .unwrap_or(0);
+        let total_count = fields.as_ref().map(|f| f.len()).unwrap_or(0);
+
+        entries.push(ProviderAuditEntry {
+            provider: provider.clone(),
+            configured: true,
+            credential_fields: total_count,
+            encrypted_fields: encrypted_count,
+            has_ttl: store.providers.contains_key(&format!("{}._meta", provider)),
+            store_file_exists: has_store_file,
+            store_permissions: permissions.clone(),
+            age_key_exists: key_exists,
+        });
+    }
+
+    Ok(entries)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProviderAuditEntry {
+    pub provider: String,
+    pub configured: bool,
+    pub credential_fields: usize,
+    pub encrypted_fields: usize,
+    pub has_ttl: bool,
+    pub store_file_exists: bool,
+    pub store_permissions: String,
+    pub age_key_exists: bool,
 }
 
 #[cfg(test)]

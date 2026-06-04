@@ -5,11 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-06-03
 
-### Added
+### Security — Pre-Launch Hardening
 
-- _Nothing yet — describe next-version work in this section. MCP Supply-Chain Integrity coverage remains in place; no new audit events for this slot._
+A systematic security audit and hardening pass across credential encryption, sync transport,
+volatile mode, and fence completeness. All security-sensitive booleans migrated to exhaustive
+sum types to make the safe path the only path that compiles.
+
+#### Credential Encryption Policy (Launch-Blocker Fix)
+
+- **New `CredentialEncryptionPolicy` enum:** `Mandatory | NotSupported { reason, reviewed_by, re_evaluate_after_secs }`. The old permissive `Reporting` variant is **deleted** — no compile-time `Default`, no silent plaintext pass-through. Every provider MUST explicitly declare its encryption posture via a required trait method; forgetting to implement `encryption_mode()` is a compile error.
+- All 13 secret providers (`vault`, `aws-ssm`, `azure`, `gcp`, `onepassword`, `doppler`, `infisical`, `bitwarden`, `conjur`, `keeper`, `sops`, `pass`, `akeyless`) implement `encryption_mode() -> CredentialEncryptionPolicy::Mandatory`.
+- `NotSupported` escape hatch requires: technical justification (≥16 chars), security reviewer name, and a `re_evaluate_after_secs` auto-expiry timer to prevent permanent bypass.
+- `provider_audit()` now surfaces credential encryption posture per provider.
+
+#### Key Management: CI / Headless Support
+
+- **`ENVFORGE_AGE_KEY`** env var — raw age identity key content for CI pipelines and headless environments. Takes highest precedence over all other key sources.
+- **`ENVFORGE_AGE_KEY_FILE`** env var — path to an alternative age key file. Takes precedence over the default `~/.config/envforge/age.key`.
+- **Recovery key generation** — a second age keypair (`age-recovery.key`) is generated alongside the primary key on first run. Users are warned to store it offline. Losing the primary key without the recovery key means permanent credential data loss.
+
+#### Boolean-to-Sum-Type Migrations (Security by Construction)
+
+- **Sync `require_encryption: bool` → `SyncEncryptionPolicy { Mandatory, MigrationUntil(String) }`.** The `MigrationUntil` variant accepts an ISO-8601 datetime after which Mandatory enforcement auto-activates, preventing the "permanent bypass" bug where a migration flag was never re-enabled. Old `true`/`false` configs accepted via serde alias for backward compatibility.
+- **Volatile `enabled: bool` → `VolatileMode { Off, On { ttl_seconds }, Strict { ttl_seconds, reauth } }`.** Default changed from `Off` to `On { ttl_seconds: 300 }` — secure by default. `Strict` variant requires re-authentication after volatile expiry.
+- **Fence `all_fenced: bool` → `FenceCompleteness { Complete, Partial(Vec<FenceFileStatus>) }`.** `Partial` carries the list of unfenced files so callers can surface actionable diagnostics. The `all_fenced` field is retained for backward compatibility.
+
+#### Security Invariant Tests
+
+- **`tests/encryption_invariant_tests.rs`** — 19 compile-time and runtime invariant tests proving the encryption posture holds forever:
+  - `VolatileMode::default()` is `On` (not `Off`) — regression anchor
+  - All 13 providers return `CredentialEncryptionPolicy::Mandatory`
+  - `SyncEncryptionPolicy` serde migration: old `true`/`false` deserialize correctly
+  - `MigrationUntil` enforcement: past dates require encryption, future dates don't, invalid dates fail-safe
+  - `ENVFORGE_AGE_KEY` resolution: empty rejected, invalid fails at encrypt-time
+  - `CredentialEncryptionPolicy::NotSupported` requires ≥16-char justification
+
+#### Migration Deadline UX
+
+- **`SyncEncryptionPolicy::is_required_with_override()`** — accepts an explicit `--force-migration` flag that allows operators to bypass the deadline during migration windows. Emits a WARN-level log with a reminder to re-enable Mandatory.
+- All `read_snapshot()` and `decrypt_snapshot()` callers pass `force_migration: false` by default. The `force_migration` flag is available at the CLI layer for operator override.
+
+#### ENVFORGE_UNSAFE_ARGV Hardening
+
+- The old `ENVFORGE_UNSAFE_ARGV=1` global bypass is **rejected**. Must now use `ENVFORGE_UNSAFE_ARGV=*` (all providers) or `ENVFORGE_UNSAFE_ARGV=vault,aws-ssm` (per-provider allowlist). Only available in debug builds (`#[cfg(debug_assertions)]`).
+- **New `is_unsafe_argv_allowed(provider)`** function for per-provider argv bypass gating. Invalid old `=1` format is rejected with a migration hint.
+- All `ENVFORGE_UNSAFE_ARGV` usage emits `Critical` severity audit events (was `Warn`). Provider name included in audit payload.
+
+#### Operational Hardening
+
+- **Volatile TTL UX:** New `volatile_remaining()` returns remaining duration before expiry. Expiry error message now includes the TTL value: `volatile session expired (TTL: 300s). Re-authenticate to continue.`
+- **CI key audit logging:** `KeyProvisioning` audit event emitted when `ENVFORGE_AGE_KEY` is used — enables audit tooling to distinguish ephemeral CI keys from persistent file-based keys.
+- **Recovery key first-run UX:** Visible `eprintln!` banner on first key generation — "STORE THIS FILE OFFLINE" with permanent data loss warning. No longer a silent `log::warn!`.
+- **Key rotation placeholder:** `rotation_policy() -> Option<RotationPolicy>` added to `SecretProvider` trait. `RotationPolicy { interval_days, automatable, instructions }` provides the structural foundation for future automated credential rotation.
+
+#### Risk Minimization — Acceptable Gaps Closed
+
+Remaining pre-launch gaps from the threat model addressed:
+
+- **LSP redaction utility:** `redact_secrets_in_message()` in `src/lsp/redact.rs` — centralized string-level secret redaction available to all LSP message handlers. Handles arbitrary secret patterns, sorts by length descending to prevent partial-match escapes, skips sub-8-char strings to avoid false positives.
+- **Audit log integrity:** HMAC-style hash chain was already implemented in `src/ops/audit/tamper.rs` (616 lines, `verify_integrity()`, `ChainState`). Residual risk marked resolved — gap was documentation, not implementation.
+- **Fence multi-tool propagation:** `KNOWN_TOOLS` registry (6 AI tools: Cursor, Claude, Copilot, Aider, Windsurf, Continue) + `apply_tool()` function. Uses symlinks on Unix (auto-updating) and file copies on Windows. New `envforge fence apply --tool <name>` subcommand.
+- **GPG signature verification:** `gpg_fingerprint()` and `signature_url()` trait methods on `SecretProvider` + `verify_gpg_signature()` helper. GPG verification at provider registration time; SHA-256 hash pinning at load time. Zero new dependencies — uses system `gpg` binary.
+- **Provider binary verification:** `verify_gpg_signature()` validates GOODSIG status and fingerprint match. Graceful fallback when `gpg` not installed.
+
+## [0.7.8] - 2026-05-21
+
+### Added — Carapace + Inshellisense Completions
+
+- `envforge completions carapace` generates YAML completion specs for the carapace multi-shell completion engine
+- `envforge completions inshellisense` generates Fig-format JS specs for Microsoft's IDE-style terminal autocomplete
+- `--install` flag auto-installs to correct paths: `~/.config/carapace/specs/` and `~/.fig/autocomplete/build/`
 
 ## [0.7.7] - 2026-05-20
 

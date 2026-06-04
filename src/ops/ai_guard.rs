@@ -194,6 +194,7 @@ pub fn run_guard(
                 tool_name
             ),
             timestamp: chrono::Utc::now(),
+            severity: crate::ops::monitor::SecuritySeverity::Warn,
         });
     }
 

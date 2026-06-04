@@ -1,8 +1,15 @@
 use tower_lsp::lsp_types::*;
 
-use super::document::EnvDocEntry;
+use crate::ops::dotenv::is_sensitive_key;
+use crate::ops::schema::EnvSchema;
 
-pub fn document_symbols(entries: &[EnvDocEntry]) -> Option<DocumentSymbolResponse> {
+use super::document::EnvDocEntry;
+use super::redact::redact_for_label;
+
+pub fn document_symbols(
+    entries: &[EnvDocEntry],
+    schema: Option<&EnvSchema>,
+) -> Option<DocumentSymbolResponse> {
     let symbols: Vec<DocumentSymbol> = entries
         .iter()
         .filter(|e| e.line_type == super::document::EnvLineType::EnvVar)
@@ -18,12 +25,16 @@ pub fn document_symbols(entries: &[EnvDocEntry]) -> Option<DocumentSymbolRespons
                 },
             };
 
+            let sensitive = schema
+                .and_then(|s| s.variables.get(&entry.key))
+                .map(|v| v.sensitive)
+                .unwrap_or(false)
+                || is_sensitive_key(&entry.key);
+
             let detail = if entry.value.is_empty() {
                 None
-            } else if entry.value.len() > 40 {
-                Some(format!("{}...", &entry.value[..40]))
             } else {
-                Some(entry.value.clone())
+                Some(redact_for_label(&entry.value, sensitive))
             };
 
             #[allow(deprecated)]

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::super::provider::{
     env_refs_from_env, run_cli, sort_secret_pairs, validate_provider_arg,
     validate_provider_response_label, validate_provider_response_value, validate_secret_name,
-    SecretProvider, SecretsError,
+    CredentialEncryptionPolicy, SecretProvider, SecretsError,
 };
 
 /// `path` is a filesystem path to a SOPS-encrypted file. We must reject
@@ -57,6 +57,10 @@ impl SecretProvider for SopsProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec!["key_file"]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn optional_credential_fields(&self) -> Vec<&str> {

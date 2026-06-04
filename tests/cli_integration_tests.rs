@@ -35,7 +35,7 @@ fn test_cli_set_command_parsing() {
     assert!(cli.is_ok());
     let cli = cli.unwrap();
     match cli.command {
-        Some(Commands::Set { assignment }) => assert_eq!(assignment, "KEY=value"),
+        Some(Commands::Set { assignment, .. }) => assert_eq!(assignment, "KEY=value"),
         _ => panic!("Expected Set command"),
     }
 }

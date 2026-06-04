@@ -266,8 +266,12 @@ fn cmd_prune(before: Option<String>, json: bool) -> Result<(), Box<dyn std::erro
         // Parse the date string and prune manually
         let cutoff = chrono::DateTime::parse_from_rfc3339(date_str)
             .or_else(|_| {
-                chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().into())
+                chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map(|d| {
+                    d.and_hms_opt(0, 0, 0)
+                        .expect("midnight time 00:00:00 is always valid")
+                        .and_utc()
+                        .into()
+                })
             })
             .map_err(|e| crate::model::AnalyticsError::InvalidTimeWindow {
                 description: format!("Invalid date '{}': {}", date_str, e),

@@ -330,32 +330,28 @@ fn validate_filter_compatibility(
     value: &FilterValue,
 ) -> Result<(), QueryError> {
     match op {
-        FilterOp::In | FilterOp::NotIn => {
-            if !matches!(value, FilterValue::List(_)) {
-                return Err(QueryError::InvalidFilter {
-                    field: field.clone(),
-                    op,
-                    reason: "In/NotIn operators require a List value".to_string(),
-                });
-            }
+        FilterOp::In | FilterOp::NotIn if !matches!(value, FilterValue::List(_)) => {
+            return Err(QueryError::InvalidFilter {
+                field: field.clone(),
+                op,
+                reason: "In/NotIn operators require a List value".to_string(),
+            });
         }
-        FilterOp::Exists | FilterOp::NotExists => {
-            if !matches!(value, FilterValue::Null) {
-                return Err(QueryError::InvalidFilter {
-                    field: field.clone(),
-                    op,
-                    reason: "Exists/NotExists operators require Null value".to_string(),
-                });
-            }
+        FilterOp::Exists | FilterOp::NotExists if !matches!(value, FilterValue::Null) => {
+            return Err(QueryError::InvalidFilter {
+                field: field.clone(),
+                op,
+                reason: "Exists/NotExists operators require Null value".to_string(),
+            });
         }
-        FilterOp::Gt | FilterOp::Lt | FilterOp::Gte | FilterOp::Lte => {
-            if !matches!(value, FilterValue::Number(_)) {
-                return Err(QueryError::InvalidFilter {
-                    field: field.clone(),
-                    op,
-                    reason: "Comparison operators require a Number value".to_string(),
-                });
-            }
+        FilterOp::Gt | FilterOp::Lt | FilterOp::Gte | FilterOp::Lte
+            if !matches!(value, FilterValue::Number(_)) =>
+        {
+            return Err(QueryError::InvalidFilter {
+                field: field.clone(),
+                op,
+                reason: "Comparison operators require a Number value".to_string(),
+            });
         }
         _ => {}
     }

@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -7,22 +8,22 @@ use tempfile::NamedTempFile;
 /// Error types for atomic write operations.
 #[derive(Debug, thiserror::Error)]
 pub enum WriteError {
-    #[error("failed to write to '{path}': {source}")]
+    #[error("failed to write file: {source}")]
     IoError {
         path: PathBuf,
         source: std::io::Error,
     },
 
-    #[error("hash mismatch for '{path}': file was modified externally")]
+    #[error("hash mismatch: file was modified externally")]
     HashMismatch { path: PathBuf },
 
-    #[error("failed to create temp file in '{dir}': {source}")]
+    #[error("failed to create temp file: {source}")]
     TempFileError {
         dir: PathBuf,
         source: std::io::Error,
     },
 
-    #[error("failed to persist temp file to '{path}': {source}")]
+    #[error("failed to persist temp file: {source}")]
     PersistError {
         path: PathBuf,
         source: tempfile::PersistError,
@@ -42,9 +43,25 @@ pub fn atomic_write(
     content: &str,
     expected_hash: Option<[u8; 32]>,
 ) -> Result<(), WriteError> {
-    // Step 1: Hash verification
+    let file_exists = path.exists();
+
+    // Step 1: Create parent directories if needed (before lock acquisition)
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| WriteError::IoError {
+            path: parent.to_path_buf(),
+            source: e,
+        })?;
+    }
+
+    // Step 2: Acquire advisory lock on the target file to prevent TOCTOU.
+    // The lock spans hash verification → write → rename. Any concurrent
+    // writer will block or fail, closing the TOCTOU window (T-004).
+    let _lock = acquire_lock(path)?;
+
+    // Step 3: Hash verification (with lock held).
+    // Skip if file didn't exist — first-time writes have no prior content to verify.
     if let Some(expected) = expected_hash {
-        if path.exists() {
+        if file_exists {
             let current_content = std::fs::read(path).map_err(|e| WriteError::IoError {
                 path: path.to_path_buf(),
                 source: e,
@@ -58,20 +75,27 @@ pub fn atomic_write(
         }
     }
 
-    // Step 2: Create parent directories if needed
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| WriteError::IoError {
-            path: parent.to_path_buf(),
-            source: e,
-        })?;
-    }
-
-    // Step 3: Write to temp file in same directory
+    // Step 4: Write to temp file in same directory with restrictive permissions.
+    // Use fchmod on the raw fd BEFORE writing any data to eliminate the TOCTOU
+    // window on macOS where NamedTempFile inherits umask (e.g., 0o644).
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut temp = NamedTempFile::new_in(dir).map_err(|e| WriteError::TempFileError {
         dir: dir.to_path_buf(),
         source: e,
     })?;
+
+    #[cfg(unix)]
+    {
+        let fd = temp.as_file().as_raw_fd();
+        let ret = unsafe { libc::fchmod(fd, 0o600) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(WriteError::IoError {
+                path: path.to_path_buf(),
+                source: err,
+            });
+        }
+    }
 
     temp.write_all(content.as_bytes())
         .map_err(|e| WriteError::IoError {
@@ -84,21 +108,59 @@ pub fn atomic_write(
         source: e,
     })?;
 
-    // fsync to disk before atomic rename: without this, a crash between
-    // rename and writeback can leave the file existing but with empty/torn
-    // contents, losing data including encrypted secrets.
     temp.as_file().sync_all().map_err(|e| WriteError::IoError {
         path: path.to_path_buf(),
         source: e,
     })?;
 
-    // Step 4: Atomic rename
+    // Step 5: Atomic rename (lock still held)
     temp.persist(path).map_err(|e| WriteError::PersistError {
         path: path.to_path_buf(),
         source: e,
     })?;
 
+    // Lock is released when lock_file (LockGuard) is dropped at end of scope
     Ok(())
+}
+
+/// Acquire an advisory flock(LOCK_EX) on the target file.
+///
+/// Returns a guard that releases the lock on drop. Used by `atomic_write`
+/// to prevent TOCTOU between hash verification and atomic rename (T-004).
+struct LockGuard {
+    _file: std::fs::File,
+}
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        unsafe {
+            libc::flock(self._file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+fn acquire_lock(path: &Path) -> Result<LockGuard, WriteError> {
+    let lock_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|e| WriteError::IoError {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+
+    let ret = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX) };
+    if ret != 0 {
+        let err = std::io::Error::last_os_error();
+        return Err(WriteError::IoError {
+            path: path.to_path_buf(),
+            source: err,
+        });
+    }
+
+    Ok(LockGuard { _file: lock_file })
 }
 
 /// Compute SHA-256 hash of data.

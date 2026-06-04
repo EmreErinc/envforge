@@ -24,7 +24,7 @@ pub enum DiffKind {
 /// `Debug`-print the struct, serialize it to JSON, or render it to UI
 /// cannot accidentally leak secret values. If a caller has a real need
 /// for the raw value (e.g. an interactive merge UI), it must re-load
-/// the entries through [`crate::ops::listing`] explicitly — the diff
+/// the entries through the listing functions in `crate::ops` explicitly — the diff
 /// result is intentionally not a side-channel for plaintext exfiltration.
 #[derive(Debug, Clone)]
 pub struct DiffEntry {

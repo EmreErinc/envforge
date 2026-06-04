@@ -66,7 +66,9 @@ pub fn run_wizard() -> Result<bool, Box<dyn std::error::Error>> {
     if primary_path.exists() {
         if let Ok(sf) = parse_shell_file(&primary_path) {
             let blocks = detect_protected_blocks(&sf);
-            if !blocks.is_empty() {
+            if blocks.is_empty() {
+                println!("No protected blocks detected.");
+            } else {
                 println!("Detected protected blocks:");
                 for block in &blocks {
                     println!(
@@ -102,8 +104,6 @@ pub fn run_wizard() -> Result<bool, Box<dyn std::error::Error>> {
                     io::stdin().lock().read_line(&mut f_input)?;
                     footer_offset = f_input.trim().parse().unwrap_or(0);
                 }
-            } else {
-                println!("No protected blocks detected.");
             }
         }
     }

@@ -289,7 +289,7 @@ fn detect_ai_tool(message: &str) -> Option<String> {
     let lower = message.to_lowercase();
     for (pattern, tool) in AI_INDICATORS {
         if lower.contains(pattern) {
-            return Some(tool.to_string());
+            return Some((*tool).to_string());
         }
     }
     None
@@ -307,7 +307,7 @@ fn detect_secret_in_line(line: &str) -> Vec<String> {
             if let Some(pos) = trimmed.find(prefix) {
                 let after = &trimmed[pos + prefix.len()..];
                 if after.len() >= 4 {
-                    found.push(name.to_string());
+                    found.push((*name).to_string());
                 }
             }
         }

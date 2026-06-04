@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use super::super::provider::{
-    env_refs_from_env, run_cli, run_cli_with_stdin, sort_secret_pairs, validate_env_pair,
-    validate_provider_arg, validate_provider_response_label, validate_provider_response_value,
-    validate_secret_name, validate_secret_value, SecretProvider, SecretsError,
+    env_refs_from_env, run_cli, run_cli_with_stdin, sandbox_command, sort_secret_pairs,
+    validate_env_pair, validate_provider_arg, validate_provider_response_label,
+    validate_provider_response_value, validate_secret_name, validate_secret_value,
+    verify_provider_binary, CredentialEncryptionPolicy, SecretProvider, SecretsError,
 };
 
 pub struct ConjurProvider;
@@ -31,6 +32,10 @@ impl SecretProvider for ConjurProvider {
 
     fn credential_fields(&self) -> Vec<&str> {
         vec!["url", "account", "login", "api_key"]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn build_provider_env(
@@ -83,7 +88,16 @@ impl SecretProvider for ConjurProvider {
             SecretsError::CredentialError("conjur: missing 'api_key' credential".to_string())
         })?;
         // Use stdin pipe to pass API key instead of -p flag to avoid /proc leakage
+        verify_provider_binary("conjur", "conjur")?;
+
         let mut cmd = std::process::Command::new("conjur");
+        cmd.env_clear();
+        if let Ok(path) = std::env::var("PATH") {
+            cmd.env("PATH", path);
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            cmd.env("HOME", home);
+        }
         cmd.args(["login", "-i", login]);
         for (k, v) in &env_refs {
             validate_env_pair(k, v)?;
@@ -92,6 +106,7 @@ impl SecretProvider for ConjurProvider {
         cmd.stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+        sandbox_command(&mut cmd);
 
         let mut child = cmd.spawn().map_err(|e| SecretsError::ProviderError {
             provider: "conjur".to_string(),

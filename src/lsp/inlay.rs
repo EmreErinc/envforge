@@ -7,7 +7,6 @@ use crate::ops::schema::EnvSchema;
 
 use super::document::{EnvDocEntry, EnvLineType};
 use super::redact::redact_for_label;
-use super::server::ManagedVar;
 
 /// Inlay hints rendered after the value of each env-var line. Provides
 /// at-a-glance feedback without requiring hover: schema type for empty
@@ -17,7 +16,6 @@ pub fn compute_inlay_hints(
     range: Range,
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
-    managed_vars: &[ManagedVar],
 ) -> Vec<InlayHint> {
     let mut hints = Vec::new();
 
@@ -29,7 +27,7 @@ pub fn compute_inlay_hints(
             continue;
         }
 
-        let label = inlay_label_for(entry, schema, managed_vars);
+        let label = inlay_label_for(entry, schema, entries);
         let Some(label_text) = label else { continue };
 
         hints.push(InlayHint {
@@ -58,7 +56,7 @@ pub fn compute_inlay_hints(
 fn inlay_label_for(
     entry: &EnvDocEntry,
     schema: Option<&EnvSchema>,
-    managed_vars: &[ManagedVar],
+    entries: &[EnvDocEntry],
 ) -> Option<String> {
     let var_def = schema.and_then(|s| s.variables.get(&entry.key));
     let sensitive = var_def.map(|v| v.sensitive).unwrap_or(false) || is_sensitive_key(&entry.key);
@@ -79,20 +77,16 @@ fn inlay_label_for(
     }
 
     if is_ref_expression(&entry.value) {
-        let resolved = resolve_ref(&entry.value, managed_vars);
+        let resolved = resolve_ref(&entry.value, entries);
         if let Some(value) = resolved {
-            let preview = if sensitive {
-                redact_for_label(&value)
-            } else {
-                value
-            };
+            let preview = redact_for_label(&value, sensitive);
             return Some(format!("→ {}", preview));
         }
         return Some("→ ?".into());
     }
 
     if sensitive {
-        return Some(format!("({})", redact_for_label(&entry.value)));
+        return Some(format!("({})", redact_for_label(&entry.value, sensitive)));
     }
 
     None
@@ -103,12 +97,12 @@ fn is_ref_expression(value: &str) -> bool {
     trimmed.starts_with("${") && trimmed.ends_with('}') && trimmed.len() > 3
 }
 
-fn resolve_ref(value: &str, managed_vars: &[ManagedVar]) -> Option<String> {
+fn resolve_ref(value: &str, entries: &[EnvDocEntry]) -> Option<String> {
     let trimmed = value.trim();
     let inner = trimmed.strip_prefix("${")?.strip_suffix('}')?;
     let key = inner.split(':').next().unwrap_or(inner);
-    managed_vars
+    entries
         .iter()
-        .find(|m| m.key == key)
-        .map(|m| m.value.clone())
+        .find(|e| e.key == key)
+        .map(|e| e.value.clone())
 }

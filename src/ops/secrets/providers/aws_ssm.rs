@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::super::provider::{
     env_refs_from_env, run_cli, run_cli_with_tempfile, sort_secret_pairs, validate_provider_arg,
     validate_provider_response_label, validate_provider_response_value, validate_secret_name,
-    validate_secret_value, SecretProvider, SecretsError,
+    validate_secret_value, CredentialEncryptionPolicy, SecretProvider, SecretsError,
 };
 
 pub struct AwsSsmProvider;
@@ -32,6 +32,10 @@ impl SecretProvider for AwsSsmProvider {
     fn credential_fields(&self) -> Vec<&str> {
         // No strictly required fields — can use profile, IAM role, or explicit keys
         vec![]
+    }
+
+    fn encryption_mode(&self) -> CredentialEncryptionPolicy {
+        CredentialEncryptionPolicy::Mandatory
     }
 
     fn optional_credential_fields(&self) -> Vec<&str> {

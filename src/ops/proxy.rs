@@ -141,7 +141,7 @@ pub fn is_host_loopback(host: &str) -> bool {
 }
 
 /// Extract the domain/host from a URL or origin value.
-/// e.g. "http://example.com:3000/path" -> "example.com"
+/// e.g. `<http://example.com:3000/path>` -> `"example.com"`
 pub fn extract_host_from_origin(origin: &str) -> String {
     let without_scheme = if let Some(pos) = origin.find("://") {
         &origin[pos + 3..]
@@ -213,7 +213,7 @@ pub fn is_origin_allowed(origin: Option<&str>, allowed_origins: Option<&[String]
 pub fn parse_request_line(request: &str) -> (&str, &str) {
     let first_line = request.lines().next().unwrap_or("");
     let parts: Vec<&str> = first_line.split_whitespace().collect();
-    let method = if !parts.is_empty() { parts[0] } else { "" };
+    let method = if parts.is_empty() { "" } else { parts[0] };
     let path = if parts.len() >= 2 { parts[1] } else { "/" };
     (method, path)
 }

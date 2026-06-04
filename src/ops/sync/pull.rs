@@ -42,7 +42,7 @@ pub fn pull(
     let config = read_config(&config_path)?;
 
     // Read current snapshot as base (before pull)
-    let base_snapshot = read_snapshot(&snapshot_path)?;
+    let base_snapshot = read_snapshot(&snapshot_path, &config.sync.encryption_policy, false)?;
 
     if !dry_run {
         // Backup current snapshot before any changes
@@ -88,13 +88,15 @@ pub fn pull(
     }
 
     // Read updated snapshot (after pull)
-    let remote_snapshot = read_snapshot(&snapshot_path)?;
+    let remote_snapshot = read_snapshot(&snapshot_path, &config.sync.encryption_policy, false)?;
 
     // Compute changes
     let (diff, conflicts) = compute_pull_changes(&base_snapshot, &remote_snapshot, local_entries);
 
     // Auto-resolve if strategy is not Ask
-    let final_conflicts = if !conflicts.is_empty() {
+    let final_conflicts = if conflicts.is_empty() {
+        vec![]
+    } else {
         match config.sync.conflict_strategy {
             ConflictStrategy::Ask => conflicts,
             ref strategy => {
@@ -102,8 +104,6 @@ pub fn pull(
                 vec![] // All resolved
             }
         }
-    } else {
-        vec![]
     };
 
     Ok(PullSummary {

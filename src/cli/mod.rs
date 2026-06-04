@@ -63,6 +63,11 @@ pub enum Commands {
         /// Reveal raw values without masking sensitive entries (opt-in for tooling)
         #[arg(long)]
         reveal: bool,
+
+        /// Omit values; emit only key + source_file + line_number per entry.
+        /// Used by LSP and other tooling that only needs key metadata.
+        #[arg(long)]
+        keys_only: bool,
     },
 
     /// Get the value of a specific variable
@@ -75,6 +80,11 @@ pub enum Commands {
     Set {
         /// KEY=VALUE pair
         assignment: String,
+
+        /// Read the value from stdin instead of passing it on the command line.
+        /// Useful for secrets — avoids exposing the value in `ps aux` output.
+        #[arg(long)]
+        stdin: bool,
     },
 
     /// Soft-delete a variable
@@ -119,7 +129,7 @@ pub enum Commands {
         #[arg(long)]
         exclude_sensitive: bool,
 
-        /// Redact sensitive values as [REDACTED] (safe for AI tools)
+        /// Redact sensitive values as `[REDACTED]` (safe for AI tools)
         #[arg(long)]
         safe: bool,
 
@@ -211,7 +221,7 @@ pub enum Commands {
 
     /// Generate shell completion scripts
     Completions {
-        /// Shell type (zsh, bash, fish, kiro, fig)
+        /// Shell type (zsh, bash, fish, kiro, fig, carapace, inshellisense)
         shell: String,
         /// Install completion spec to the correct system path
         #[arg(long)]

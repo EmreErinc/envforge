@@ -215,10 +215,11 @@ pub fn env_var_entries(entries: &[EnvDocEntry]) -> Vec<&EnvDocEntry> {
         .collect()
 }
 
-/// Scan .env.schema content for [SECTION_HEADER] line numbers (for go-to-definition).
+/// Scan `.env.schema` content for `[SECTION_HEADER]` line numbers (for go-to-definition).
 pub fn schema_line_map(content: &str) -> HashMap<String, u32> {
     let mut map = HashMap::new();
-    let re = regex::Regex::new(r"^\[([A-Za-z_][A-Za-z0-9_]*)\]").unwrap();
+    let re = regex::Regex::new(r"^\[([A-Za-z_][A-Za-z0-9_]*)\]")
+        .expect("hardcoded schema section regex is valid");
     for (line_num, line) in content.lines().enumerate() {
         if let Some(caps) = re.captures(line.trim()) {
             map.insert(caps[1].to_string(), line_num as u32);

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use tower_lsp::lsp_types::*;
 
@@ -6,7 +7,9 @@ use crate::ops::canary::list_canaries;
 use crate::ops::schema::{resolve_effective, EnvSchema};
 
 use super::document::{EnvDocEntry, EnvLineType};
+use super::security::guard_workspace_containment;
 
+#[allow(clippy::too_many_arguments)]
 pub fn code_actions(
     uri: &Url,
     entries: &[EnvDocEntry],
@@ -15,6 +18,7 @@ pub fn code_actions(
     schema_uri: Option<&Url>,
     schema_line_count: Option<u32>,
     schema_lines: Option<&HashMap<String, u32>>,
+    workspace_root: Option<&Path>,
 ) -> Option<CodeActionResponse> {
     let mut actions: Vec<CodeAction> = Vec::new();
 
@@ -27,6 +31,7 @@ pub fn code_actions(
             schema_uri,
             schema_line_count,
             schema_lines,
+            workspace_root,
         ));
     }
 
@@ -54,6 +59,7 @@ pub fn code_actions(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn actions_from_diagnostic(
     uri: &Url,
     entries: &[EnvDocEntry],
@@ -62,6 +68,7 @@ fn actions_from_diagnostic(
     schema_uri: Option<&Url>,
     schema_line_count: Option<u32>,
     schema_lines: Option<&HashMap<String, u32>>,
+    workspace_root: Option<&Path>,
 ) -> Vec<CodeAction> {
     let mut out = Vec::new();
     let msg = &diag.message;
@@ -90,7 +97,7 @@ fn actions_from_diagnostic(
             {
                 out.push(action);
             }
-            if let Some(action) = action_plant_canary(uri, diag, &key) {
+            if let Some(action) = action_plant_canary(uri, diag, &key, workspace_root) {
                 out.push(action);
             }
         }
@@ -256,17 +263,19 @@ fn action_mark_secret_in_schema(
     })
 }
 
-/// Offer to plant a canary tripwire for the given sensitive key. The
-/// action carries a `Command` rather than a `WorkspaceEdit` — the
-/// actual canary value is generated server-side via the
-/// `envforge.canary.plant` custom command so the payload never flows
-/// through plugin code paths.
+/// Suggest planting a canary tripwire for the given sensitive key. Since
+/// execute_command_provider is disabled (LSP is a read-only boundary),
+/// this emits a WorkspaceEdit that appends a comment line with the CLI
+/// command the user should run. The actual canary value must be generated
+/// via the CLI to keep the payload off the LSP wire.
 ///
-/// Suppressed when the key already has a registered canary. We treat
-/// `list_canaries()` failure as "no canaries known" rather than
-/// hiding the action, because being unable to read the store is also
-/// the case where the user most needs to set one up.
-fn action_plant_canary(uri: &Url, diag: &Diagnostic, key: &str) -> Option<CodeAction> {
+/// Suppressed when the key already has a registered canary.
+fn action_plant_canary(
+    uri: &Url,
+    diag: &Diagnostic,
+    key: &str,
+    workspace_root: Option<&Path>,
+) -> Option<CodeAction> {
     let already_planted = list_canaries()
         .map(|cs| cs.iter().any(|c| c.key == key))
         .unwrap_or(false);
@@ -274,22 +283,57 @@ fn action_plant_canary(uri: &Url, diag: &Diagnostic, key: &str) -> Option<CodeAc
         return None;
     }
 
-    let mut args = serde_json::json!({
-        "key": key,
-        "pattern": canary_pattern_hint(key),
-    });
-    if let Ok(path) = uri.to_file_path() {
-        args["file"] = serde_json::Value::String(path.to_string_lossy().into_owned());
+    // Workspace containment: resolve the URI to a filesystem path and
+    // verify it stays within the workspace root before any I/O.
+    let file_path = uri.to_file_path().ok()?;
+    if let Some(root) = workspace_root {
+        let file_name = if let Ok(relative) = file_path.strip_prefix(root) {
+            relative.to_string_lossy().to_string()
+        } else {
+            eprintln!(
+                "LSP: code_action canary blocked — file outside workspace: {}",
+                file_path.display()
+            );
+            return None;
+        };
+        if guard_workspace_containment(workspace_root, &file_name).is_err() {
+            eprintln!(
+                "LSP: code_action canary blocked — workspace containment failed: {}",
+                file_path.display()
+            );
+            return None;
+        }
     }
 
+    let hint_line = format!(
+        "\n# envforge: run `envforge canary plant --key {} --pattern {}` to plant a tripwire",
+        key,
+        canary_pattern_hint(key)
+    );
+
+    let last_line = if let Ok(doc_text) = std::fs::read_to_string(&file_path) {
+        doc_text.lines().count().max(1) as u32
+    } else {
+        0
+    };
+
     Some(CodeAction {
-        title: format!("Plant canary tripwire for {}", key),
+        title: format!("Hint: plant canary tripwire for {}", key),
         kind: Some(CodeActionKind::QUICKFIX),
         diagnostics: Some(vec![diag.clone()]),
-        command: Some(Command {
-            title: format!("Plant canary tripwire for {}", key),
-            command: "envforge.canary.plant".to_string(),
-            arguments: Some(vec![args]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(
+                [(
+                    uri.clone(),
+                    vec![TextEdit {
+                        range: zero_range(last_line),
+                        new_text: hint_line,
+                    }],
+                )]
+                .into_iter()
+                .collect(),
+            ),
+            ..Default::default()
         }),
         ..Default::default()
     })

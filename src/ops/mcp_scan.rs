@@ -65,7 +65,15 @@ pub fn scan_mcp_text(content: &str, file: &Path) -> Vec<McpFinding> {
         Err(_) => return Vec::new(),
     };
     let mut findings = Vec::new();
-    walk_json(&value, "", &file.to_path_buf(), &mut findings, 0);
+    let mut key_count = 0;
+    walk_json(
+        &value,
+        "",
+        &file.to_path_buf(),
+        &mut findings,
+        0,
+        &mut key_count,
+    );
     findings
 }
 
@@ -93,8 +101,13 @@ const MAX_MCP_CONFIG_BYTES: u64 = 1024 * 1024;
 /// stack-overflow DoS via deeply nested objects.
 const MAX_JSON_DEPTH: usize = 64;
 
+/// Maximum number of top-level + nested keys traversed. A flat object
+/// with 100K keys at depth 1 would pass the depth check but exhaust CPU
+/// and push 100K findings. This cap bounds total walk iterations.
+const MAX_JSON_KEYS: usize = 10_000;
+
 /// Scan a single JSON file for credential patterns.
-fn scan_json_file(path: &PathBuf) -> Vec<McpFinding> {
+pub fn scan_json_file(path: &PathBuf) -> Vec<McpFinding> {
     if let Ok(meta) = std::fs::metadata(path) {
         if meta.len() > MAX_MCP_CONFIG_BYTES {
             eprintln!(
@@ -118,7 +131,8 @@ fn scan_json_file(path: &PathBuf) -> Vec<McpFinding> {
     };
 
     let mut findings = Vec::new();
-    walk_json(&value, "", path, &mut findings, 0);
+    let mut key_count = 0;
+    walk_json(&value, "", path, &mut findings, 0, &mut key_count);
     findings
 }
 
@@ -130,6 +144,7 @@ fn walk_json(
     file: &PathBuf,
     findings: &mut Vec<McpFinding>,
     depth: usize,
+    key_count: &mut usize,
 ) {
     if depth > MAX_JSON_DEPTH {
         return;
@@ -137,18 +152,22 @@ fn walk_json(
     match value {
         serde_json::Value::Object(map) => {
             for (key, val) in map {
+                *key_count += 1;
+                if *key_count > MAX_JSON_KEYS {
+                    return;
+                }
                 let child_path = if json_path.is_empty() {
                     key.clone()
                 } else {
                     format!("{}.{}", json_path, key)
                 };
-                walk_json(val, &child_path, file, findings, depth + 1);
+                walk_json(val, &child_path, file, findings, depth + 1, key_count);
             }
         }
         serde_json::Value::Array(arr) => {
             for (idx, val) in arr.iter().enumerate() {
                 let child_path = format!("{}[{}]", json_path, idx);
-                walk_json(val, &child_path, file, findings, depth + 1);
+                walk_json(val, &child_path, file, findings, depth + 1, key_count);
             }
         }
         serde_json::Value::String(s) => {
@@ -239,7 +258,7 @@ fn detect_known_prefix(value: &str) -> Option<String> {
 
     for (prefix, name) in prefixes {
         if value.starts_with(prefix) && value.len() > prefix.len() + 4 {
-            return Some(name.to_string());
+            return Some((*name).to_string());
         }
     }
 
@@ -439,7 +458,7 @@ fn replace_in_json(json: &mut serde_json::Value, json_path: &str, key: &str) -> 
             if let Some(obj) = current.as_object_mut() {
                 if obj.contains_key(*part) {
                     let ref_value = format!("${{{}}}", key.to_uppercase());
-                    obj.insert(part.to_string(), serde_json::Value::String(ref_value));
+                    obj.insert((*part).to_string(), serde_json::Value::String(ref_value));
                     return true;
                 }
             }

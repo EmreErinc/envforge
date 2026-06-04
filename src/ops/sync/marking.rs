@@ -231,7 +231,11 @@ mod tests {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
                 encrypted: true,
+                encryption_policy: SyncEncryptionPolicy::MigrationUntil(
+                    "2099-01-01T00:00:00Z".into(),
+                ),
                 verify_signatures: false,
+                enforce_ssh: false,
             },
             manifest: ManifestConfig {
                 sync_keys: vec!["DB_URL".to_string()],
@@ -255,7 +259,11 @@ mod tests {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
                 encrypted: true,
+                encryption_policy: SyncEncryptionPolicy::MigrationUntil(
+                    "2099-01-01T00:00:00Z".into(),
+                ),
                 verify_signatures: false,
+                enforce_ssh: false,
             },
             manifest: ManifestConfig {
                 sync_keys: vec![],
@@ -281,7 +289,11 @@ mod tests {
                 auto_push: false,
                 conflict_strategy: ConflictStrategy::Ask,
                 encrypted: true,
+                encryption_policy: SyncEncryptionPolicy::MigrationUntil(
+                    "2099-01-01T00:00:00Z".into(),
+                ),
                 verify_signatures: false,
+                enforce_ssh: false,
             },
             manifest: ManifestConfig::default(),
         };
