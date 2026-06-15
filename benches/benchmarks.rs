@@ -3,7 +3,8 @@
 //! Run with: `cargo bench`
 //! Run specific: `cargo bench -- parser_roundtrip`
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
 fn bench_parser_roundtrip_small(c: &mut Criterion) {
     let content = "export DATABASE_URL=\"postgres://localhost/mydb\"\nREDIS_HOST=localhost\n";
