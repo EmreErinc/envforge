@@ -69,6 +69,8 @@ class SecurityPanel(private val project: Project) : JPanel(BorderLayout()) {
 
                 root.add(buildFenceNode(fenceJson))
                 root.add(buildGuardNode(guardJson))
+                root.add(buildLifecycleNode())
+                root.add(buildAnalyticsNode())
                 root.add(buildMcpNode(mcpJson))
                 root.add(buildCanaryNode(canaryJson))
 
@@ -117,6 +119,22 @@ class SecurityPanel(private val project: Project) : JPanel(BorderLayout()) {
         } catch (_: Exception) {
             node.add(DefaultMutableTreeNode(SecurityItem("Status", "Parse error", null, null)))
         }
+        return node
+    }
+
+    private fun buildLifecycleNode(): DefaultMutableTreeNode {
+        val node = DefaultMutableTreeNode(SecurityItem("Lifecycle", "Lifecycle", "Governance", null))
+        node.add(DefaultMutableTreeNode(SecurityItem("Run Lifecycle Check", "Evaluate rules", null, "EnvForge.RunLifecycleCheck")))
+        node.add(DefaultMutableTreeNode(SecurityItem("Manage Rules", "Lifecycle rule list", null, "EnvForge.ManageLifecycleRules")))
+        node.add(DefaultMutableTreeNode(SecurityItem("Audit Trail", "View sync & access history", null, "EnvForge.ViewAuditTrail")))
+        return node
+    }
+
+    private fun buildAnalyticsNode(): DefaultMutableTreeNode {
+        val node = DefaultMutableTreeNode(SecurityItem("Analytics", "Analytics", "Usage", null))
+        node.add(DefaultMutableTreeNode(SecurityItem("Show Unused Secrets", "Dormant for 90 days", null, "EnvForge.ShowUnusedSecrets")))
+        node.add(DefaultMutableTreeNode(SecurityItem("Usage Summary", "Event & secret counts", null, "EnvForge.ShowUsageSummary")))
+        node.add(DefaultMutableTreeNode(SecurityItem("Monitor Stream", "Real-time access events", null, "EnvForge.MonitorStream")))
         return node
     }
 

@@ -50,11 +50,85 @@ class ToggleFenceAction : AnAction() {
 class ToggleGuardAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        EnvForgeRunner.run(project, listOf("guard"), "Toggle Guard") {
-            EnvForgeRunner.notify(project, "Guard", "Guard toggled",
-                com.intellij.notification.NotificationType.INFORMATION)
-            refreshSecurityPanel(project)
+
+        // Probes current state via `envforge ai-hook status --json`.
+        val basePath = project.basePath?.let { java.io.File(it) }
+        val binary = EnvForgeLspFactory.findEnvforgeBinary()
+        val guardStatus = try {
+            val proc = ProcessBuilder(binary, "ai-hook", "status", "--json")
+                .directory(basePath)
+                .redirectErrorStream(true)
+                .start()
+            val out = proc.inputStream.bufferedReader().readText()
+            proc.waitFor()
+            if (proc.exitValue() == 0) {
+                com.google.gson.JsonParser.parseString(out).asJsonObject
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
         }
+
+        if (guardStatus == null) {
+            EnvForgeRunner.notify(project, "Guard", "Unable to determine guard status",
+                com.intellij.notification.NotificationType.ERROR)
+            return
+        }
+
+        val enabled = guardStatus.get("enabled")?.asBoolean ?: false
+        val toolsArr = guardStatus.getAsJsonArray("tools") ?: com.google.gson.JsonArray()
+        val installedTools = mutableListOf<String>()
+        for (i in 0 until toolsArr.size()) {
+            val t = toolsArr[i].asJsonObject
+            if (t.get("installed")?.asBoolean == true) {
+                installedTools.add(t.get("name").asString)
+            }
+        }
+
+        if (enabled) {
+            val choices = (listOf("All") + installedTools).toTypedArray()
+            val selected = Messages.showEditableChooseDialog(
+                "Select AI tool to remove hooks from:",
+                "EnvForge: Toggle Guard",
+                Messages.getQuestionIcon(),
+                choices,
+                "All",
+                null
+            ) ?: return
+
+            val toolsToRemove = if (selected == "All") {
+                listOf("claude-code", "cursor", "copilot")
+            } else {
+                listOf(selected.lowercase().replace(" ", "-"))
+            }
+
+            for (t in toolsToRemove) {
+                EnvForgeRunner.run(project, listOf("ai-hook", "remove", t), "Remove Guard Hook ($t)")
+            }
+        } else {
+            val choices = arrayOf("Claude Code", "Cursor", "Both")
+            val selected = Messages.showEditableChooseDialog(
+                "Select AI tool to install hooks for:",
+                "EnvForge: Toggle Guard",
+                Messages.getQuestionIcon(),
+                choices,
+                "Both",
+                null
+            ) ?: return
+
+            val toolsToInstall = when (selected) {
+                "Both" -> listOf("claude-code", "cursor")
+                "Claude Code" -> listOf("claude-code")
+                "Cursor" -> listOf("cursor")
+                else -> listOf(selected.lowercase().replace(" ", "-"))
+            }
+
+            for (t in toolsToInstall) {
+                EnvForgeRunner.run(project, listOf("ai-hook", "install", t), "Install Guard Hook ($t)")
+            }
+        }
+        refreshSecurityPanel(project)
     }
 }
 
@@ -146,6 +220,56 @@ class RemoveCanaryAction : AnAction() {
         } catch (ex: Exception) {
             EnvForgeRunner.notify(project, "Error", ex.message ?: "Failed",
                 com.intellij.notification.NotificationType.ERROR)
+        }
+    }
+}
+
+class RunLifecycleCheckAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        EnvForgeRunner.run(project, listOf("lifecycle", "check"), "Lifecycle Check")
+    }
+}
+
+class ManageLifecycleRulesAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        EnvForgeRunner.run(project, listOf("lifecycle", "rule", "list"), "Lifecycle Rules")
+    }
+}
+
+class ViewAuditTrailAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        EnvForgeRunner.run(project, listOf("audit", "-n", "100"), "Audit Trail")
+    }
+}
+
+class ShowUnusedSecretsAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        EnvForgeRunner.run(project, listOf("analytics", "unused"), "Unused Secrets")
+    }
+}
+
+class ShowUsageSummaryAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        EnvForgeRunner.run(project, listOf("analytics", "summary"), "Usage Summary")
+    }
+}
+
+class MonitorStreamAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val binary = EnvForgeLspFactory.findEnvforgeBinary()
+        
+        // Use the IDE's terminal to run the stream
+        val terminalManager = com.intellij.terminal.JBTerminalWidget.getTerminalWidgets(project).firstOrNull()
+        // Actually, better to use the ToolWindowManager to find/create a terminal
+        val terminalView = com.intellij.openapi.wm.ToolWindowManager.getInstance(project).getToolWindow("Terminal")
+        terminalView?.show {
+            EnvForgeRunner.run(project, listOf("monitor", "stream"), "Monitor Stream")
         }
     }
 }

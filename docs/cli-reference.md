@@ -1,6 +1,6 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.8.0
+> Generated for EnvForge v0.8.1
 
 ## Quick Recipes
 
@@ -35,6 +35,104 @@ Every command accepts these flags:
 | `--dry-run` | Preview changes without writing to disk |
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
+
+---
+
+## Security & AI Safety
+
+### envforge fence
+
+Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code).
+
+```
+Usage: envforge fence [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--status` | Check fence status instead of creating |
+| `--disable` | Remove envforge-owned fence content |
+
+**Examples:**
+
+```bash
+# Enable fence (writes .cursorignore, etc.)
+envforge fence
+
+# Check status
+envforge fence --status
+
+# Disable fence
+envforge fence --disable
+```
+
+---
+
+### envforge exposure
+
+Compute AI-exposure classification for an .env file (red/amber/green per line).
+
+```
+Usage: envforge exposure [OPTIONS] --file <FILE>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `--file <FILE>` | Path to the .env file to classify |
+
+**Examples:**
+
+```bash
+envforge exposure --file .env
+envforge exposure --file .env.production --json
+```
+
+---
+
+### envforge ai-hook
+
+Install or remove AI coding tool security hooks.
+
+```
+Usage: envforge ai-hook [OPTIONS] <COMMAND>
+```
+
+**Commands:**
+
+- `install <TOOL>`: Install hooks (supported: `claude-code`, `cursor`, `copilot`)
+- `remove <TOOL>`: Remove hooks
+- `status`: Check if hooks are installed
+
+**Examples:**
+
+```bash
+envforge ai-hook install claude-code
+envforge ai-hook status --json
+```
+
+---
+
+### envforge proxy
+
+Start local credential proxy for AI agents.
+
+```
+Usage: envforge proxy [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--port <PORT>` | Port to listen on [default: 8100] |
+| `--keys <KEYS>` | Only serve these keys (comma-separated) |
+| `--require-lease` | Require active lease for access |
+| `--require-approval` | Require human approval for each secret access |
+
+**Examples:**
+
+```bash
+envforge proxy --port 9000
+envforge proxy --require-approval
+```
 
 ---
 
@@ -5431,3 +5529,268 @@ envforge secrets config keeper --set profile=production
 | `no extractable value` | Record has no password/login/secret field | Add a password field to the Keeper record |
 | `token already used` | One-time token consumed | Generate a new token in Keeper dashboard |
 | `ModuleNotFoundError` | Python dependency missing | `pip3 install keeper-secrets-manager-cli` |
+
+---
+
+## Lifecycle & Governance
+
+### envforge lifecycle check
+
+Evaluate all enabled lifecycle rules against current state.
+
+```
+Usage: envforge lifecycle check [OPTIONS]
+```
+
+**Examples:**
+
+```bash
+envforge lifecycle check
+envforge lifecycle check --json
+```
+
+---
+
+### envforge lifecycle rule
+
+Manage lifecycle rules (rotation, decommissioning, notifications).
+
+```
+Usage: envforge lifecycle rule [OPTIONS] <COMMAND>
+```
+
+**Commands:**
+
+- `list`: List all configured lifecycle rules
+- `show <ID>`: Show detailed rule configuration
+- `enable <ID>`: Enable a specific rule
+- `disable <ID>`: Disable a specific rule
+- `create`: Interactive rule creation wizard
+
+**Examples:**
+
+```bash
+envforge lifecycle rule list
+envforge lifecycle rule disable 550e8400-e29b-41d4-a716-446655440000
+```
+
+---
+
+### envforge lifecycle state
+
+Manage lifecycle state for a specific secret.
+
+```
+Usage: envforge lifecycle state [OPTIONS] <KEY>
+```
+
+**Examples:**
+
+```bash
+# Show state history for a secret
+envforge lifecycle state API_KEY
+
+# Manually transition state
+envforge lifecycle state DB_PASSWORD --set deprecated
+```
+
+---
+
+## Analytics & Monitoring
+
+### envforge monitor
+
+Real-time monitoring of secret infrastructure and access events.
+
+```
+Usage: envforge monitor [OPTIONS] <COMMAND>
+```
+
+**Commands:**
+
+- `status`: Run health checks on all configured secret providers
+- `stream`: Stream real-time secret access events (audit stream)
+
+**Examples:**
+
+```bash
+# Check provider health
+envforge monitor status
+
+# Watch secret access in real-time
+envforge monitor stream
+```
+
+---
+
+### envforge analytics
+
+Secret usage analytics, unused detection, and retention policy management.
+
+```
+Usage: envforge analytics [OPTIONS] <COMMAND>
+```
+
+**Commands:**
+
+- `unused`: Detect secrets with no access in N days (default 90)
+- `low-usage`: Detect secrets with usage below threshold
+- `summary`: Show overall analytics summary (event and secret counts)
+- `deprecation`: Show secrets recommended for deprecation based on usage
+- `retention`: Show or set analytics data retention policy
+
+**Examples:**
+
+```bash
+# Find secrets unused for 30 days
+envforge analytics unused --days 30
+
+# Show usage summary
+envforge analytics summary --json
+```
+
+---
+
+### envforge audit
+
+View change audit trail from sync history and proxy access logs.
+
+```
+Usage: envforge audit [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--key <KEY>` | Filter by key name |
+| `--since <SINCE>` | Filter changes since date (ISO 8601) |
+| `--machine <MACHINE>` | Filter by machine ID |
+| `-n <N>` | Number of entries to show [default: 50] |
+| `--ai-leaks` | Scan git history for secrets leaked in AI-assisted commits |
+| `--access` | Show proxy access audit log |
+
+**Examples:**
+
+```bash
+# View last 20 changes to a specific key
+envforge audit --key API_KEY -n 20
+
+# Scan for AI-assisted leaks in history
+envforge audit --ai-leaks
+
+# View proxy access logs
+envforge audit --access
+```
+
+---
+
+## Advanced AI Protection
+
+### envforge lease
+
+Manage secret access leases (time-bounded, revocable).
+
+```
+Usage: envforge lease [OPTIONS] <COMMAND>
+```
+
+**Commands:**
+
+- `create <NAME> --ttl <TTL>`: Create a new named access lease
+- `list`: List all active and expired leases
+- `revoke <NAME>`: Revoke an active lease immediately
+- `renew <NAME> --ttl <TTL>`: Extend an existing lease's TTL
+- `grant`: Mint a JIT lease bound to a single subprocess PID
+
+**Examples:**
+
+```bash
+# Create a 2-hour lease for debugging
+envforge lease create "debug-session" --ttl 2h
+
+# List all leases
+envforge lease list --json
+
+# Revoke a lease
+envforge lease revoke "old-session"
+```
+
+---
+
+### envforge session
+
+Manage AI tool sessions with scoped secret access.
+
+```
+Usage: envforge session [OPTIONS] <COMMAND>
+```
+
+**Commands:**
+
+- `start --tool <TOOL>`: Start a new scoped AI session (supported: `claude-code`, `cursor`)
+- `stop`: Stop and expire the current AI session
+- `list`: List active and historical sessions
+- `cleanup`: Remove expired session data
+
+**Examples:**
+
+```bash
+# Start a session for Claude Code
+envforge session start --tool claude-code
+
+# End current session
+envforge session stop
+```
+
+---
+
+### envforge canary
+
+Manage canary secrets (honeypot credentials for exfiltration detection).
+
+```
+Usage: envforge canary [OPTIONS] <COMMAND>
+```
+
+**Commands:**
+
+- `create <KEY>`: Create a new canary secret with a fake value
+- `list`: List all registered canary secrets
+- `check`: Check if any canary tokens have been triggered (exfiltrated)
+- `scan --input <FILE>`: Scan a log, file, or stdin for known canary tokens
+- `mint-v2`: Mint a forensic v2 canary token (HMAC-encoded)
+
+**Examples:**
+
+```bash
+# Create a honeypot AWS key
+envforge canary create AWS_SECRET_ACCESS_KEY
+
+# Check if any tripwires fired
+envforge canary check
+
+# Scan a production log for leaked canaries
+envforge canary scan --input /var/log/app.log
+```
+
+---
+
+### envforge hardening
+
+Manage adversarial input hardening layers for AI agents.
+
+```
+Usage: envforge hardening [OPTIONS] <COMMAND>
+```
+
+**Commands:**
+
+- `status`: Show status of hardening layers
+- `apply <LAYER>`: Apply a specific hardening configuration
+- `test`: Run adversarial test suite against current configuration
+
+**Examples:**
+
+```bash
+envforge hardening status
+envforge hardening apply prompt-injection-shield
+```

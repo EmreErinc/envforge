@@ -1,4 +1,4 @@
-# EnvForge API Reference v0.7.8
+# EnvForge API Reference v0.8.1
 
 > Rust library reference for integrating envforge types and functions into your own tools.  
 > IDE extension authors, CI/CD tool builders, custom shell managers — this is your dictionary.

@@ -126,6 +126,10 @@ export class SecurityTreeProvider implements vscode.TreeDataProvider<SecurityNod
         new SecurityCategoryNode('Guard', 'Guard', vscode.TreeItemCollapsibleState.Collapsed,
           this.guardStatus?.enabled ? 'shield' : 'warning',
           this.guardStatus?.enabled ? 'Enabled' : 'Disabled'),
+        new SecurityCategoryNode('Lifecycle', 'Lifecycle', vscode.TreeItemCollapsibleState.Collapsed,
+          'calendar', 'Governance'),
+        new SecurityCategoryNode('Analytics', 'Analytics', vscode.TreeItemCollapsibleState.Collapsed,
+          'graph', 'Usage'),
         new SecurityCategoryNode('MCP', 'MCP Scan', vscode.TreeItemCollapsibleState.Collapsed,
           this.mcpScanResult?.issues?.length > 0 ? 'error' : 'check',
           this.mcpScanResult ? `${this.mcpScanResult.servers?.length || 0} servers` : 'Not run'),
@@ -139,6 +143,8 @@ export class SecurityTreeProvider implements vscode.TreeDataProvider<SecurityNod
       switch (element.id) {
         case 'Fence': return this.fenceChildren();
         case 'Guard': return this.guardChildren();
+        case 'Lifecycle': return this.lifecycleChildren();
+        case 'Analytics': return this.analyticsChildren();
         case 'MCP': return this.mcpChildren();
         case 'Canary': return this.canaryChildren();
       }
@@ -177,6 +183,22 @@ export class SecurityTreeProvider implements vscode.TreeDataProvider<SecurityNod
         this.guardStatus.alertCount > 0 ? 'alert' : 'check'));
     }
     return items;
+  }
+
+  private lifecycleChildren(): SecurityDetailNode[] {
+    return [
+      new SecurityDetailNode('Run Lifecycle Check', 'Evaluate rules', 'play', 'runLifecycleCheck'),
+      new SecurityDetailNode('Manage Rules', 'Lifecycle rule list', 'list-unordered', 'manageLifecycleRules'),
+      new SecurityDetailNode('Audit Trail', 'View sync & access history', 'history', 'viewAuditTrail'),
+    ];
+  }
+
+  private analyticsChildren(): SecurityDetailNode[] {
+    return [
+      new SecurityDetailNode('Show Unused Secrets', 'Dormant for 90 days', 'trash', 'showUnusedSecrets'),
+      new SecurityDetailNode('Usage Summary', 'Event & secret counts', 'pie-chart', 'showUsageSummary'),
+      new SecurityDetailNode('Monitor Stream', 'Real-time access events', 'pulse', 'monitorStream'),
+    ];
   }
 
   private mcpChildren(): SecurityDetailNode[] {
@@ -228,13 +250,7 @@ export function registerSecurityCommands(
       securityProvider.refresh();
     }),
     vscode.commands.registerCommand('envforge.toggleFence', async () => {
-      try {
-        await cliRun(['fence']);
-        vscode.window.showInformationMessage('Fence toggled');
-        securityProvider.refresh();
-      } catch (e: any) {
-        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
-      }
+      await vscode.commands.executeCommand('envforge.fenceToggle');
     }),
     vscode.commands.registerCommand('envforge.toggleGuard', async () => {
       if (!securityProvider['guardStatus']) {
@@ -312,7 +328,39 @@ export function registerSecurityCommands(
         vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
       }
     }),
+    vscode.commands.registerCommand('envforge.runLifecycleCheck', async () => {
+      const { stdout } = await cliRun(['lifecycle', 'check']);
+      showOutput('Lifecycle Check', stdout);
+    }),
+    vscode.commands.registerCommand('envforge.manageLifecycleRules', async () => {
+      const { stdout } = await cliRun(['lifecycle', 'rule', 'list']);
+      showOutput('Lifecycle Rules', stdout);
+    }),
+    vscode.commands.registerCommand('envforge.viewAuditTrail', async () => {
+      const { stdout } = await cliRun(['audit', '-n', '100']);
+      showOutput('Audit Trail', stdout);
+    }),
+    vscode.commands.registerCommand('envforge.showUnusedSecrets', async () => {
+      const { stdout } = await cliRun(['analytics', 'unused']);
+      showOutput('Unused Secrets', stdout);
+    }),
+    vscode.commands.registerCommand('envforge.showUsageSummary', async () => {
+      const { stdout } = await cliRun(['analytics', 'summary']);
+      showOutput('Usage Summary', stdout);
+    }),
+    vscode.commands.registerCommand('envforge.monitorStream', async () => {
+      const bin = getEnvforgePath();
+      const terminal = vscode.window.createTerminal('EnvForge Monitor');
+      terminal.show();
+      terminal.sendText(`${bin} monitor stream`);
+    }),
   );
+}
+
+function showOutput(title: string, content: string) {
+  const channel = vscode.window.createOutputChannel(`EnvForge: ${title}`);
+  channel.append(content);
+  channel.show();
 }
 
 function cliRun(args: string[]): Promise<{ stdout: string; stderr: string }> {

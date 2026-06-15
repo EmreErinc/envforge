@@ -506,6 +506,8 @@ async function cmdFenceToggle(statusBar: StatusBar) {
         // .env* file in the workspace. Refresh all cached badges so
         // the explorer redraws immediately.
         vscode.commands.executeCommand('envforge.decorations.refreshAll');
+        // Refresh security view if it exists
+        vscode.commands.executeCommand('envforge.refreshSecurity');
     } catch (err: any) {
         vscode.window.showErrorMessage(`Fence toggle failed: ${err?.message || err}`);
     }

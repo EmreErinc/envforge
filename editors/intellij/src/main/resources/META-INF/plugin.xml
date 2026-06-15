@@ -170,6 +170,38 @@
 
         <separator/>
 
+        <action id="EnvForge.RunLifecycleCheck"
+                class="com.envforge.intellij.actions.RunLifecycleCheckAction"
+                text="Run Lifecycle Check"
+                description="Evaluate all enabled lifecycle rules against current state"/>
+
+        <action id="EnvForge.ManageLifecycleRules"
+                class="com.envforge.intellij.actions.ManageLifecycleRulesAction"
+                text="Manage Lifecycle Rules"
+                description="Show or toggle secret lifecycle rules"/>
+
+        <action id="EnvForge.ViewAuditTrail"
+                class="com.envforge.intellij.actions.ViewAuditTrailAction"
+                text="View Audit Trail"
+                description="View sync and access audit logs"/>
+
+        <action id="EnvForge.ShowUnusedSecrets"
+                class="com.envforge.intellij.actions.ShowUnusedSecretsAction"
+                text="Show Unused Secrets"
+                description="Detect secrets with no access in N days"/>
+
+        <action id="EnvForge.ShowUsageSummary"
+                class="com.envforge.intellij.actions.ShowUsageSummaryAction"
+                text="Show Usage Summary"
+                description="Show analytics summary"/>
+
+        <action id="EnvForge.MonitorStream"
+                class="com.envforge.intellij.actions.MonitorStreamAction"
+                text="Monitor Stream"
+                description="Stream real-time secret access events"/>
+
+        <separator/>
+
         <action id="EnvForge.Validate"
                 class="com.envforge.intellij.actions.ValidateAction"
                 text="Validate Against Schema"

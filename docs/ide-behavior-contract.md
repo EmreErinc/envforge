@@ -377,4 +377,29 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | IntelliJ wiring | **Shipped both actions.** `CanaryCheckAction` subprocesses `envforge canary check --json` → `Messages.showWarningDialog` + IDE notification at appropriate severity. `CanaryScanAction`: editor-selection wins; otherwise `showChooseDialog` picks paste-text vs file-chooser. Pasted text writes to a tempfile (`createTempFile`, deleted in `finally`), file path goes directly. Subprocess `envforge canary scan --input PATH --json` → `Messages.showWarningDialog` with the match list + IDE notification. |
 | Test IDs | `test_command_dispatch_canary_scan_text_finds_token`, `test_command_dispatch_canary_scan_text_no_match`, `test_command_dispatch_canary_scan_rejects_missing_args`, `test_command_dispatch_canary_scan_file_open_failure_propagates`, `test_command_dispatch_canary_check_returns_triggered_array` |
 
+### G1 — Lifecycle dashboard
+
+| Field | Value |
+|---|---|
+| LSP methods | `workspace/executeCommand` → `envforge.lifecycle.check` and `envforge.lifecycle.rule.list` |
+| VS Code wiring | **Shipped.** Security view container includes "Lifecycle" category. Sub-items: "Run Lifecycle Check" (calls check), "Manage Rules" (calls rule list). Results displayed in a dedicated output channel. |
+| IntelliJ wiring | **Shipped.** Security tool window tab includes "Lifecycle" node. Sub-nodes: "Run Lifecycle Check", "Manage Rules", "Audit Trail". Spawns CLI subprocesses via `EnvForgeRunner.run` and displays output in the IDE console. |
+| Audit Trail | `envforge audit -n 100` command accessible from the Lifecycle node. |
+
+### G2 — Analytics dashboard
+
+| Field | Value |
+|---|---|
+| LSP methods | `workspace/executeCommand` → `envforge.analytics.unused` and `envforge.analytics.summary` |
+| VS Code wiring | **Shipped.** Security view container includes "Analytics" category. Sub-items: "Show Unused Secrets", "Usage Summary", "Monitor Stream". |
+| IntelliJ wiring | **Shipped.** Security tool window tab includes "Analytics" node. Sub-nodes: "Show Unused Secrets", "Usage Summary", "Monitor Stream". |
+| Monitor Stream | Launches a persistent IDE terminal running `envforge monitor stream` for real-time visibility. |
+
+### G3 — Profiles view parity
+
+| Field | Value |
+|---|---|
+| VS Code wiring | **Shipped.** Dedicated "Profiles" view in the EnvForge activity bar container. Shows active/inactive profiles with their source files. Double-click to switch. |
+| IntelliJ wiring | **Shipped.** Dedicated "Profiles" tab in the EnvForge tool window. Replaces the old Gear-menu profile switcher with a first-class tree view. Double-click a node to switch active profile. |
+
 ### (future rows added here as each feature ships)

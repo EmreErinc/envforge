@@ -400,6 +400,36 @@
       {
         "command": "envforge.removeCanary",
         "title": "Remove Canary Token"
+      },
+      {
+        "command": "envforge.runLifecycleCheck",
+        "title": "EnvForge: Run Lifecycle Check",
+        "icon": "$(play)"
+      },
+      {
+        "command": "envforge.manageLifecycleRules",
+        "title": "EnvForge: Manage Lifecycle Rules",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "envforge.viewAuditTrail",
+        "title": "EnvForge: View Audit Trail",
+        "icon": "$(history)"
+      },
+      {
+        "command": "envforge.showUnusedSecrets",
+        "title": "EnvForge: Show Unused Secrets",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "envforge.showUsageSummary",
+        "title": "EnvForge: Show Usage Summary",
+        "icon": "$(pie-chart)"
+      },
+      {
+        "command": "envforge.monitorStream",
+        "title": "EnvForge: Monitor Stream",
+        "icon": "$(pulse)"
       }
     ],
     "keybindings": [
@@ -636,6 +666,36 @@
           "command": "envforge.removeCanary",
           "when": "view == envforgeSecurity && viewItem =~ /canary/",
           "group": "1_canary@1"
+        },
+        {
+          "command": "envforge.runLifecycleCheck",
+          "when": "view == envforgeSecurity && viewItem == runLifecycleCheck",
+          "group": "inline"
+        },
+        {
+          "command": "envforge.manageLifecycleRules",
+          "when": "view == envforgeSecurity && viewItem == manageLifecycleRules",
+          "group": "inline"
+        },
+        {
+          "command": "envforge.viewAuditTrail",
+          "when": "view == envforgeSecurity && viewItem == viewAuditTrail",
+          "group": "inline"
+        },
+        {
+          "command": "envforge.showUnusedSecrets",
+          "when": "view == envforgeSecurity && viewItem == showUnusedSecrets",
+          "group": "inline"
+        },
+        {
+          "command": "envforge.showUsageSummary",
+          "when": "view == envforgeSecurity && viewItem == showUsageSummary",
+          "group": "inline"
+        },
+        {
+          "command": "envforge.monitorStream",
+          "when": "view == envforgeSecurity && viewItem == monitorStream",
+          "group": "inline"
         },
         {
           "command": "envforge.profileContextSwitch",

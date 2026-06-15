@@ -39,6 +39,7 @@ class EnvForgeMainPanel(private val project: Project) : JPanel(BorderLayout()) {
     init {
         val tabbedPane = JBTabbedPane()
         tabbedPane.addTab("Variables", EnvForgeToolWindowPanel(project))
+        tabbedPane.addTab("Profiles", ProfilesPanel(project))
         tabbedPane.addTab("Security", SecurityPanel(project))
         add(tabbedPane, BorderLayout.CENTER)
     }
@@ -49,7 +50,6 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
     private val varTree = Tree(varModel)
     private var grouped = true
     private val searchField = SearchTextField()
-    private var currentProfiles = listOf<ProfileData>()
 
     init {
         // Top Panel: Search + Toolbar
@@ -123,45 +123,8 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
             templatePresentation.icon = com.intellij.icons.AllIcons.General.Settings
         }
 
-        gearGroup.add(object : AnAction("Refresh", "Refresh variables and profiles", com.intellij.icons.AllIcons.Actions.Refresh) {
+        gearGroup.add(object : AnAction("Refresh All", "Refresh everything", com.intellij.icons.AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) = refresh()
-        })
-
-        gearGroup.addSeparator()
-
-        val switchProfileGroup = object : ActionGroup("Switch Profile", true) {
-            override fun getChildren(e: AnActionEvent?): Array<AnAction> {
-                if (currentProfiles.isEmpty()) {
-                    return arrayOf(object : AnAction("No profiles found") {
-                        override fun actionPerformed(e: AnActionEvent) {}
-                        override fun update(e: AnActionEvent) { e.presentation.isEnabled = false }
-                    })
-                }
-                return currentProfiles.map { profile ->
-                    object : AnAction(if (profile.active) "${profile.name} (active)" else profile.name) {
-                        override fun actionPerformed(e: AnActionEvent) {
-                            EnvForgeRunner.run(project, listOf("profile", "switch", profile.name), "Switch Profile") {
-                                SwingUtilities.invokeLater { refresh() }
-                            }
-                        }
-                        override fun update(e: AnActionEvent) {
-                            e.presentation.isEnabled = !profile.active
-                        }
-                    }
-                }.toTypedArray()
-            }
-        }
-        gearGroup.add(switchProfileGroup)
-
-        gearGroup.add(object : AnAction("Add Profile...", "Create a new profile", com.intellij.icons.AllIcons.General.Add) {
-            override fun actionPerformed(e: AnActionEvent) {
-                val name = Messages.showInputDialog(project, "Enter profile name:", "Add Profile", null)
-                if (!name.isNullOrBlank()) {
-                    EnvForgeRunner.run(project, listOf("profile", "create", name), "Add Profile") {
-                        SwingUtilities.invokeLater { refresh() }
-                    }
-                }
-            }
         })
 
         gearGroup.addSeparator()
@@ -306,36 +269,11 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
     }
 
     fun refresh() {
-        loadProfiles()
         if (searchField.text.isEmpty()) {
             loadVariables()
         } else {
             searchVariables(searchField.text)
         }
-    }
-
-    private fun loadProfiles() {
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
-        Thread {
-            try {
-                val process = ProcessBuilder(binary, "profile", "list")
-                    .directory(project.basePath?.let { java.io.File(it) })
-                    .redirectErrorStream(true)
-                    .start()
-                val output = process.inputStream.bufferedReader().readText()
-                process.waitFor()
-
-                val profiles = mutableListOf<ProfileData>()
-                for (line in output.lines()) {
-                    val match = Regex("""^\s+(\S+)\s+\(([^)]+)\)(.*)""").find(line) ?: continue
-                    val name = match.groupValues[1]
-                    val file = match.groupValues[2]
-                    val active = match.groupValues[3].contains("active")
-                    profiles.add(ProfileData(name, file, active))
-                }
-                currentProfiles = profiles
-            } catch (_: Exception) {}
-        }.start()
     }
 
     private fun loadVariables() {
