@@ -1,14 +1,23 @@
 {
-  "name": "envforge-env-manager",
-  "displayName": "EnvForge - ENV Manager",
-  "description": "Environment variable management with schema validation, secret scanning, and multi-profile support",
-  "version": "0.1.6",
   "publisher": "emreerinc",
+  "name": "envforge",
+  "version": "0.8.1",
+  "displayName": "EnvForge - AI-Safe Environment Manager",
+  "description": "Terminal environment variable manager with AI safety",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/emreerinc/envforge"
+    "url": "https://github.com/emreerinc/envforge.git"
   },
+  "homepage": "https://github.com/emreerinc/envforge",
+  "bugs": {
+    "url": "https://github.com/emreerinc/envforge/issues"
+  },
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -652,13 +661,19 @@
     "bundle": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
     "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
     "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
     "package": "vsce package"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.9",
     "@vscode/vsce": "^2.24.0",
     "esbuild": "^0.28.0",
+    "glob": "^10.3.10",
+    "mocha": "^10.3.0",
     "typescript": "^5.4.0"
   },
   "dependencies": {

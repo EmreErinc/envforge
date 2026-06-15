@@ -1,7 +1,0 @@
----
-source: tests/parser_snapshot_tests.rs
-expression: output
----
-#[envforge:managed]
-FOO="bar"
-# end managed

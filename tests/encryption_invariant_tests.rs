@@ -2,6 +2,7 @@ use envforge::ops::secrets::modes::VolatileMode;
 use envforge::ops::secrets::provider::CredentialEncryptionPolicy;
 use envforge::ops::secrets::providers;
 use envforge::ops::sync::model::SyncEncryptionPolicy;
+use serial_test::serial;
 
 // ═══════════════════════════════════════════════════════════════
 // Encryption Invariant Tests
@@ -191,6 +192,7 @@ fn test_sync_encryption_policy_default_is_mandatory() {
 // ─── INVARIANT 4: ENVFORGE_AGE_KEY resolution path ──────────
 
 #[test]
+#[serial]
 fn test_env_age_key_empty_is_rejected() {
     std::env::set_var("ENVFORGE_AGE_KEY", "");
     let result = envforge::ops::encrypt::ensure_age_key();
@@ -203,6 +205,7 @@ fn test_env_age_key_empty_is_rejected() {
 }
 
 #[test]
+#[serial]
 fn test_env_age_key_invalid_key_fails_encrypt() {
     std::env::set_var("ENVFORGE_AGE_KEY", "this-is-not-a-valid-age-key");
     // encrypt_value calls ensure_age_key() then tries to parse the key
@@ -215,6 +218,7 @@ fn test_env_age_key_invalid_key_fails_encrypt() {
 }
 
 #[test]
+#[serial]
 fn test_env_age_key_file_missing_is_rejected() {
     std::env::set_var("ENVFORGE_AGE_KEY_FILE", "/nonexistent/path/age.key");
     let result = envforge::ops::encrypt::age_key_path();

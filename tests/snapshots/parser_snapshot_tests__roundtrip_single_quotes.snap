@@ -1,5 +1,0 @@
----
-source: tests/parser_snapshot_tests.rs
-expression: output
----
-export DB_HOST='localhost'

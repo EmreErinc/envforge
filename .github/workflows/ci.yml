@@ -32,6 +32,18 @@ jobs:
       - name: Test
         run: cargo test --all-targets --all-features
 
+      - name: Run benchmarks
+        run: cargo bench --bench benchmarks -- --output-format bencher | tee output.txt
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'cargo'
+          output-file-path: output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '110%' # Fail if regression > 10%
+
       - name: Doc
         run: cargo doc --no-deps --document-private-items
         env:

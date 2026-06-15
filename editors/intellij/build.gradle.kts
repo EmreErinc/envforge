@@ -1,10 +1,12 @@
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+
 plugins {
     id("org.jetbrains.intellij.platform") version "2.2.1"
     kotlin("jvm") version "1.9.25"
 }
 
 group = "com.envforge"
-version = "0.1.6"
+version = "0.8.1"
 
 repositories {
     mavenCentral()
@@ -20,7 +22,9 @@ dependencies {
         plugin("com.redhat.devtools.lsp4ij:0.19.3")
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.toml.lang")
+        testFramework(TestFrameworkType.Platform)
     }
+    testImplementation(kotlin("test"))
 }
 
 tasks {

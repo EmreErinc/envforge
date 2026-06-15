@@ -1,7 +1,0 @@
----
-source: tests/parser_snapshot_tests.rs
-expression: output
----
-export FOO="bar"
-export BAZ="qux"
-export XYZ="123"

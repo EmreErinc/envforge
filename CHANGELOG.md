@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-06-08
+
+### Fixed
+
+- **Encryption test environment contamination:** Added `serial_test` to isolate tests that manipulate global environment variables.
+- **LSP security:** Implemented JSONL audit logging for the Language Server to track secret access attempts (hover/completion).
+
+### Added
+
+- **CI performance gate:** Added benchmark execution and automated regression tracking to GitHub Actions.
+
 ## [0.8.0] - 2026-06-03
 
 ### Security — Pre-Launch Hardening

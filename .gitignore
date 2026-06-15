@@ -10,7 +10,9 @@ fuzz/target
 .vscode/
 *.swp
 *.swo
-editors/intellij/.intellijPlatform/
+editors/intellij/.intellijPlatform/**
+editors/vscode/.vscode-test/
+tests/snapshots/
 
 # OS
 .DS_Store

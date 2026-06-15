@@ -1,6 +1,6 @@
 [package]
 name = "env-forge-tui"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Terminal environment variable manager with TUI and CLI"
@@ -145,6 +145,7 @@ insta = "1.47.2"
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 trybuild = "1"
+serial_test = "3"
 
 [[bench]]
 name = "benchmarks"

@@ -8,7 +8,12 @@
 // boundary MUST pass these guards before touching filesystem or subprocess
 // operations. This is the front door — reject here, don't sanitize later.
 
-use std::path::Path;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use chrono::Local;
+use serde_json::json;
 
 use crate::ops::fence;
 
@@ -36,6 +41,48 @@ impl Default for LspSecurityPolicy {
             fence_required_for_reveal: true,
             max_tracked_documents: 256,
         }
+    }
+}
+
+pub struct LspAuditLogger {
+    log_path: PathBuf,
+}
+
+impl LspAuditLogger {
+    pub fn new() -> Result<Self, std::io::Error> {
+        let config_dir = dirs::config_dir().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "Config directory not found")
+        })?;
+
+        let envforge_dir = config_dir.join("envforge");
+        std::fs::create_dir_all(&envforge_dir)?;
+
+        let log_path = envforge_dir.join("lsp-audit.log");
+        Ok(LspAuditLogger { log_path })
+    }
+
+    pub fn log_operation(
+        &self,
+        operation: &str,
+        file_path: &str,
+        keys_accessed: &[String],
+        status: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let entry = json!({
+            "timestamp": Local::now().to_rfc3339(),
+            "operation": operation,
+            "file_path": file_path,
+            "keys_accessed": keys_accessed,
+            "status": status,
+        });
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log_path)?;
+
+        writeln!(file, "{}", entry.to_string())?;
+        Ok(())
     }
 }
 
@@ -194,6 +241,15 @@ pub fn guard_file_size(path: &Path, max_bytes: u64) -> GuardResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_audit_log_creation() {
+        let logger = LspAuditLogger::new().unwrap();
+        logger.log_operation("hover", ".env", &["DATABASE_URL".to_string()], "success").unwrap();
+
+        // Verify log file exists
+        assert!(logger.log_path.exists());
+    }
 
     #[test]
     fn test_guard_key_pattern_valid() {

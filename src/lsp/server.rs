@@ -27,7 +27,7 @@ use super::mcp_diagnostics::compute_mcp_diagnostics;
 use super::rate_limit::RateLimiters;
 use super::references::find_references;
 use super::rename::build_rename_edit;
-use super::security::LspSecurityPolicy;
+use super::security::{LspAuditLogger, LspSecurityPolicy};
 use super::semantic_tokens::{compute_semantic_tokens, TOKEN_MODIFIERS, TOKEN_TYPES};
 use super::workspace_symbol::workspace_symbols;
 
@@ -51,6 +51,7 @@ pub struct Backend {
     managed_vars: RwLock<Vec<ManagedVar>>,
     rate_limiters: RateLimiters,
     security_policy: LspSecurityPolicy,
+    audit_logger: LspAuditLogger,
     /// Last LSP method name for audit attribution of security-relevant
     /// side effects (reveal, fence toggle, sync push, etc.). Tracked so
     /// the audit log records which LSP endpoint triggered the mutation.
@@ -59,6 +60,8 @@ pub struct Backend {
 
 impl Backend {
     fn new(client: Client) -> Self {
+        let audit_logger = LspAuditLogger::new().expect("failed to initialize LSP audit logger");
+
         Self {
             client,
             documents: RwLock::new(HashMap::new()),
@@ -70,6 +73,7 @@ impl Backend {
             managed_vars: RwLock::new(Vec::new()),
             rate_limiters: RateLimiters::default(),
             security_policy: LspSecurityPolicy::default(),
+            audit_logger,
             request_method: RwLock::new(String::new()),
         }
     }
@@ -760,6 +764,14 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
 
+        let keys_accessed = self.extract_keys_from_hover_position(&params);
+        let _ = self.audit_logger.log_operation(
+            "hover",
+            uri.as_str(),
+            &keys_accessed,
+            "success",
+        );
+
         let doc = self
             .documents
             .read()
@@ -783,6 +795,14 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
+
+        let keys_suggested = self.extract_suggested_keys(&params);
+        let _ = self.audit_logger.log_operation(
+            "completion",
+            uri.as_str(),
+            &keys_suggested,
+            "success",
+        );
 
         if !self.rate_limiters.completion.try_consume(1) {
             return Ok(None);
@@ -1370,6 +1390,42 @@ impl Backend {
             entries,
             fence_active,
         })
+    }
+
+    fn extract_keys_from_hover_position(&self, params: &HoverParams) -> Vec<String> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+
+        if let Ok(docs) = self.documents.read() {
+            if let Some(doc) = docs.get(uri) {
+                return doc
+                    .entries
+                    .iter()
+                    .filter(|e| {
+                        e.line == pos.line
+                            && pos.character >= e.key_range.start.character
+                            && pos.character <= e.value_range.end.character
+                    })
+                    .map(|e| e.key.clone())
+                    .collect();
+            }
+        }
+        vec![]
+    }
+
+    fn extract_suggested_keys(&self, _params: &CompletionParams) -> Vec<String> {
+        let mut keys = vec![];
+        if let Ok(vars) = self.managed_vars.read() {
+            keys.extend(vars.iter().map(|v| v.key.clone()));
+        }
+        if let Ok(schema) = self.schema.read() {
+            if let Some(s) = schema.as_ref() {
+                keys.extend(s.variables.keys().cloned());
+            }
+        }
+        keys.sort();
+        keys.dedup();
+        keys
     }
 }
 
