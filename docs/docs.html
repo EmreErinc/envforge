@@ -409,17 +409,21 @@
       const content = document.getElementById('docs-content');
       const nav = document.getElementById('sidebar-nav');
       const headings = content.querySelectorAll('h2, h3');
-      let html = '';
+      const fragment = document.createDocumentFragment();
       let currentH2Id = null;
       let h3Buffer = [];
 
       function flushH3s() {
         if (h3Buffer.length > 0) {
-          html += '<div class="sub-items">';
+          const subItems = document.createElement('div');
+          subItems.className = 'sub-items';
           h3Buffer.forEach(h => {
-            html += `<a href="#${h.id}">${h.text}</a>`;
+            const link = document.createElement('a');
+            link.setAttribute('href', `#${h.id}`);
+            link.textContent = h.text;
+            subItems.appendChild(link);
           });
-          html += '</div>';
+          fragment.appendChild(subItems);
           h3Buffer = [];
         }
       }
@@ -428,13 +432,18 @@
         if (el.tagName === 'H2') {
           flushH3s();
           currentH2Id = el.id;
-          html += `<a href="#${el.id}" class="section-toggle" data-section="${el.id}">${el.textContent}</a>`;
+          const sectionLink = document.createElement('a');
+          sectionLink.setAttribute('href', `#${el.id}`);
+          sectionLink.className = 'section-toggle';
+          sectionLink.dataset.section = el.id;
+          sectionLink.textContent = el.textContent;
+          fragment.appendChild(sectionLink);
         } else if (el.tagName === 'H3' && currentH2Id) {
           h3Buffer.push({ id: el.id, text: el.textContent });
         }
       });
       flushH3s();
-      nav.innerHTML = html;
+      nav.replaceChildren(fragment);
 
       // Toggle sub-items on section click
       nav.querySelectorAll('.section-toggle').forEach(a => {
