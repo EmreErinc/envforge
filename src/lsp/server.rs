@@ -765,12 +765,9 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position_params.position;
 
         let keys_accessed = self.extract_keys_from_hover_position(&params);
-        let _ = self.audit_logger.log_operation(
-            "hover",
-            uri.as_str(),
-            &keys_accessed,
-            "success",
-        );
+        let _ = self
+            .audit_logger
+            .log_operation("hover", uri.as_str(), &keys_accessed, "success");
 
         let doc = self
             .documents
@@ -797,12 +794,9 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
 
         let keys_suggested = self.extract_suggested_keys(&params);
-        let _ = self.audit_logger.log_operation(
-            "completion",
-            uri.as_str(),
-            &keys_suggested,
-            "success",
-        );
+        let _ =
+            self.audit_logger
+                .log_operation("completion", uri.as_str(), &keys_suggested, "success");
 
         if !self.rate_limiters.completion.try_consume(1) {
             return Ok(None);

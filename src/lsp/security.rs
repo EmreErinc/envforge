@@ -81,7 +81,7 @@ impl LspAuditLogger {
             .append(true)
             .open(&self.log_path)?;
 
-        writeln!(file, "{}", entry.to_string())?;
+        writeln!(file, "{}", entry)?;
         Ok(())
     }
 }
@@ -245,7 +245,9 @@ mod tests {
     #[test]
     fn test_audit_log_creation() {
         let logger = LspAuditLogger::new().unwrap();
-        logger.log_operation("hover", ".env", &["DATABASE_URL".to_string()], "success").unwrap();
+        logger
+            .log_operation("hover", ".env", &["DATABASE_URL".to_string()], "success")
+            .unwrap();
 
         // Verify log file exists
         assert!(logger.log_path.exists());
