@@ -63,7 +63,7 @@ pub enum SecretsError {
 /// to implement it will fail to compile.
 ///
 /// `Reporting` (the old permissive variant) has been **deleted**.
-/// The only escape hatch is [`NotSupported`] which requires an explicit
+/// The only escape hatch is [`CredentialEncryptionPolicy::NotSupported`] which requires an explicit
 /// technical justification string and the name of the reviewer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]

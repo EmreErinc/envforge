@@ -56,8 +56,9 @@ If you discover a security vulnerability in EnvForge, please report it responsib
 ## Supported Versions
 
 | Version | Supported |
-|---------|-----------|
-| 0.1.x | Yes |
+|---------|-----------| 
+| 0.8.x   | ✅ Yes    |
+| < 0.8   | ❌ No     |
 
 ## Dependencies
 

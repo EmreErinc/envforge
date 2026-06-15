@@ -1,0 +1,6 @@
+---
+source: tests/parser_snapshot_tests.rs
+expression: output
+---
+# only comments
+# no exports
