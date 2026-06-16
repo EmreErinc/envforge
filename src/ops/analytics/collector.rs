@@ -51,7 +51,7 @@ pub fn collect_all() -> Result<Vec<EnrichedAccessEvent>, AnalyticsError> {
     collect_events(&TimeWindow::Last90Days)
 }
 
-/// Resolve a TimeWindow to a DateTime<Utc> cutoff point.
+/// Resolve a TimeWindow to a `DateTime<Utc>` cutoff point.
 fn window_cutoff(window: &TimeWindow) -> DateTime<Utc> {
     let now = Utc::now();
     let duration = match window {

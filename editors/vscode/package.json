@@ -4,7 +4,7 @@
   "version": "0.8.1",
   "displayName": "EnvForge - AI-Safe Environment Manager",
   "description": "Terminal environment variable manager with AI safety",
-  "license": "MIT",
+  "license": "Elastic-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/emreerinc/envforge.git"
@@ -430,6 +430,11 @@
         "command": "envforge.monitorStream",
         "title": "EnvForge: Monitor Stream",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "envforge.extendLease",
+        "title": "EnvForge: Extend Volatile Lease\u2026",
+        "icon": "$(clock)"
       }
     ],
     "keybindings": [
@@ -469,7 +474,28 @@
           "command": "envforge.check"
         },
         {
+          "command": "envforge.syncStatus"
+        },
+        {
           "command": "envforge.restartLsp"
+        },
+        {
+          "command": "envforge.runVolatile"
+        },
+        {
+          "command": "envforge.revealValue"
+        },
+        {
+          "command": "envforge.canaryScan"
+        },
+        {
+          "command": "envforge.canaryCheck"
+        },
+        {
+          "command": "envforge.schemaGenerate"
+        },
+        {
+          "command": "envforge.extendLease"
         },
         {
           "command": "envforge.refreshTree",

@@ -78,6 +78,13 @@ class SyncPullAction : AnAction() {
     }
 }
 
+class SyncStatusAction : AnAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        EnvForgeRunner.run(project, listOf("sync", "status"), "Sync Status")
+    }
+}
+
 class SchemaGenerateAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

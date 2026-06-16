@@ -1241,7 +1241,7 @@ pub fn sort_secret_pairs(secrets: &mut [(String, String)]) {
     secrets.sort_by(|a, b| a.0.cmp(&b.0));
 }
 
-/// Extract and parse JSON object into a HashMap<String, String>.
+/// Extract and parse JSON object into a `HashMap<String, String>`.
 /// Filters out system keys (those starting with underscore) and handles nested structures.
 /// Provider-specific JSON extraction logic should use this utility.
 pub fn extract_json_object(

@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
     <name>EnvForge</name>
-    <version>0.1.6</version>
+    <version>0.8.1</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[
@@ -236,6 +236,11 @@
                 class="com.envforge.intellij.actions.SyncPullAction"
                 text="Sync Pull"
                 description="Pull env changes from remote"/>
+
+        <action id="EnvForge.SyncStatus"
+                class="com.envforge.intellij.actions.SyncStatusAction"
+                text="Sync Status"
+                description="Show sync status"/>
 
         <action id="EnvForge.SchemaGenerate"
                 class="com.envforge.intellij.actions.SchemaGenerateAction"

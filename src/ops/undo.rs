@@ -65,7 +65,7 @@ impl Default for UndoStack {
     }
 }
 
-/// Clone a Vec<LineNode> for snapshot purposes.
+/// Clone a `Vec<LineNode>` for snapshot purposes.
 ///
 /// LineNode derives Clone, so this is straightforward.
 fn clone_lines(lines: &[LineNode]) -> Vec<LineNode> {

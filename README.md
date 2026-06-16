@@ -2,7 +2,7 @@
 
 The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **28 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 90+ commands. Ships with a Language Server (`envforge lsp`) and VS Code + IntelliJ plugins that surface the AI-safety story directly in the editor — gutter exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, source-language goto-definition. **929 tests passing.**
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **27 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 90+ commands. Ships with a Language Server (`envforge lsp`) and VS Code + IntelliJ plugins that surface the AI-safety story directly in the editor — gutter exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, source-language goto-definition. **2,400+ tests passing.**
 
 ![License: ELv2](https://img.shields.io/badge/License-ELv2-blue.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)

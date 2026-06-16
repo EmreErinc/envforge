@@ -114,21 +114,57 @@ Add to LSP settings:
 
 ### Feature Parity
 
+Both plugins are built on the same LSP server and CLI binary, so all features are available in both editors.
+
 | Feature | VS Code | IntelliJ |
 |---------|---------|----------|
-| Diagnostics (LSP) | Yes | Yes |
-| Hover info (LSP) | Yes | Yes |
-| Completions (LSP) | Yes | Yes |
-| Go-to-definition (LSP) | Yes | Yes |
-| Variables tree view | Yes (sidebar) | Yes (tool window) |
-| Prefix grouping + toggle | Yes | Yes |
-| Profiles tree view | Yes (sidebar) | Yes (tool window) |
-| Profile switching | Click / command | Double-click / menu |
-| Copy Key Name | Click + right-click | Double-click + right-click |
-| Copy Value | Right-click | Right-click |
-| Copy KEY=VALUE | — | Right-click |
-| Status bar | Variable count | Variable count |
-| Commands | 13 (command palette) | 11 (Tools menu) |
-| Secret masking | Sensitive values masked | Sensitive values masked |
+| **LSP: Diagnostics** | ✅ | ✅ |
+| **LSP: Hover info** | ✅ | ✅ |
+| **LSP: Completions** | ✅ | ✅ |
+| **LSP: Go-to-definition** | ✅ | ✅ |
+| **LSP: MCP config inline diagnostics** | ✅ | ✅ |
+| **LSP: Source-language goto-definition** | ✅ (13 languages) | ✅ (13 languages) |
+| **Variables tree view** | ✅ Sidebar panel | ✅ Tool window |
+| **Profiles tree view** | ✅ Sidebar panel | ✅ Tool window |
+| **Security dashboard** | ✅ Sidebar panel | ✅ Tool window |
+| **Prefix grouping + toggle** | ✅ | ✅ |
+| **Profile switching** | ✅ Click / command | ✅ Double-click / menu |
+| **Profile diff** | ✅ | ✅ |
+| **Copy Key Name** | ✅ Click + right-click | ✅ Double-click + right-click |
+| **Copy Value** | ✅ Right-click | ✅ Right-click |
+| **Copy KEY=VALUE** | ✅ Right-click | ✅ Right-click |
+| **Add / Edit / Delete / Rename variable** | ✅ | ✅ |
+| **Search variables** | ✅ (Ctrl+Shift+F) | ✅ |
+| **Status bar widget** | ✅ Variable count | ✅ Variable count |
+| **Gutter exposure heatmap** | ✅ | — |
+| **File explorer badge** | ✅ | — |
+| **Fence Inactive inspection** | — | ✅ |
+| **Project view decorator** | — | ✅ |
+| **Toggle AI Fence** | ✅ | ✅ |
+| **Toggle AI Guard** | ✅ | ✅ |
+| **MCP Scan** | ✅ | ✅ |
+| **Add / Remove Canary Token** | ✅ | ✅ |
+| **Canary Check** (list triggered) | ✅ | ✅ |
+| **Canary Scan** (scan text/file) | ✅ | ✅ |
+| **Run Volatile Session** | ✅ | ✅ |
+| **Reveal Value (audit-logged)** | ✅ | ✅ |
+| **Extend Volatile Lease** | — | ✅ |
+| **Lifecycle Check** | ✅ | ✅ |
+| **Manage Lifecycle Rules** | ✅ | ✅ |
+| **View Audit Trail** | ✅ | ✅ |
+| **Show Unused Secrets** | ✅ | ✅ |
+| **Show Usage Summary** | ✅ | ✅ |
+| **Monitor Stream** | ✅ | ✅ |
+| **Validate Against Schema** | ✅ | ✅ |
+| **Scan for Secret Leaks** | ✅ | ✅ |
+| **Export Variables** | ✅ | ✅ |
+| **Sync Push / Pull / Status** | ✅ | ✅ |
+| **Generate Schema** | ✅ | ✅ |
+| **Health Check (doctor)** | ✅ | ✅ |
+| **Run All Checks** | ✅ | ✅ |
+| **Run Project Wizard** | ✅ | ✅ |
+| **Initialize Project** | ✅ | ✅ |
+| **Restart LSP** | ✅ | — |
+| **Getting Started walkthrough** | ✅ | — |
 
 See each directory's README for installation instructions.
