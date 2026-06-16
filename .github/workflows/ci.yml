@@ -14,6 +14,7 @@ jobs:
   check:
     name: Check (fmt + clippy + test + doc)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -38,6 +39,7 @@ jobs:
         run: cargo bench --bench benchmarks -- --output-format bencher | tee output.txt
 
       - name: Store benchmark result
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: 'cargo'

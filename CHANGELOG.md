@@ -5,16 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.1] - 2026-06-08
-
-### Fixed
-
-- **Encryption test environment contamination:** Added `serial_test` to isolate tests that manipulate global environment variables.
-- **LSP security:** Implemented JSONL audit logging for the Language Server to track secret access attempts (hover/completion).
+## [0.8.1] - 2026-06-15
 
 ### Added
 
-- **CI performance gate:** Added benchmark execution and automated regression tracking to GitHub Actions.
+- **IDE Governance Dashboard:** Added new **Lifecycle** and **Analytics** categories to the Security tree view in both VS Code and IntelliJ plugins.
+- **Integrated Monitoring:** "Monitor Stream" action in IDEs now launches a real-time secret access event stream in a persistent terminal.
+- **Full Profiles Parity:** Added a dedicated **Profiles** tab to the IntelliJ tool window, matching the VS Code experience for one-click environment switching.
+- **CI Performance Gate:** Added benchmark execution and automated regression tracking to GitHub Actions.
+
+### Fixed
+
+- **IDE Plugin Alignment:**
+    - Consolidated VS Code `Fence` toggle logic to use the LSP and refresh all UI components (Status Bar, Decorations, and Security View).
+    - Refactored IntelliJ `Toggle Guard` to support tool-specific hook management (Claude Code, Cursor, etc.).
+    - Unified command naming and behavior across both plugins to match the IDE Behavior Contract.
+- **CI Pipeline Hardening:**
+    - Fixed `Resource not accessible` error in security audit by adding `checks: write` permissions.
+    - Added `audit.toml` to explicitly ignore unmaintained dependency warnings for `proc-macro-error2`.
+    - Resolved `cargo-deny` license failure by adding `Elastic-2.0` to the allowed list.
+- **Documentation Sync:** Synchronized `cli-reference.md`, `api-reference.md`, and `ide-behavior-contract.md` with the latest v0.8.1 subcommands and features.
+- **Encryption test environment contamination:** Added `serial_test` to isolate tests that manipulate global environment variables.
+- **LSP security:** Implemented JSONL audit logging for the Language Server to track secret access attempts (hover/completion).
 
 ## [0.8.0] - 2026-06-03
 
