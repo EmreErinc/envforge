@@ -4,9 +4,9 @@ use serde_json::json;
 use std::io::Read;
 
 #[allow(unused_imports)]
-use chrono::Utc;
-#[allow(unused_imports)]
 use crate::ops::monitor;
+#[allow(unused_imports)]
+use chrono::Utc;
 
 use crate::ops::secrets::cache;
 use crate::ops::secrets::credentials;
