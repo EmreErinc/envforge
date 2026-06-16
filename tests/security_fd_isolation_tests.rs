@@ -126,6 +126,10 @@ fn test_fd_isolation_malicious_child_cannot_read_inherited_secrets() {
         for d in /dev/fd /proc/self/fd; do
             if [ -d "$d" ]; then
                 for fd in "$d"/*; do
+                    # Skip standard FDs (0, 1, 2) to prevent hanging on stdin or messing with stdout/stderr
+                    case $(basename "$fd") in
+                        0|1|2) continue ;;
+                    esac
                     cat "$fd" 2>/dev/null || true
                 done
             fi
