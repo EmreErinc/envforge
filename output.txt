@@ -1,0 +1,8 @@
+test parser/roundtrip_small ... bench:       1,192 ns/iter (+/- 21)
+
+test parser/roundtrip_large_500_exports ... bench:     414,295 ns/iter (+/- 2,457)
+
+test sync/compute_diff_small ... bench:         203 ns/iter (+/- 1)
+
+test security/redact_secrets_in_message ... bench:         300 ns/iter (+/- 3)
+
