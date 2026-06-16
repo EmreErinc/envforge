@@ -11,7 +11,7 @@ surface available on demand.
 
 | Editor | First-party plugin? | Setup |
 |---|---|---|
-| VS Code | ✓ `envforge-env-manager` 0.1.6 | Install via Marketplace or the bundled `.vsix` |
+| VS Code | ✓ `envforge-env-manager` 0.1.7 | Install via Marketplace or the bundled `.vsix` |
 | IntelliJ Platform (Idea, GoLand, PyCharm, RustRover, …) | ✓ `envforge-intellij` 0.1.6 | Settings → Plugins → Install Plugin from Disk |
 | Neovim (`nvim-lspconfig`) | LSP only | [config below](#neovim) |
 | Helix | LSP only | [config below](#helix) |

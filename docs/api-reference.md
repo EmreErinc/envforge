@@ -422,7 +422,7 @@ envforge::ops::validation →  rule-based value validation
 
 ### LSP (`envforge::lsp`)
 
-Run the server with `envforge lsp` (stdio transport). Every plugin / editor client that speaks LSP can connect; VS Code (`envforge-env-manager` 0.1.6+) and IntelliJ (lsp4ij-based plugin) are first-party. Configs for Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, and Lapce live in [`docs/lsp-clients.md`](lsp-clients.md).
+Run the server with `envforge lsp` (stdio transport). Every plugin / editor client that speaks LSP can connect; VS Code (`envforge-env-manager` 0.1.7+) and IntelliJ (lsp4ij-based plugin) are first-party. Configs for Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, and Lapce live in [`docs/lsp-clients.md`](lsp-clients.md).
 
 #### `run_lsp()`
 
