@@ -263,12 +263,47 @@ class MonitorStreamAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val binary = EnvForgeLspFactory.findEnvforgeBinary()
-        
-        // Use the IDE's terminal to run the stream
-        val terminalManager = com.intellij.terminal.JBTerminalWidget.getTerminalWidgets(project).firstOrNull()
-        // Actually, better to use the ToolWindowManager to find/create a terminal
-        val terminalView = com.intellij.openapi.wm.ToolWindowManager.getInstance(project).getToolWindow("Terminal")
-        terminalView?.show {
+
+        // Open the IDE's built-in Terminal tool window and send the
+        // command there so it runs as a persistent stream — not a
+        // captured subprocess. Mirrors the VS Code approach of
+        // `terminal.sendText("envforge monitor stream")`.
+        val toolWindowManager = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+        val terminalWindow = toolWindowManager.getToolWindow("Terminal")
+
+        if (terminalWindow != null) {
+            terminalWindow.activate {
+                // After the tool window is shown, send the command to
+                // whatever terminal session is currently active.
+                // Use the TerminalView service if available (IJ 2023+).
+                try {
+                    val terminalView = Class.forName("org.jetbrains.plugins.terminal.TerminalView")
+                        .getMethod("getInstance", Project::class.java)
+                        .invoke(null, project)
+                    val createLocalTerminal = terminalView.javaClass.getMethod(
+                        "createLocalShellWidget", String::class.java, String::class.java
+                    )
+                    val widget = createLocalTerminal.invoke(
+                        terminalView,
+                        project.basePath ?: System.getProperty("user.home"),
+                        "EnvForge Monitor"
+                    )
+                    val sendCmd = widget.javaClass.getMethod(
+                        "sendCommandToExecute", String::class.java
+                    )
+                    sendCmd.invoke(widget, "$binary monitor stream")
+                } catch (_: Exception) {
+                    // Fallback: use the tool window's active content to
+                    // send input if the TerminalView reflection fails.
+                    terminalWindow.contentManager.contents.firstOrNull()?.let {
+                        EnvForgeRunner.run(project, listOf("monitor", "stream"), "Monitor Stream")
+                    } ?: EnvForgeRunner.run(project, listOf("monitor", "stream"), "Monitor Stream")
+                }
+            }
+        } else {
+            // Terminal tool window not available — fall back to a
+            // notification with the raw output. This is not streaming
+            // but at least produces some output.
             EnvForgeRunner.run(project, listOf("monitor", "stream"), "Monitor Stream")
         }
     }

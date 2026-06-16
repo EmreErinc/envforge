@@ -1,7 +1,10 @@
 package com.envforge.intellij
 
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import java.awt.BorderLayout
@@ -37,6 +40,7 @@ class ProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
         })
 
+        installContextMenu()
         refresh()
     }
 
@@ -74,12 +78,127 @@ class ProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
         }.start()
     }
 
+    private fun installContextMenu() {
+        val group = DefaultActionGroup().apply {
+            add(object : AnAction(
+                "Switch to Profile",
+                "Activate this profile",
+                com.intellij.icons.AllIcons.Actions.Checked,
+            ) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val data = node.userObject as? ProfileData ?: return
+                    if (!data.active) {
+                        EnvForgeRunner.run(project, listOf("profile", "switch", data.name), "Switch Profile") {
+                            SwingUtilities.invokeLater { refresh() }
+                        }
+                    }
+                }
+                override fun update(e: AnActionEvent) {
+                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    val data = node?.userObject as? ProfileData
+                    e.presentation.isEnabledAndVisible = data != null && !data.active
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
+            })
+
+            add(object : AnAction(
+                "Open Profile File",
+                "Open the profile's .env file in the editor",
+                com.intellij.icons.AllIcons.FileTypes.Text,
+            ) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val data = node.userObject as? ProfileData ?: return
+                    openProfileFile(data.file)
+                }
+                override fun update(e: AnActionEvent) {
+                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    e.presentation.isEnabledAndVisible = node?.userObject is ProfileData
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
+            })
+
+            addSeparator()
+
+            add(object : AnAction(
+                "Diff vs Active Profile",
+                "Show differences against the active profile",
+                com.intellij.icons.AllIcons.Actions.Diff,
+            ) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val data = node.userObject as? ProfileData ?: return
+                    EnvForgeRunner.run(project, listOf("profile", "diff", data.name), "Profile Diff")
+                }
+                override fun update(e: AnActionEvent) {
+                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    e.presentation.isEnabledAndVisible = node?.userObject is ProfileData
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
+            })
+
+            addSeparator()
+
+            add(object : AnAction(
+                "Delete Profile",
+                "Remove this profile",
+                com.intellij.icons.AllIcons.Actions.GC,
+            ) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                    val data = node.userObject as? ProfileData ?: return
+                    val confirm = com.intellij.openapi.ui.Messages.showYesNoDialog(
+                        project,
+                        "Delete profile \"${data.name}\"?",
+                        "Confirm Deletion",
+                        com.intellij.openapi.ui.Messages.getWarningIcon(),
+                    )
+                    if (confirm == com.intellij.openapi.ui.Messages.YES) {
+                        EnvForgeRunner.run(project, listOf("profile", "delete", data.name), "Delete Profile") {
+                            SwingUtilities.invokeLater { refresh() }
+                        }
+                    }
+                }
+                override fun update(e: AnActionEvent) {
+                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
+                    val data = node?.userObject as? ProfileData
+                    e.presentation.isEnabledAndVisible = data != null && !data.active
+                }
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
+            })
+        }
+        PopupHandler.installPopupMenu(tree, group, "EnvForgeProfilesPopup")
+    }
+
+    /// Open the profile's backing .env file in the IDE editor.
+    /// `filePath` comes from the `profile list` output (the second column).
+    /// Resolves relative paths against the project base directory.
+    private fun openProfileFile(filePath: String) {
+        val file = java.io.File(filePath).let { f ->
+            if (f.isAbsolute) f
+            else java.io.File(project.basePath ?: return, filePath)
+        }
+        val vFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file) ?: run {
+            EnvForgeRunner.notify(
+                project,
+                "Open Profile File",
+                "File not found: ${file.absolutePath}",
+                com.intellij.notification.NotificationType.WARNING,
+            )
+            return
+        }
+        SwingUtilities.invokeLater {
+            FileEditorManager.getInstance(project).openFile(vFile, true)
+        }
+    }
+
     private fun createToolbar(): JComponent {
         val group = DefaultActionGroup().apply {
             add(object : AnAction("Refresh", "Refresh profiles", com.intellij.icons.AllIcons.Actions.Refresh) {
                 override fun actionPerformed(e: AnActionEvent) = refresh()
             })
-            add(object : AnAction("Add Profile...", "Create a new profile", com.intellij.icons.General.Add) {
+            add(object : AnAction("Add Profile...", "Create a new profile", com.intellij.icons.AllIcons.General.Add) {
                 override fun actionPerformed(e: AnActionEvent) {
                     val name = com.intellij.openapi.ui.Messages.showInputDialog(project, "Enter profile name:", "Add Profile", null)
                     if (!name.isNullOrBlank()) {

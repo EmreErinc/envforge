@@ -5,6 +5,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidget
 import com.intellij.openapi.wm.StatusBarWidgetFactory
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 class EnvForgeStatusBarFactory : StatusBarWidgetFactory {
     override fun getId(): String = "EnvForgeStatus"
@@ -18,15 +21,25 @@ class EnvForgeStatusBarFactory : StatusBarWidgetFactory {
 
 class EnvForgeStatusWidget(private val project: Project) :
     StatusBarWidget, StatusBarWidget.TextPresentation {
+
     private var statusBar: StatusBar? = null
     private var text: String = "envforge"
     private var tooltip: String = "EnvForge — environment variable manager"
+
+    // Steady 30 s poll matches the VS Code cadence for vars + fence.
+    // A faster 10 s tick is engaged while a volatile lease is active so
+    // the countdown in the status bar stays live.
+    private val scheduler: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "envforge-status-refresh").apply { isDaemon = true }
+        }
 
     override fun ID(): String = "EnvForgeStatus"
 
     override fun install(statusBar: StatusBar) {
         this.statusBar = statusBar
-        scheduleRefresh()
+        // Immediate first paint then every 30 s steady, 10 s on volatile.
+        scheduler.scheduleAtFixedRate(::refreshBackground, 0L, 30L, TimeUnit.SECONDS)
     }
 
     override fun getPresentation(): StatusBarWidget.WidgetPresentation = this
@@ -34,11 +47,19 @@ class EnvForgeStatusWidget(private val project: Project) :
     override fun getTooltipText(): String = tooltip
     override fun getAlignment(): Float = 0f
 
-    override fun dispose() {}
+    override fun dispose() {
+        scheduler.shutdownNow()
+    }
 
-    private fun scheduleRefresh() {
-        ApplicationManager.getApplication().executeOnPooledThread {
-            refresh()
+    private fun refreshBackground() {
+        refresh()
+        // If there is an active volatile lease reschedule a 10 s follow-up
+        // so the countdown ticks visibly. We do this by posting a one-shot
+        // delayed task rather than changing the fixed schedule.
+        val hasVolatile = runCli(listOf("lease", "list", "--json"))
+            ?.let { parseSoonestActiveLease(it) } != null
+        if (hasVolatile) {
+            scheduler.schedule(::refreshBackground, 10L, TimeUnit.SECONDS)
         }
     }
 
@@ -111,7 +132,7 @@ class EnvForgeStatusWidget(private val project: Project) :
                 val keyCount = e.get("key_count")?.let {
                     if (it.isJsonNull) null else it.asInt
                 }
-                if (best == null || remaining < best!!.remainingSeconds) {
+                if (best == null || remaining < best.remainingSeconds) {
                     best = VolatileLease(name, remaining, keyCount)
                 }
             }

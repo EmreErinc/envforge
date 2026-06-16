@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.envforge"
-version = "0.8.1"
+version = "0.1.7"
 
 repositories {
     mavenCentral()

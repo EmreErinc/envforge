@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
     <name>EnvForge</name>
-    <version>0.8.1</version>
+    <version>0.1.7</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[
@@ -273,6 +273,13 @@
                 class="com.envforge.intellij.actions.ExtendLeaseAction"
                 text="Extend Volatile Lease..."
                 description="Extend the soonest-expiring active envforge lease"/>
+
+        <separator/>
+
+        <action id="EnvForge.RestartLsp"
+                class="com.envforge.intellij.actions.RestartLspAction"
+                text="Restart Language Server"
+                description="Stop and restart the EnvForge LSP server for this project"/>
       </group>
     </actions>
 </idea-plugin>

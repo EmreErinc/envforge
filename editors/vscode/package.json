@@ -1,7 +1,7 @@
 {
   "publisher": "emreerinc",
   "name": "envforge",
-  "version": "0.8.1",
+  "version": "0.1.7",
   "displayName": "EnvForge - AI-Safe Environment Manager",
   "description": "Terminal environment variable manager with AI safety",
   "license": "Elastic-2.0",
@@ -432,7 +432,7 @@
         "icon": "$(pulse)"
       },
       {
-        "command": "envforge.extendLease",
+        "command": "envforge.volatileExtend",
         "title": "EnvForge: Extend Volatile Lease\u2026",
         "icon": "$(clock)"
       }
@@ -495,7 +495,7 @@
           "command": "envforge.schemaGenerate"
         },
         {
-          "command": "envforge.extendLease"
+          "command": "envforge.volatileExtend"
         },
         {
           "command": "envforge.refreshTree",

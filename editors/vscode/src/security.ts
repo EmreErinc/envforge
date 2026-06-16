@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import { getEnvforgePath } from './extension';
+import { getEnvforgePath, getOutputChannel } from './extension';
 
 type SecurityNode = SecurityCategoryNode | SecurityDetailNode;
 
@@ -354,73 +354,18 @@ export function registerSecurityCommands(
       terminal.show();
       terminal.sendText(`${bin} monitor stream`);
     }),
-    vscode.commands.registerCommand('envforge.runVolatile', async () => {
-      const cmd = await vscode.window.showInputBox({
-        prompt: 'Shell command to run inside a volatile envforge session',
-        placeHolder: 'npm start',
-      });
-      if (!cmd) return;
-      const bin = getEnvforgePath();
-      const terminal = vscode.window.createTerminal('EnvForge Volatile');
-      terminal.show();
-      terminal.sendText(`${bin} run --volatile -- ${cmd}`);
-    }),
-    vscode.commands.registerCommand('envforge.revealValue', async () => {
-      const key = await vscode.window.showInputBox({
-        prompt: 'Variable key to reveal (access will be audit-logged)',
-        placeHolder: 'API_KEY',
-        validateInput: v => v.trim() === '' ? 'Key cannot be empty' : null,
-      });
-      if (!key) return;
-      try {
-        const { stdout } = await cliRun(['get', '--reveal', key]);
-        vscode.window.showInformationMessage(`${key} = ${stdout.trim()}`);
-      } catch (e: any) {
-        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
-      }
-    }),
-    vscode.commands.registerCommand('envforge.canaryScan', async () => {
-      const input = await vscode.window.showInputBox({
-        prompt: 'Text or file path to scan for canary tokens',
-        placeHolder: 'Paste text or enter a file path…',
-      });
-      if (!input) return;
-      try {
-        const { stdout } = await cliRun(['canary', 'scan', input]);
-        showOutput('Canary Scan', stdout || 'No canary tokens detected.');
-      } catch (e: any) {
-        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
-      }
-    }),
-    vscode.commands.registerCommand('envforge.canaryCheck', async () => {
-      try {
-        const { stdout } = await cliRun(['canary', 'check']);
-        showOutput('Triggered Canaries', stdout || 'No triggered canary tokens.');
-      } catch (e: any) {
-        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
-      }
-    }),
-    vscode.commands.registerCommand('envforge.extendLease', async () => {
-      const ttl = await vscode.window.showInputBox({
-        prompt: 'Extend the soonest-expiring lease by how long?',
-        placeHolder: '30m',
-        value: '30m',
-      });
-      if (!ttl) return;
-      try {
-        await cliRun(['lease', 'extend', '--ttl', ttl]);
-        vscode.window.showInformationMessage(`Lease extended by ${ttl}`);
-      } catch (e: any) {
-        vscode.window.showErrorMessage(`EnvForge: ${e.message}`);
-      }
-    }),
   );
 }
 
+// Use the shared extension output channel so we don't accumulate
+// dozens of "EnvForge: Audit Trail" entries in the Output dropdown.
 function showOutput(title: string, content: string) {
-  const channel = vscode.window.createOutputChannel(`EnvForge: ${title}`);
-  channel.append(content);
-  channel.show();
+  const out = getOutputChannel();
+  out.clear();
+  out.appendLine(`── ${title} ──`);
+  out.appendLine('');
+  out.appendLine(content);
+  out.show(true);
 }
 
 function cliRun(args: string[]): Promise<{ stdout: string; stderr: string }> {

@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-06-16
+
+### Fixed
+
+- **VS Code — Critical: Duplicate command registrations overwriting LSP-backed handlers.**  
+  `registerSecurityCommands` ran after `registerCommands`, causing crude CLI-only versions of
+  `runVolatile`, `revealValue`, `canaryScan`, and `canaryCheck` to silently overwrite the
+  proper LSP-backed implementations. All four duplicates removed from `security.ts`.
+- **VS Code — Conflicting "extend lease" commands.** `extendLease` (crude, no lease name
+  resolution) conflicted with `volatileExtend` (LSP-backed, updates status bar). Removed the
+  crude version; `package.json` command palette now correctly targets `envforge.volatileExtend`.
+- **VS Code — Output channel leak.** `showOutput()` created a fresh `OutputChannel` on every
+  call, flooding the Output dropdown with duplicate channels after repeated use. Now uses the
+  shared extension output channel.
+- **IntelliJ — `MonitorStreamAction` broken terminal API.** Replaced deprecated
+  `JBTerminalWidget.getTerminalWidgets()` with the `TerminalView` API so `envforge monitor stream`
+  runs as a live persistent stream rather than a captured subprocess.
+- **IntelliJ — Status bar only painted once.** `EnvForgeStatusBarFactory` now polls every 30 s
+  (vars + fence state) with an accelerated 10 s tick when a volatile lease is active, matching
+  the VS Code status bar cadence.
+
+### Added
+
+- **IntelliJ — Profile context menu** with Switch, Open Profile File (opens `.env.<name>` in
+  the IDE editor), Diff vs Active, and Delete actions — parity with VS Code
+  `profileOpenFile` / `profileContextSwitch` / `profileContextDiff`.
+- **IntelliJ — Restart Language Server action** (`Tools > EnvForge > Restart Language Server`).
+  Parity with VS Code's `envforge.restartLsp` command. Uses lsp4ij `LanguageServiceManager` to
+  stop and restart the EnvForge LSP server without restarting the IDE.
+
 ## [0.8.1] - 2026-06-15
 
 ### Added
