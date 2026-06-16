@@ -3,7 +3,7 @@
   "name": "envforge-env-manager",
   "version": "0.1.7",
   "displayName": "EnvForge - AI-Safe Environment Manager",
-  "description": "Terminal environment variable manager with AI safety",
+  "description": "Terminal environment variable manager (with schema validation, secret scanning, and multi-profile support) with AI safety",
   "license": "Elastic-2.0",
   "repository": {
     "type": "git",
