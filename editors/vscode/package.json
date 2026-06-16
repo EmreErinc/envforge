@@ -1,6 +1,6 @@
 {
   "publisher": "emreerinc",
-  "name": "envforge",
+  "name": "envforge-env-manager",
   "version": "0.1.7",
   "displayName": "EnvForge - AI-Safe Environment Manager",
   "description": "Terminal environment variable manager with AI safety",
