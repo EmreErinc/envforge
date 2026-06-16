@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build local action binary
-        run: cargo build --release --bin envforge
+        run: cargo build --release --locked --bin envforge
       - name: Put binary on PATH
         run: echo "${PWD}/target/release" >> "$GITHUB_PATH"
       - name: Classify trusted trigger
@@ -50,7 +50,7 @@ jobs:
       MY_API_KEY: 'sk_live_should_be_scrubbed'
     steps:
       - uses: actions/checkout@v6
-      - run: cargo build --release --bin envforge
+      - run: cargo build --release --locked --bin envforge
       - run: echo "${PWD}/target/release" >> "$GITHUB_PATH"
       - name: Simulate fork PR event payload
         run: |
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: cargo build --release --bin envforge
+      - run: cargo build --release --locked --bin envforge
       - run: echo "${PWD}/target/release" >> "$GITHUB_PATH"
       - name: Simulate external-comment event
         run: |

@@ -33,7 +33,7 @@ jobs:
         run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
       - name: Test
-        run: cargo test --all-targets --all-features
+        run: cargo test --all-targets --all-features --locked
 
       - name: Run benchmarks
         run: cargo bench --bench benchmarks -- --output-format bencher | tee output.txt
