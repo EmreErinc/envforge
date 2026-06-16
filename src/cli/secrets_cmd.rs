@@ -3,6 +3,11 @@ use clap::Subcommand;
 use serde_json::json;
 use std::io::Read;
 
+#[allow(unused_imports)]
+use chrono::Utc;
+#[allow(unused_imports)]
+use crate::ops::monitor;
+
 use crate::ops::secrets::cache;
 use crate::ops::secrets::credentials;
 use crate::ops::secrets::modes;
@@ -1251,8 +1256,8 @@ fn cmd_secrets_cache_clear(
 /// The old `=1` format is **rejected** — it must be a named allowlist.
 /// This is gated behind `#[cfg(debug_assertions)]` and never available
 /// in release builds.
-#[allow(dead_code)]
-fn is_unsafe_argv_allowed(_provider: &str) -> bool {
+#[allow(dead_code, unused_variables)]
+fn is_unsafe_argv_allowed(provider: &str) -> bool {
     #[cfg(debug_assertions)]
     {
         if let Ok(val) = std::env::var("ENVFORGE_UNSAFE_ARGV") {
