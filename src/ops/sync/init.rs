@@ -269,6 +269,7 @@ pub fn init_from_remote(
     base_path: &Path,
     remote_url: &str,
     machine_id: &str,
+    enforce_ssh: bool,
 ) -> Result<bool, SyncError> {
     if is_initialized(base_path) {
         return Err(SyncError::RepoAlreadyInitialized {
@@ -284,8 +285,8 @@ pub fn init_from_remote(
         })?;
     }
 
-    // Clone remote
-    GitCommandRunner::clone_repo(remote_url, base_path)?;
+    // Clone remote (honoring the SSH-only policy from the CLI flag).
+    GitCommandRunner::clone_repo(remote_url, base_path, enforce_ssh)?;
 
     let has_existing_snapshot = base_path.join(SNAPSHOT_FILE).is_file();
 
@@ -303,9 +304,12 @@ pub fn init_from_remote(
     let config = if config_path.is_file() {
         let mut existing = read_config(&config_path)?;
         existing.sync.machine_id = machine_id.to_string();
+        existing.sync.enforce_ssh = enforce_ssh;
         existing
     } else {
-        SyncConfig::new(machine_id, Some(remote_url))
+        let mut c = SyncConfig::new(machine_id, Some(remote_url));
+        c.sync.enforce_ssh = enforce_ssh;
+        c
     };
     write_config(&config_path, &config)?;
 

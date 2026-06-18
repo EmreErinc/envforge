@@ -169,10 +169,19 @@ pub fn read_cache(provider: &str, key: &str) -> Result<Option<String>, SecretsEr
         let now = chrono::Utc::now();
         let elapsed = now.signed_duration_since(fetched).num_seconds() as u64;
         if elapsed <= entry.ttl_secs {
-            // Take the value out of `entry` (we cannot move-destructure
-            // because CacheEntry implements Drop). The husk will still
-            // be zeroized, but its `value` is now an empty String.
-            return Ok(Some(std::mem::take(&mut entry.value)));
+            // Take the ciphertext out of `entry` (cannot move-destructure: it
+            // implements Drop) and decrypt at read (H1). A legacy plaintext
+            // cache (written before encryption) or any undecryptable file fails
+            // here → treat as a miss and remove it. Graceful migration; no
+            // version field needed.
+            let ciphertext = std::mem::take(&mut entry.value);
+            return match crate::ops::encrypt::decrypt_value(&ciphertext) {
+                Ok(plain) => Ok(Some(plain)),
+                Err(_) => {
+                    let _ = std::fs::remove_file(&path);
+                    Ok(None)
+                }
+            };
         }
     }
 
@@ -197,7 +206,15 @@ pub fn read_cache_stale(provider: &str, key: &str) -> Result<Option<String>, Sec
         Err(_) => return Ok(None),
     };
 
-    Ok(Some(std::mem::take(&mut entry.value)))
+    // Decrypt at read (H1); legacy/undecryptable → miss + remove.
+    let ciphertext = std::mem::take(&mut entry.value);
+    match crate::ops::encrypt::decrypt_value(&ciphertext) {
+        Ok(plain) => Ok(Some(plain)),
+        Err(_) => {
+            let _ = std::fs::remove_file(&path);
+            Ok(None)
+        }
+    }
 }
 
 /// Write a value to cache.
@@ -216,8 +233,13 @@ pub fn write_cache(
         })?;
     }
 
+    // H1/NFR2: encrypt the value at rest with the same age scheme used for
+    // credentials and sync snapshots. The cache file must never hold cleartext.
+    let stored_value = crate::ops::encrypt::encrypt_value(value)
+        .map_err(|e| SecretsError::CacheError(format!("cache encryption failed: {e}")))?;
+
     let entry = CacheEntry {
-        value: value.to_string(),
+        value: stored_value,
         fetched_at: chrono::Utc::now().to_rfc3339(),
         ttl_secs: ttl_secs.unwrap_or(DEFAULT_TTL_SECS),
     };
@@ -422,15 +444,25 @@ pub fn resolve_reference(
     // Try provider
     match provider.get(credentials, &secret_ref.path, &secret_ref.key) {
         Ok(value) => {
-            write_cache(&secret_ref.provider, &secret_ref.key, &value, None)?;
+            // Caching is best-effort: a failure to encrypt/write (e.g. the age
+            // key cannot be created on a read-only HOME) must NOT fail the
+            // resolve — the caller still gets the freshly fetched value.
+            if let Err(e) = write_cache(&secret_ref.provider, &secret_ref.key, &value, None) {
+                eprintln!(
+                    "warning: could not cache secret for {} ({})",
+                    secret_ref.key, e
+                );
+            }
             Ok(value)
         }
         Err(e) => {
             // Fallback to stale cache
             if let Some(stale) = read_cache_stale(&secret_ref.provider, &secret_ref.key)? {
+                // L8: do not interpolate the provider error here — it can carry
+                // upstream detail; the stale-fallback notice only needs the key.
                 eprintln!(
-                    "warning: using cached value for {} (provider unreachable: {})",
-                    secret_ref.key, e
+                    "warning: using cached value for {} (provider unreachable)",
+                    secret_ref.key
                 );
                 Ok(stale)
             } else {

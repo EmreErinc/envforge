@@ -470,10 +470,7 @@ async function cmdFenceToggle(statusBar: StatusBar) {
     // an accurate confirmation prompt.
     let currentlyFenced = false;
     try {
-        const statusResult: any = await client.sendRequest('workspace/executeCommand', {
-            command: 'envforge.fence.status',
-            arguments: [],
-        });
+        const statusResult: any = await client.sendRequest('envforge/fenceStatus', {});
         currentlyFenced = !!statusResult?.result?.all_fenced;
     } catch {
         // Status probe failed — assume not fenced (enable direction)
@@ -495,10 +492,7 @@ async function cmdFenceToggle(statusBar: StatusBar) {
     }
 
     try {
-        const result: any = await client.sendRequest('workspace/executeCommand', {
-            command: 'envforge.fence.toggle',
-            arguments: [],
-        });
+        const result: any = await client.sendRequest('envforge/fenceToggle', {});
         const action = result?.result?.action ?? (currentlyFenced ? 'disabled' : 'enabled');
         vscode.window.showInformationMessage(`EnvForge fence ${action}`);
         statusBar.update();
@@ -552,10 +546,7 @@ async function cmdRunVolatile() {
 
     let response: any;
     try {
-        response = await client.sendRequest('workspace/executeCommand', {
-            command: 'envforge.run.volatile',
-            arguments: [{ command, ttl: ttlFinal }],
-        });
+        response = await client.sendRequest('envforge/runVolatile', { command, ttl: ttlFinal });
     } catch (err: any) {
         vscode.window.showErrorMessage(`run-volatile failed: ${err?.message || err}`);
         return;
@@ -564,7 +555,13 @@ async function cmdRunVolatile() {
         vscode.window.showErrorMessage(`run-volatile failed: ${response?.error || 'unknown'}`);
         return;
     }
-    const wrapper: string = response.result.wrapper;
+    // The server returns a structured descriptor (binary + args) instead of a
+    // pre-formed shell string, to avoid injection. Build the terminal line from
+    // it: the validated command goes raw after `--` so the terminal shell
+    // tokenizes it (e.g. "npm test" → argv [npm, test]).
+    const r = response.result;
+    const q = (s: string) => (/\s/.test(s) ? `"${s}"` : s);
+    const wrapper = `${q(r.binary)} run --volatile ${r.ttl} -- ${r.original_command}`;
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const terminal = vscode.window.createTerminal({
         name: `EnvForge volatile (${ttlFinal})`,
@@ -610,10 +607,7 @@ async function cmdRevealValue(arg?: any) {
 
     let response: any;
     try {
-        response = await client.sendRequest('workspace/executeCommand', {
-            command: 'envforge.reveal.value',
-            arguments: [{ key, reason: reason ?? '' }],
-        });
+        response = await client.sendRequest('envforge/revealValue', { key, reason: reason ?? '' });
     } catch (err: any) {
         vscode.window.showErrorMessage(`reveal failed: ${err?.message || err}`);
         return;
@@ -625,25 +619,29 @@ async function cmdRevealValue(arg?: any) {
     const value: string = response.result.value ?? '';
     const sourceFile: string = response.result.source_file ?? '';
 
-    // Show value via a non-modal info message with action buttons.
-    // The value is never written to OutputChannel / log — we keep it
-    // off persistent surfaces. Clipboard auto-clears after 30 s.
+    // M6: minimize revealed-value residency. The value is shown ONCE in an
+    // ephemeral modal and is never written to the OutputChannel / log. Clipboard
+    // copy is strictly opt-in and explicitly warned: clipboard managers and OS
+    // clipboard-sync can retain a copy beyond our best-effort auto-clear, and JS
+    // strings can't be zeroized — so the default path keeps the value off the
+    // clipboard entirely, and the copy window is short (15 s).
+    const COPY = 'Copy (clipboard may be retained)';
     const choice = await vscode.window.showInformationMessage(
-        `${key} = ${value}\n(source: ${sourceFile})`,
+        `${key} = ${value}\n(source: ${sourceFile})\n\nShown once; not logged.`,
         { modal: true },
-        'Copy to clipboard',
+        COPY,
     );
-    if (choice === 'Copy to clipboard') {
+    if (choice === COPY) {
         await vscode.env.clipboard.writeText(value);
-        vscode.window.showInformationMessage(
-            'Value copied. Clipboard will auto-clear in 30s.',
+        vscode.window.showWarningMessage(
+            'Value copied. Clipboard auto-clears in 15s — but clipboard managers or clipboard sync may keep a copy.',
         );
         setTimeout(async () => {
             const current = await vscode.env.clipboard.readText();
             if (current === value) {
                 await vscode.env.clipboard.writeText('');
             }
-        }, 30000);
+        }, 15000);
     }
 }
 
@@ -697,10 +695,7 @@ async function cmdCanaryScan() {
 
     let response: any;
     try {
-        response = await client.sendRequest('workspace/executeCommand', {
-            command: 'envforge.canary.scan',
-            arguments: [args],
-        });
+        response = await client.sendRequest('envforge/canaryScan', args);
     } catch (err: any) {
         vscode.window.showErrorMessage(`canary.scan failed: ${err?.message || err}`);
         return;
@@ -750,10 +745,7 @@ async function cmdCanaryCheck() {
     }
     let response: any;
     try {
-        response = await client.sendRequest('workspace/executeCommand', {
-            command: 'envforge.canary.check',
-            arguments: [],
-        });
+        response = await client.sendRequest('envforge/canaryCheck', {});
     } catch (err: any) {
         vscode.window.showErrorMessage(`canary.check failed: ${err?.message || err}`);
         return;
@@ -798,10 +790,7 @@ async function cmdVolatileExtend(statusBar: StatusBar) {
     // tell the user instead of silently doing nothing.
     let statusResp: any;
     try {
-        statusResp = await client.sendRequest('workspace/executeCommand', {
-            command: 'envforge.volatile.status',
-            arguments: [],
-        });
+        statusResp = await client.sendRequest('envforge/volatileStatus', {});
     } catch (err: any) {
         vscode.window.showErrorMessage(`volatile.status failed: ${err?.message || err}`);
         return;
@@ -831,10 +820,7 @@ async function cmdVolatileExtend(statusBar: StatusBar) {
     }
 
     try {
-        const resp: any = await client.sendRequest('workspace/executeCommand', {
-            command: 'envforge.volatile.extend',
-            arguments: [{ name, ttl }],
-        });
+        const resp: any = await client.sendRequest('envforge/volatileExtend', { name, ttl });
         if (resp?.ok !== true) {
             vscode.window.showErrorMessage(`Extend failed: ${resp?.error || 'unknown'}`);
             return;

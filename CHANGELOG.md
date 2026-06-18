@@ -5,6 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-06-18
+
+Security-hardening pass across all surfaces (TUI, CLI, providers/sync, plugins/LSP),
+grounded in a 2026 best-practice audit + code re-validation (`docs/security-audit-findings.md`).
+
+### Security
+
+- **Secret cache now encrypted at rest (H1).** The provider secret cache
+  (`~/.config/envforge/secrets-cache/*.cache`) is age-encrypted like credentials/sync
+  instead of stored as cleartext. Legacy plaintext caches are treated as a miss and
+  removed (graceful migration); caching is best-effort and never fails a resolve.
+- **TUI diff preview no longer leaks secrets (H2).** Sensitive values are redacted and
+  all diff lines are stripped of control/escape sequences before rendering.
+- **TUI restores the terminal on panic (H3).** A panic hook + RAII guard guarantee raw/alt
+  screen teardown, so a revealed secret can't be stranded on screen.
+- **`get` masks sensitive values by default (H6).** Use `get --reveal` for cleartext;
+  applies to text and `--json` output.
+- **Workspace/project trust gating (H5).** VS Code declares `untrustedWorkspaces: limited`
+  and starts the language server/binary only once trusted; IntelliJ gates the LSP launch on
+  project trust.
+- **VS Code security commands work again (H4).** Fence/reveal/canary/volatile commands were
+  wired to a permanently-disabled `executeCommand` and silently failed; they now use
+  constrained, named LSP requests (`envforge/fenceStatus`, `envforge/revealValue`, …). The
+  generic `executeCommand` remains disabled.
+- **IntelliJ binary resolution no longer falls back to PATH (M4).** Refuses to search PATH;
+  requires an absolute path or `ENVFORGE_PATH`.
+- **Concurrent age-key generation is now race-safe (M10).** First-run key generation is
+  serialized so parallel callers converge on a single key.
+- **`sync.enforce_ssh` now enforced on clone (M2).** `sync init --enforce-ssh` rejects
+  non-SSH (http/https) remotes at clone time and persists the policy to the sync config;
+  previously the setting was a dead control on the clone path.
+- **Legacy plaintext-sync bypass closed (M3).** A legacy `require_encryption = false`
+  no longer maps to a year-2099 (effectively permanent) plaintext window — it now fails
+  safe to mandatory encryption. Use `migration-until <RFC3339 date>` for a bounded window.
+- **Argv secret detection now entropy-aware (M1).** The guard that blocks secrets passed
+  as command-line arguments (visible in `ps`/`/proc`/history) now also catches short,
+  prefix-less, high-entropy values (e.g. a generated 12–16 char password/API key) that the
+  length+prefix checks missed. Detection deduped into `ops::sanitize::value_looks_like_secret`.
+- **Conjur appliance URL validated (L7).** Rejects non-http(s) schemes, missing host, and
+  control characters before the URL reaches `CONJUR_APPLIANCE_URL` / `conjur init -u` (SSRF guard).
+- **`secrets config --set` zeroizes the credential after storing (L3).** Parity with `set`.
+- **LSP bounds per-document entry count (L10).** `parse_env_document` caps at 50k lines so a
+  malformed/hostile document can't exhaust memory.
+- **Stale-cache fallback warning no longer interpolates the provider error (L8).**
+- **VS Code reveal minimizes value residency (M6).** The revealed value is shown once in an
+  ephemeral modal and never logged; clipboard copy is opt-in, explicitly warns that clipboard
+  managers/sync may retain it, and the auto-clear window is shortened to 15 s.
+
+### Changed
+
+- `set` no longer prints the secret's length (L1); `set --dry-run` redacts sensitive
+  values on both diff sides (L2). Cleartext stays available via explicit `--reveal`.
+- **`export --format` redacts sensitive values by default (M7).** Previously the
+  multi-format export emitted every value in cleartext to stdout/file. Pass `--reveal`
+  for cleartext (consistent with `get`).
+- **`backup restore` is confined to the backups directory (L4).** A user-supplied path is
+  now canonicalized, rejected if outside `~/.config/envforge/backups`, and read with
+  `O_NOFOLLOW` (symlink/traversal hardening).
+- Single canonical sensitivity decision shared across TUI mask, CLI redaction, and exports
+  (L6/L12).
+
+### Fixed
+
+- **Crash on short rc file (M9).** `set`/`add` panicked (`insertion index > len`) when the
+  primary shell file had fewer lines than the protected-header offset.
+- **UTF-8 truncation panics (M5/M8).** TUI value truncation and CLI `mask_value` byte-sliced
+  UTF-8 and could panic on multibyte values; all now use a shared char-boundary-safe helper.
+- **TUI reveal tracked by key, not row index (L9).** Revealing a value then scrolling/
+  sorting/regrouping could unmask the wrong secret when a row index was reused.
+- **`get` emits a reveal audit event only on actual cleartext disclosure (L11).** A masked
+  default read no longer fires a (now `Warn`) reveal event.
+
 ## [0.8.2] - 2026-06-16
 
 ### Fixed

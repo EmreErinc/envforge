@@ -9,6 +9,14 @@ import com.redhat.devtools.lsp4ij.server.OSProcessStreamConnectionProvider
 class EnvForgeLspFactory : LanguageServerFactory {
 
     override fun createConnectionProvider(project: Project): StreamConnectionProvider {
+        // H5: never spawn the envforge binary against an untrusted project —
+        // it would run against project content and can write fence files.
+        if (!isProjectTrusted(project)) {
+            throw IllegalStateException(
+                "EnvForge: project is not trusted; the language server will not start. " +
+                    "Trust this project to enable EnvForge."
+            )
+        }
         val binary = findEnvforgeBinary()
         val cmd = GeneralCommandLine(binary, "lsp")
         cmd.workDirectory = project.basePath?.let { java.io.File(it) }
@@ -16,6 +24,30 @@ class EnvForgeLspFactory : LanguageServerFactory {
     }
 
     companion object {
+        /// Whether `project` is trusted (IntelliJ "Trusted Projects").
+        ///
+        /// Resolved via reflection so this compiles across platform versions
+        /// where the API moved package (`com.intellij.ide.trustedProjects`
+        /// in newer builds, `com.intellij.ide.impl` in older). If neither is
+        /// present we default to trusted to avoid breaking the plugin on an
+        /// unexpected platform — the API is present on the supported 242+ range.
+        fun isProjectTrusted(project: Project): Boolean {
+            val classNames = listOf(
+                "com.intellij.ide.trustedProjects.TrustedProjects",
+                "com.intellij.ide.impl.TrustedProjects",
+            )
+            for (name in classNames) {
+                try {
+                    val cls = Class.forName(name)
+                    val method = cls.getMethod("isProjectTrusted", Project::class.java)
+                    return method.invoke(null, project) as? Boolean ?: continue
+                } catch (_: Throwable) {
+                    // Try the next known location.
+                }
+            }
+            return true
+        }
+
         fun findEnvforgeBinary(): String {
             val candidates = listOf(
                 System.getenv("ENVFORGE_PATH"),
@@ -30,7 +62,15 @@ class EnvForgeLspFactory : LanguageServerFactory {
                 }
             }
 
-            return "envforge"
+            // M4: do NOT fall back to a bare "envforge" (PATH search). A poisoned
+            // PATH/cwd entry would otherwise yield arbitrary code execution, and
+            // the VS Code plugin already enforces absolute-path-only resolution.
+            // Fail loudly so the user sets ENVFORGE_PATH instead.
+            throw IllegalStateException(
+                "envforge binary not found at \$ENVFORGE_PATH, ~/.cargo/bin, /usr/local/bin, " +
+                    "or /opt/homebrew/bin. Set ENVFORGE_PATH to its absolute location " +
+                    "(refusing to search PATH for security)."
+            )
         }
 
         /// Restart the language server for `project` via the lsp4ij

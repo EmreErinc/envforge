@@ -4,794 +4,677 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="envforge-icon.svg">
-  <title>EnvForge - AI-Safe Environment Variable Manager | Protect Secrets from AI Agents</title>
-  <meta name="description" content="The first env management tool built to protect secrets FROM AI coding agents. 22 AI safety tools, encrypted sync, 13 secret providers, TUI + CLI. Free, open source, written in Rust.">
+  <title>EnvForge — AI-safe environment variable manager | Protect secrets from AI agents</title>
+  <meta name="description" content="The environment variable manager built to protect secrets from AI coding agents. 27 AI safety tools, encrypted sync, 13 secret providers, a Rust CLI + TUI, and a Language Server for VS Code & IntelliJ.">
   <meta name="keywords" content="environment variable manager, env file security, AI agent secrets, secrets management CLI, dotenv alternative, protect secrets from AI, vibe coding security, MCP secrets">
   <meta name="author" content="Emre Erinc">
 
-  <!-- Open Graph -->
-  <meta property="og:title" content="EnvForge - AI-Safe Environment Variable Manager">
-  <meta property="og:description" content="22 AI safety tools. Encrypted sync. 13 secret providers. CLI + TUI. Protect your secrets from AI coding agents.">
+  <meta property="og:title" content="EnvForge — AI-safe environment variable manager">
+  <meta property="og:description" content="27 AI safety tools. Encrypted sync. 13 secret providers. CLI + TUI + LSP. Protect your secrets from AI coding agents.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://emreerinc.github.io/envforge">
-
-  <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="EnvForge - AI-Safe Environment Variable Manager">
-  <meta name="twitter:description" content="22 AI safety tools to protect your secrets from AI coding agents. Free, open source, written in Rust.">
+  <meta name="twitter:title" content="EnvForge — AI-safe environment variable manager">
+  <meta name="twitter:description" content="27 AI safety tools to protect your secrets from AI coding agents. Source-available, written in Rust.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
 
   <style>
-    :root {
-      --bg: #0d1117;
-      --bg-secondary: #161b22;
-      --bg-tertiary: #21262d;
-      --text: #e6edf3;
-      --text-muted: #8b949e;
-      --accent: #58a6ff;
-      --accent-green: #3fb950;
-      --accent-yellow: #d29922;
-      --accent-red: #f85149;
-      --accent-purple: #bc8cff;
-      --border: #30363d;
-      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
-      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-      --max-width: 960px;
-    }
-
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
+    /* ── reset / base ─────────────────────────────────────────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html { overflow-x: clip; scroll-behavior: smooth; }
     body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font-sans);
+      overflow-x: clip;
+      background: var(--color-paper);
+      color: var(--color-ink);
+      font-family: var(--font-body);
+      font-weight: 400;
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+    ::selection { background: var(--color-accent); color: var(--color-paper); }
+
+    a { color: var(--color-accent); text-decoration: none; }
+    a:hover { text-decoration: underline; text-underline-offset: 3px; }
+    :focus-visible { outline: var(--rule-thick) solid var(--color-focus); outline-offset: 3px; border-radius: var(--radius-sm); }
+
+    /* faint terminal grid behind the hero only */
+    .grid-bg {
+      position: absolute; inset: 0; z-index: var(--z-base); pointer-events: none;
+      background-image:
+        linear-gradient(var(--color-rule) 1px, transparent 1px),
+        linear-gradient(90deg, var(--color-rule) 1px, transparent 1px);
+      background-size: 64px 64px;
+      opacity: 0.10;
+      mask-image: radial-gradient(120% 80% at 50% 0%, #000 30%, transparent 80%);
+      -webkit-mask-image: radial-gradient(120% 80% at 50% 0%, #000 30%, transparent 80%);
     }
 
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1140px; margin-inline: auto; padding-inline: var(--page-gutter); }
+    .measure { max-width: var(--measure); }
 
-    /* Nav */
-    nav {
-      border-bottom: 1px solid var(--border);
-      padding: 1rem 2rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      max-width: 1200px;
-      margin: 0 auto;
+    /* ── nav · N8 terminal command ───────────────────────────── */
+    .nav-term {
+      border-bottom: var(--rule-hair) solid var(--color-rule);
+      padding: var(--space-sm) var(--page-gutter);
+      position: sticky; top: 0; z-index: var(--z-sticky);
+      background: color-mix(in oklab, var(--color-paper) 88%, transparent);
+      backdrop-filter: blur(8px);
     }
-    .nav-logo {
-      font-family: var(--font-mono);
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: var(--text);
+    .nav-term__line {
+      font-family: var(--font-mono); font-size: var(--text-sm);
+      margin: 0; max-width: 1140px; margin-inline: auto;
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.9ch;
     }
-    .nav-logo span { color: var(--accent-green); }
-    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
-    .nav-links a { color: var(--text-muted); font-size: 0.9rem; }
-    .nav-links a:hover { color: var(--text); text-decoration: none; }
-    .badge {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
+    .nav-term__line .prompt { color: var(--color-accent); }
+    .nav-term__line .brand { color: var(--color-ink); font-weight: 700; }
+    .nav-term__line a { color: var(--color-muted); text-decoration: none; }
+    .nav-term__line a:hover { color: var(--color-accent); text-decoration: none; }
+    .nav-term__spacer { flex: 1 1 auto; }
+    .nav-term__line .gh { color: var(--color-ink); }
+    .nav-term__line .ext { color: var(--color-ink); }
+    .nav-term__line .ext:hover { color: var(--color-accent); text-decoration: none; }
+    .nav-term__line .sep { color: var(--color-rule-strong); padding-inline: 0.2ch; }
+    .caret {
+      display: inline-block; width: 1ch; color: var(--color-accent);
+      animation: blink 1.05s steps(2) infinite;
     }
+    @keyframes blink { 50% { opacity: 0; } }
 
-    /* Container */
-    .container { max-width: var(--max-width); margin: 0 auto; padding: 0 2rem; }
-
-    /* Hero */
-    .hero {
-      padding: 5rem 0 3rem;
-      text-align: center;
+    /* ── hero ────────────────────────────────────────────────── */
+    .hero { position: relative; padding: clamp(3.5rem, 9vw, 7rem) 0 var(--space-2xl); overflow: visible; }
+    .hero__inner { position: relative; z-index: var(--z-raised); max-width: 50ch; }
+    .hero__kicker {
+      font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.06em;
+      color: var(--color-neutral); margin-bottom: var(--space-lg);
     }
-    .hero-badge {
-      display: inline-block;
-      padding: 0.3rem 0.8rem;
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 500;
-      background: rgba(88, 166, 255, 0.1);
-      border: 1px solid rgba(88, 166, 255, 0.3);
-      color: var(--accent);
-      margin-bottom: 1.5rem;
-    }
+    .hero__kicker .ok { color: var(--color-accent); }
     .hero h1 {
-      font-size: 3rem;
-      font-weight: 800;
-      line-height: 1.15;
-      letter-spacing: -0.03em;
-      margin-bottom: 1.25rem;
+      font-family: var(--font-display); font-weight: 800;
+      font-size: var(--text-display); line-height: 1.05; letter-spacing: -0.03em;
+      overflow-wrap: anywhere; min-width: 0; margin-bottom: var(--space-lg);
     }
-    .hero h1 em {
-      font-style: normal;
-      color: var(--accent-red);
+    .hero h1 .danger { color: var(--color-danger); }
+    .hero__sub {
+      font-size: var(--text-md); color: var(--color-muted); line-height: 1.6;
+      max-width: 54ch; margin-bottom: var(--space-xl);
     }
-    .hero p.subtitle {
-      font-size: 1.2rem;
-      color: var(--text-muted);
-      max-width: 600px;
-      margin: 0 auto 2rem;
-      line-height: 1.7;
-    }
-    .hero-cta {
-      display: flex;
-      gap: 1rem;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    .btn {
-      display: inline-block;
-      padding: 0.7rem 1.5rem;
-      border-radius: 6px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      border: none;
-      transition: all 0.2s;
-    }
-    .btn-primary {
-      background: var(--accent-green);
-      color: #000;
-    }
-    .btn-primary:hover { background: #2ea043; text-decoration: none; color: #000; }
-    .btn-secondary {
-      background: var(--bg-tertiary);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-secondary:hover { border-color: var(--text-muted); text-decoration: none; }
+    .hero__sub strong { color: var(--color-ink); font-weight: 500; }
 
-    /* Stat */
-    .stat-bar {
-      display: flex;
-      justify-content: center;
-      gap: 3rem;
-      padding: 1.5rem 0;
-      margin: 1rem 0 0;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      flex-wrap: wrap;
+    .cta-row { display: flex; flex-wrap: wrap; gap: var(--space-md); align-items: center; }
+    .btn-star {
+      font-family: var(--font-mono); font-weight: 700; font-size: var(--text-sm);
+      display: inline-flex; align-items: center; gap: 0.6ch; white-space: nowrap;
+      padding: 0.75rem 1.4rem; border-radius: var(--radius-md);
+      background: var(--color-accent); color: var(--color-paper); border: none;
+      transition: transform var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
     }
-    .stat-bar strong { color: var(--text); font-family: var(--font-mono); }
+    .btn-star:hover { background: var(--color-ink); text-decoration: none; transform: translateY(-1px); }
+    .btn-star:active { transform: translateY(0); }
 
-    /* Alert */
-    .alert {
-      background: rgba(248, 81, 73, 0.08);
-      border: 1px solid rgba(248, 81, 73, 0.3);
-      border-radius: 8px;
-      padding: 1rem 1.5rem;
-      margin: 3rem auto;
-      max-width: 700px;
-      font-size: 0.9rem;
-      color: var(--text-muted);
-      text-align: center;
+    /* copyable command */
+    .copycmd {
+      font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-ink);
+      display: inline-flex; align-items: center; gap: 0.8ch; white-space: nowrap;
+      padding: 0.7rem 1.1rem; border: var(--rule-hair) solid var(--color-rule);
+      border-radius: var(--radius-md); background: var(--color-paper-2); cursor: pointer;
+      transition: border-color var(--dur-short) var(--ease-out);
     }
-    .alert strong { color: var(--accent-red); }
+    .copycmd:hover { border-color: var(--color-accent-dim); }
+    .copycmd .dollar { color: var(--color-accent); }
+    .copycmd .hint { color: var(--color-neutral); font-size: var(--text-xs); }
+    .copycmd.copied .hint { color: var(--color-accent); }
 
-    /* Terminal */
-    .terminal {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      margin: 2rem auto;
-      max-width: 700px;
-      overflow: hidden;
+    .statbar {
+      display: flex; flex-wrap: wrap; gap: var(--space-md) var(--space-xl);
+      margin-top: var(--space-2xl); padding-top: var(--space-lg);
+      border-top: var(--rule-hair) solid var(--color-rule);
+      font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-neutral);
+      font-variant-numeric: tabular-nums;
     }
-    .terminal-header {
-      background: var(--bg-tertiary);
-      padding: 0.5rem 1rem;
-      display: flex;
-      gap: 6px;
-      align-items: center;
-    }
-    .terminal-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: var(--border);
-    }
-    .terminal-dot.red { background: #f85149; }
-    .terminal-dot.yellow { background: #d29922; }
-    .terminal-dot.green { background: #3fb950; }
-    .terminal-body {
-      padding: 1.25rem;
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-      line-height: 1.9;
-      overflow-x: auto;
-    }
-    .terminal-body pre {
-      margin: 0;
-      font-family: inherit;
-      font-size: inherit;
-      line-height: inherit;
-      white-space: pre;
-    }
-    .terminal-body .p { color: var(--accent-green); }     /* prompt */
-    .terminal-body .c { color: var(--text-muted); }       /* comment */
-    .terminal-body .o { color: var(--text-muted); }       /* output */
-    .terminal-body .k { color: var(--accent); }           /* keyword/flag */
-    .terminal-body .v { color: var(--accent-yellow); }    /* value */
-    .terminal-body .s { color: var(--accent-green); }     /* success */
-    .terminal-body .w { color: var(--accent-red); }       /* warning */
+    .statbar b { color: var(--color-ink); font-weight: 700; }
 
-    /* Section */
-    section { padding: 4rem 0; }
-    section h2 {
-      font-size: 1.8rem;
-      font-weight: 700;
-      margin-bottom: 0.5rem;
-      letter-spacing: -0.02em;
+    /* ── threat line ─────────────────────────────────────────── */
+    .threat {
+      margin: var(--space-2xl) 0; padding: var(--space-lg) var(--space-xl);
+      border: var(--rule-hair) solid color-mix(in oklab, var(--color-danger) 45%, var(--color-rule));
+      border-left: var(--rule-thick) solid var(--color-danger);
+      border-radius: var(--radius-md); background: color-mix(in oklab, var(--color-danger) 7%, var(--color-paper));
     }
-    section h2 + p {
-      color: var(--text-muted);
-      margin-bottom: 2rem;
-      font-size: 1rem;
+    .threat__tag {
+      font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--color-danger); display: block; margin-bottom: var(--space-xs);
+    }
+    .threat p { color: var(--color-muted); font-size: var(--text-base); max-width: 70ch; }
+    .threat b { color: var(--color-ink); }
+
+    /* ── section scaffolding ─────────────────────────────────── */
+    section { padding-block: var(--space-3xl); }
+    .sec-head { margin-bottom: var(--space-2xl); }
+    .sec-head h2 {
+      font-family: var(--font-display); font-weight: 800; font-size: var(--text-xl);
+      letter-spacing: -0.02em; line-height: 1.1; overflow-wrap: anywhere;
+    }
+    .sec-head p { color: var(--color-muted); margin-top: var(--space-sm); max-width: 60ch; }
+
+    /* ── workflow · narrative stages ─────────────────────────── */
+    .stage {
+      display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: var(--space-xl) var(--space-2xl); align-items: start;
+      padding-top: var(--space-2xl); margin-top: var(--space-2xl);
+      border-top: var(--rule-thick) solid var(--color-rule-strong);
+    }
+    .stage:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+    .stage__num {
+      font-family: var(--font-display); font-weight: 800; font-size: var(--text-stage);
+      line-height: 0.9; color: var(--color-accent-dim); letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+    }
+    .stage__name {
+      font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg);
+      letter-spacing: -0.01em; margin: var(--space-sm) 0 var(--space-md);
+    }
+    .stage__desc { color: var(--color-muted); max-width: 42ch; }
+    .stage__desc strong { color: var(--color-ink); font-weight: 500; }
+
+    /* command transcript — typographic frame, NO fake window chrome */
+    .transcript {
+      background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule);
+      border-radius: var(--radius-md); overflow: hidden;
+    }
+    .transcript__bar {
+      font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--color-neutral);
+      padding: var(--space-xs) var(--space-md);
+      border-bottom: var(--rule-hair) solid var(--color-rule);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .transcript__bar .live { color: var(--color-accent-dim); }
+    .transcript pre {
+      margin: 0; padding: var(--space-md); overflow-x: auto;
+      font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.85;
+    }
+    .transcript .p { color: var(--color-accent); }   /* prompt */
+    .transcript .c { color: var(--color-neutral); }  /* comment */
+    .transcript .o { color: var(--color-muted); }    /* output */
+    .transcript .k { color: var(--color-accent-dim);}/* flag */
+    .transcript .v { color: var(--color-amber); }    /* value */
+    .transcript .s { color: var(--color-accent); }   /* success */
+    .transcript .w { color: var(--color-danger); }   /* warning */
+
+    /* ── editors ─────────────────────────────────────────────── */
+    .editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: var(--space-2xl); align-items: start; }
+    .spec-list { list-style: none; display: grid; gap: var(--space-lg); }
+    .spec-list li { padding-left: var(--space-lg); position: relative; color: var(--color-muted); }
+    .spec-list li::before { content: "▸"; position: absolute; left: 0; color: var(--color-accent); }
+    .spec-list b { color: var(--color-ink); font-weight: 500; }
+    .spec-list code, .inline-code {
+      font-family: var(--font-mono); font-size: 0.85em; color: var(--color-accent);
+      background: var(--color-paper-2); padding: 0.1em 0.4em; border-radius: var(--radius-sm);
+    }
+    .legend {
+      background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule);
+      border-radius: var(--radius-md); padding: var(--space-lg);
+    }
+    .legend__title {
+      font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--color-neutral); margin-bottom: var(--space-md);
+    }
+    .legend__row { display: flex; align-items: baseline; gap: var(--space-md); padding: var(--space-xs) 0; }
+    .dot { width: 0.7em; height: 0.7em; border-radius: 50%; flex: none; transform: translateY(0.05em); }
+    .dot--red { background: var(--color-danger); }
+    .dot--amber { background: var(--color-amber); }
+    .dot--green { background: var(--color-accent); }
+    .legend__row code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-ink); }
+    .legend__row span { color: var(--color-muted); font-size: var(--text-sm); }
+    .editors-note { margin-top: var(--space-xl); color: var(--color-neutral); font-size: var(--text-sm); }
+
+    /* ── tools table ─────────────────────────────────────────── */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tools {
+      width: 100%; border-collapse: collapse; font-size: var(--text-sm); min-width: 640px;
+    }
+    .tools th {
+      text-align: left; padding: var(--space-sm) var(--space-md);
+      border-bottom: var(--rule-thick) solid var(--color-rule-strong);
+      font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--color-neutral); font-weight: 500;
+    }
+    .tools td { padding: var(--space-sm) var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); vertical-align: top; }
+    .tools tr:hover td { background: var(--color-paper-2); }
+    .tools td:nth-child(4) { color: var(--color-muted); }
+    .tools code { font-family: var(--font-mono); font-size: 0.85em; color: var(--color-accent); white-space: nowrap; }
+    .layer {
+      font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;
+      padding: 0.15em 0.55em; border-radius: var(--radius-sm); display: inline-block;
+    }
+    .layer--prevention { color: var(--layer-prevention); background: color-mix(in oklab, var(--layer-prevention) 16%, transparent); }
+    .layer--runtime    { color: var(--layer-runtime);    background: color-mix(in oklab, var(--layer-runtime) 16%, transparent); }
+    .layer--context    { color: var(--layer-context);    background: color-mix(in oklab, var(--layer-context) 18%, transparent); }
+    .layer--remediation{ color: var(--layer-remediation);background: color-mix(in oklab, var(--layer-remediation) 16%, transparent); }
+    .layer--detection  { color: var(--layer-detection);  background: color-mix(in oklab, var(--layer-detection) 16%, transparent); }
+    .layer--governance { color: var(--layer-governance); background: color-mix(in oklab, var(--layer-governance) 18%, transparent); }
+
+    /* ── beyond · feature list (asymmetric, no emoji icons) ──── */
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--space-xl); }
+    .feature { border-top: var(--rule-hair) solid var(--color-rule); padding-top: var(--space-md); }
+    .feature h3 {
+      font-family: var(--font-mono); font-size: var(--text-base); font-weight: 700;
+      color: var(--color-ink); margin-bottom: var(--space-xs);
+    }
+    .feature h3 .mk { color: var(--color-accent); margin-right: 0.5ch; }
+    .feature p { color: var(--color-muted); font-size: var(--text-sm); }
+    .feature code { font-family: var(--font-mono); font-size: 0.85em; color: var(--color-accent); }
+
+    /* ── providers belt ──────────────────────────────────────── */
+    .providers { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+    .chip {
+      font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-muted);
+      padding: 0.4rem 0.8rem; border: var(--rule-hair) solid var(--color-rule);
+      border-radius: var(--radius-sm); background: var(--color-paper-2);
     }
 
-    /* Works with */
-    .works-with {
-      text-align: center;
-      padding: 2rem 0;
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
+    /* ── comparison ──────────────────────────────────────────── */
+    .compare { width: 100%; border-collapse: collapse; font-size: var(--text-sm); min-width: 680px; }
+    .compare th, .compare td { padding: var(--space-sm) var(--space-md); text-align: center; border-bottom: var(--rule-hair) solid var(--color-rule); }
+    .compare th { font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-neutral); font-weight: 500; }
+    .compare td:first-child, .compare th:first-child { text-align: left; }
+    .compare td:first-child { color: var(--color-ink); }
+    .compare .col-ef { background: color-mix(in oklab, var(--color-accent) 8%, transparent); }
+    .compare th.col-ef { color: var(--color-accent); font-weight: 700; }
+    .compare .yes { color: var(--color-accent); }
+    .compare .no { color: var(--color-neutral); }
+    .compare b.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-ink); }
+
+    /* ── install ─────────────────────────────────────────────── */
+    .install-block { display: grid; gap: var(--space-lg); max-width: 720px; }
+    .install-meta { color: var(--color-neutral); font-size: var(--text-sm); }
+    .install-meta code { font-family: var(--font-mono); color: var(--color-accent); background: var(--color-paper-2); padding: 0.1em 0.4em; border-radius: var(--radius-sm); }
+
+    /* ── footer · Ft5 statement ──────────────────────────────── */
+    .foot { padding: var(--space-3xl) var(--page-gutter) var(--space-2xl); border-top: var(--rule-hair) solid var(--color-rule); display: grid; gap: var(--space-xl); }
+    .foot__inner { max-width: 1140px; margin-inline: auto; width: 100%; display: grid; gap: var(--space-xl); }
+    .foot__line {
+      font-family: var(--font-display); font-weight: 700; font-size: clamp(1.6rem, 4.5vw, 2.75rem);
+      line-height: 1.08; letter-spacing: -0.02em; max-width: 24ch; overflow-wrap: anywhere;
     }
-    .works-with p { color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; }
-    .logo-belt {
-      display: flex;
-      justify-content: center;
-      gap: 2rem;
-      flex-wrap: wrap;
-      align-items: center;
+    .foot__line .ok { color: var(--color-accent); }
+    .foot__links { display: flex; flex-wrap: wrap; gap: var(--space-lg); font-family: var(--font-mono); font-size: var(--text-sm); }
+    .foot__links a { color: var(--color-muted); }
+    .foot__links a:hover { color: var(--color-accent); text-decoration: none; }
+    .foot__meta {
+      display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-md);
+      align-items: baseline; padding-top: var(--space-md);
+      border-top: var(--rule-hair) solid var(--color-rule);
+      font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-neutral);
     }
-    .logo-belt span {
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      padding: 0.4rem 0.8rem;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: var(--bg-secondary);
+    .foot__meta .wordmark { color: var(--color-ink); font-weight: 700; }
+
+    /* ── reveal-on-load orchestration ────────────────────────── */
+    .reveal { opacity: 0; transform: translateY(10px); }
+    .reveal.in { animation: reveal var(--dur-long) var(--ease-out) forwards; }
+    @keyframes reveal { to { opacity: 1; transform: none; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 150ms !important; animation-iteration-count: 1 !important; transition-duration: 150ms !important; }
+      .caret { animation: none; opacity: 1; }
+      .reveal { opacity: 1; transform: none; }
     }
 
-    /* Safety table */
-    .safety-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.85rem;
-      margin: 1rem 0;
+    /* ── responsive ──────────────────────────────────────────── */
+    @media (max-width: 880px) {
+      .stage { grid-template-columns: minmax(0, 1fr); gap: var(--space-lg); }
+      .stage__num { font-size: clamp(2.5rem, 12vw, 3.5rem); }
+      .editor-grid { grid-template-columns: minmax(0, 1fr); }
     }
-    .safety-table th {
-      text-align: left;
-      padding: 0.6rem 0.8rem;
-      border-bottom: 2px solid var(--border);
-      color: var(--text-muted);
-      font-weight: 600;
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    .safety-table td {
-      padding: 0.5rem 0.8rem;
-      border-bottom: 1px solid var(--border);
-    }
-    .safety-table tr:hover { background: var(--bg-secondary); }
-    .safety-table code {
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      background: var(--bg-tertiary);
-      padding: 0.15rem 0.4rem;
-      border-radius: 3px;
-    }
-    .layer-tag {
-      display: inline-block;
-      padding: 0.1rem 0.4rem;
-      border-radius: 3px;
-      font-size: 0.7rem;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-    .layer-prevention { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
-    .layer-runtime { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
-    .layer-context { background: rgba(188, 140, 255, 0.15); color: var(--accent-purple); }
-    .layer-remediation { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); }
-    .layer-detection { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
-    .layer-governance { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); }
-
-    /* Feature grid */
-    .feature-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.25rem;
-      margin: 1.5rem 0;
-    }
-    .feature-card {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1.5rem;
-    }
-    .feature-card h3 {
-      font-size: 1rem;
-      margin-bottom: 0.5rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .feature-card p { color: var(--text-muted); font-size: 0.85rem; line-height: 1.6; }
-    .feature-icon { font-size: 1.2rem; }
-
-    /* Comparison */
-    .comparison-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.8rem;
-      margin: 1rem 0;
-    }
-    .comparison-table th, .comparison-table td {
-      padding: 0.5rem 0.6rem;
-      border-bottom: 1px solid var(--border);
-      text-align: center;
-    }
-    .comparison-table th { color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
-    .comparison-table td:first-child { text-align: left; font-weight: 500; }
-    .comparison-table .yes { color: var(--accent-green); }
-    .comparison-table .no { color: var(--text-muted); }
-    .comparison-table .envforge { background: rgba(63, 185, 80, 0.05); }
-
-    /* Install */
-    .install {
-      text-align: center;
-      padding: 4rem 0;
-      border-top: 1px solid var(--border);
-    }
-    .install-cmd {
-      font-family: var(--font-mono);
-      font-size: 1.1rem;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem 2rem;
-      display: inline-block;
-      margin: 1.5rem 0;
-      cursor: pointer;
-      transition: border-color 0.2s;
-    }
-    .install-cmd:hover { border-color: var(--accent-green); }
-    .install-cmd .dollar { color: var(--accent-green); }
-
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 2rem;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 0.8rem;
-    }
-    footer a { color: var(--text-muted); }
-    footer a:hover { color: var(--text); }
-    .footer-links { display: flex; justify-content: center; gap: 1.5rem; margin-bottom: 1rem; }
-
-    /* Responsive */
-    @media (max-width: 768px) {
-      .hero h1 { font-size: 2rem; }
-      .hero p.subtitle { font-size: 1rem; }
-      nav { flex-direction: column; gap: 1rem; }
-      .stat-bar { gap: 1.5rem; }
-      .comparison-table { font-size: 0.7rem; }
-      .logo-belt { gap: 1rem; }
+    @media (max-width: 620px) {
+      .nav-term__line .opt { display: none; }
+      .statbar { gap: var(--space-sm) var(--space-lg); }
     }
   </style>
 </head>
 <body>
 
-  <!-- Nav -->
-  <nav>
-    <div class="nav-logo"><img src="envforge-icon.svg" alt="EnvForge" width="28" height="28" style="vertical-align: middle; margin-right: 8px; border-radius: 6px;"> envforge</div>
-    <div class="nav-links">
-      <a href="docs.html">Docs</a>
-      <a href="https://github.com/emreerinc/envforge">GitHub</a>
-      <a href="https://crates.io/crates/env-forge-tui">Crates.io</a>
-      <span class="badge">MIT License</span>
-    </div>
-  </nav>
+  <!-- nav · N8 terminal command -->
+  <header class="nav-term">
+    <pre class="nav-term__line"><span class="prompt">&gt;</span> <span class="brand">envforge</span> <a href="#workflow">--defend</a> <a href="#tools">--tools</a> <a class="opt" href="#editors">--editors</a> <a class="opt" href="#compare">--compare</a> <a href="#install">--install</a><span class="nav-term__spacer"></span><span class="sep opt" aria-hidden="true">|</span> <a class="ext opt" href="api-doc.html">docs↗</a> <a class="ext" href="crates.html">crates↗</a> <a class="ext gh" href="https://github.com/emreerinc/envforge">github↗</a><span class="caret" aria-hidden="true">▮</span></pre>
+  </header>
 
-  <div class="container">
-
-    <!-- Hero -->
+  <main>
+    <!-- hero -->
     <section class="hero">
-      <div class="hero-badge">28 AI Safety Tools &middot; Written in Rust &middot; Free &amp; Open Source &middot; Now with IDE plugins</div>
-      <h1>Your secrets are <em>not safe</em><br>from AI.</h1>
-      <p class="subtitle">EnvForge is the environment variable manager built to protect secrets FROM AI coding agents. 28 safety tools. Zero cloud dependency. One CLI + a Language Server that lights up VS Code and IntelliJ with an AI-exposure heatmap, fence shield, and canary tripwire glyphs.</p>
-      <div class="hero-cta">
-        <a href="#install" class="btn btn-primary">Install in 10 seconds</a>
-        <a href="#ai-safety" class="btn btn-secondary">See the 28 AI safety tools</a>
-      </div>
-      <div class="stat-bar">
-        <span><strong>100+</strong> commands</span>
-        <span><strong>13</strong> secret providers</span>
-        <span><strong>28</strong> AI safety tools</span>
-        <span><strong>2</strong> first-party IDE plugins</span>
+      <div class="grid-bg" aria-hidden="true"></div>
+      <div class="wrap">
+        <div class="hero__inner">
+          <p class="hero__kicker reveal"><span class="ok">●</span> 27 AI safety tools · Rust · source-available · VS&nbsp;Code + IntelliJ plugins</p>
+          <h1 class="reveal">Your secrets aren’t <span class="danger">safe</span> from AI.</h1>
+          <p class="hero__sub reveal">EnvForge is the environment-variable manager built to protect secrets <strong>from</strong> AI coding agents — not just store them. Fence the files, intercept the tool calls, run with secrets sealed in memory, and trip a canary if anything leaks. <strong>One Rust CLI, a TUI, and a Language Server</strong> that lights up your editor.</p>
+          <div class="cta-row reveal">
+            <a class="btn-star" href="https://github.com/emreerinc/envforge">★ Star on GitHub</a>
+            <button type="button" class="copycmd" data-copy="cargo install env-forge-tui" aria-label="Copy install command">
+              <span class="dollar">$</span><span class="cmd-text">cargo install env-forge-tui</span><span class="hint">copy</span>
+            </button>
+          </div>
+          <div class="statbar reveal">
+            <span><b>27</b> AI safety tools</span>
+            <span><b>13</b> secret providers</span>
+            <span><b>100+</b> commands</span>
+            <span><b>2,400+</b> tests passing</span>
+          </div>
+        </div>
       </div>
     </section>
 
-    <!-- Alert -->
-    <div class="alert">
-      <strong>GitGuardian 2026:</strong> AI-assisted commits leak secrets at <strong>2x the baseline rate</strong>. 24,000+ credentials found in MCP config files. 64% of leaked secrets from 2022 are still valid today.
+    <div class="wrap">
+      <!-- threat line (attributed external stat) -->
+      <aside class="threat">
+        <span class="threat__tag">GitGuardian · State of Secrets Sprawl 2026</span>
+        <p>AI-assisted commits leak secrets at <b>2× the baseline rate</b>, and <b>24,000+ credentials</b> were found sitting in plaintext inside MCP configuration files. The tooling that reads your repo now includes the model.</p>
+      </aside>
     </div>
 
-    <!-- Works with -->
-    <div class="works-with">
-      <p>Works with</p>
-      <div class="logo-belt">
-        <span>Claude Code</span>
-        <span>Cursor</span>
-        <span>GitHub Copilot</span>
-        <span>HashiCorp Vault</span>
-        <span>AWS SSM</span>
-        <span>1Password</span>
-        <span>Doppler</span>
-        <span>Infisical</span>
-        <span>GCP</span>
-        <span>Azure</span>
-        <span>Bitwarden</span>
-        <span>Akeyless</span>
-        <span>CyberArk Conjur</span>
-        <span>SOPS</span>
-        <span>pass/gopass</span>
-        <span>Keeper</span>
+    <!-- workflow · narrative stages -->
+    <section id="workflow" class="wrap">
+      <div class="sec-head">
+        <h2>Four moves. Total coverage.</h2>
+        <p>EnvForge isn’t a vault you push to and forget. It’s a defense pipeline you run as you work — fence, guard, run, watch.</p>
       </div>
-    </div>
 
-    <!-- Quick Start -->
-    <section>
-      <h2>Protect a project in 30 seconds</h2>
-      <p>Five commands. Full protection for Cursor, Copilot, and Claude Code.</p>
-      <div class="terminal">
-        <div class="terminal-header">
-          <div class="terminal-dot red"></div>
-          <div class="terminal-dot yellow"></div>
-          <div class="terminal-dot green"></div>
+      <!-- 1.0 FENCE -->
+      <div class="stage reveal">
+        <div>
+          <div class="stage__num">1.0</div>
+          <h3 class="stage__name">FENCE</h3>
+          <p class="stage__desc">Block AI tools from ever reading your secrets, then hand them <strong>context without values</strong> — types and names from an inferred schema, never the credentials themselves.</p>
         </div>
-        <div class="terminal-body"><pre>
-<span class="c"># 1. Block AI tools from reading secrets</span>
+        <figure class="transcript">
+          <figcaption class="transcript__bar"><span>fence</span><span class="live">prevention</span></figcaption>
+          <pre><span class="c"># block Cursor, Copilot &amp; Claude Code at the file level</span>
 <span class="p">$</span> envforge fence
-<span class="o">  Created .envforgeignore</span>
-<span class="o">  Created .cursorignore</span>
-<span class="o">  Created .claude/settings.json</span>
+<span class="o">  created .envforgeignore · .cursorignore · .claude/settings.json</span>
 
-<span class="c"># 2. Give AI context without values</span>
-<span class="p">$</span> envforge schema emit-ai <span class="k">--infer</span> <span class="k">--output</span> <span class="v">.env.ai.md</span>
-<span class="o">  AI context written to .env.ai.md (42 variables)</span>
+<span class="c"># give the agent context — names &amp; types, no values</span>
+<span class="p">$</span> envforge schema emit-ai <span class="k">--infer --output</span> <span class="v">.env.ai.md</span>
+<span class="s">  wrote .env.ai.md (42 variables, 0 values)</span></pre>
+        </figure>
+      </div>
 
-<span class="c"># 3. Install pre-commit hook + AI guard</span>
-<span class="p">$</span> envforge scan <span class="k">--install-hook</span>
-<span class="s">  Pre-commit hook installed</span>
+      <!-- 2.0 GUARD -->
+      <div class="stage reveal">
+        <div>
+          <div class="stage__num">2.0</div>
+          <h3 class="stage__name">GUARD</h3>
+          <p class="stage__desc">Wire EnvForge into the agent’s tool loop and your git hooks. Every read and every commit is <strong>scanned before it lands</strong>; leaked credentials in MCP configs get rewritten to <code class="inline-code">${VAR}</code> references.</p>
+        </div>
+        <figure class="transcript">
+          <figcaption class="transcript__bar"><span>guard</span><span class="live">prevention · remediation</span></figcaption>
+          <pre><span class="c"># PreToolUse + PostToolUse hooks in the agent</span>
 <span class="p">$</span> envforge ai-hook install <span class="v">claude-code</span>
-<span class="s">  Hooks installed: PreToolUse + PostToolUse</span>
+<span class="s">  hooks installed: PreToolUse + PostToolUse</span>
 
-<span class="c"># 4. Scan and harden AI tool configs</span>
-<span class="p">$</span> envforge scan <span class="k">--mcp</span>
-<span class="w">  2 credential(s) found in MCP configs</span>
+<span class="p">$</span> envforge scan <span class="k">--install-hook</span>
+<span class="s">  pre-commit hook installed</span>
+
 <span class="p">$</span> envforge mcp harden
-<span class="s">  2 secrets replaced with ${VAR} references</span>
-</pre></div>
+<span class="w">  2 credentials found</span> <span class="o">→</span> <span class="s">replaced with ${VAR}</span></pre>
+        </figure>
       </div>
-    </section>
 
-    <!-- IDE Plugins -->
-    <section id="ide">
-      <h2>See the danger in your editor</h2>
-      <p>EnvForge ships a Language Server and first-party VS Code + IntelliJ plugins so the AI-safety story is visible where you write code — not buried in a CLI.</p>
-      <ul>
-        <li><strong>AI-exposure heatmap</strong> — colored dot in the gutter on every env-var line. Red = plaintext readable by AI agents. Amber = sensitive, will be redacted by AI-guard. Green = fence active.</li>
-        <li><strong>Canary tripwire glyphs</strong> — shield icon replaces the dot when a canary token is registered. Hover for status.</li>
-        <li><strong>Status bar trio</strong> — variable count, fence shield (<code>AI BLOCKED</code> / <code>AI ALLOWED</code>), and a volatile-lease countdown with sub-minute precision and color escalation.</li>
-        <li><strong>Source-language goto-definition</strong> — Ctrl-click <code>process.env.X</code>, <code>os.environ["X"]</code>, <code>std::env::var("X")</code> in TS / JS / Python / Rust / Go / Java / Kotlin / Ruby / PHP / C# / Shell and land on the schema entry.</li>
-        <li><strong>MCP config linter</strong> — credential patterns flagged inline in <code>.cursor/mcp.json</code>, <code>.claude/settings.json</code>, and friends.</li>
-        <li><strong>Quick-fix actions</strong> — plant a canary, mark as secret in schema, generate <code>.env</code> from schema, use secret reference — one keystroke each.</li>
-      </ul>
-      <p>Both plugins are thin clients over <code>envforge lsp</code>. Same backend, byte-identical classification, contract-locked parity.</p>
-    </section>
+      <!-- 3.0 RUN -->
+      <div class="stage reveal">
+        <div>
+          <div class="stage__num">3.0</div>
+          <h3 class="stage__name">RUN</h3>
+          <p class="stage__desc">Execute your app with secrets resolved <strong>in memory only</strong> and masked in every log line. Scope access to a time-boxed lease — and revoke everything instantly if something feels wrong.</p>
+        </div>
+        <figure class="transcript">
+          <figcaption class="transcript__bar"><span>run</span><span class="live">runtime</span></figcaption>
+          <pre><span class="c"># volatile = never on disk · redact = masked output</span>
+<span class="p">$</span> envforge run <span class="k">--volatile --redact --</span> npm start
+<span class="o">  connecting to [REDACTED:DB_PASSWORD]@host…</span>
+<span class="s">  server running on :3000</span>
 
-    <!-- AI Safety Suite -->
-    <section id="ai-safety">
-      <h2>28 AI Safety Tools</h2>
-      <p>Six security layers. From prevention to governance.</p>
-      <table class="safety-table">
-        <thead>
-          <tr><th>Layer</th><th>Tool</th><th>Command</th><th>What it does</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>Secret Fence</td><td><code>envforge fence</code></td><td>Ignore rules for Cursor, Copilot, Claude Code</td></tr>
-          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>Pre-Commit Hook</td><td><code>envforge scan --install-hook</code></td><td>Block commits containing secrets</td></tr>
-          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>3-Stage AI Guard</td><td><code>envforge ai-guard</code></td><td>Pre-tool + post-tool scanning</td></tr>
-          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>AI Hooks</td><td><code>envforge ai-hook install</code></td><td>Security hooks in Claude Code &amp; Cursor</td></tr>
-          <tr><td><span class="layer-tag layer-prevention">Prevention</span></td><td>File Alerts</td><td><em>built-in</em></td><td>Warn on .env, .pem, .ssh/ access</td></tr>
-          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Volatile Mode</td><td><code>envforge run --volatile</code></td><td>Secrets in memory only &mdash; never on disk</td></tr>
-          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Log Redaction</td><td><code>envforge run --redact</code></td><td>Mask secrets in subprocess output</td></tr>
-          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Credential Proxy</td><td><code>envforge proxy</code></td><td>HTTP API with allowlist + audit</td></tr>
-          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Session Leases</td><td><code>envforge lease create</code></td><td>Time-bounded secret access</td></tr>
-          <tr><td><span class="layer-tag layer-runtime">Runtime</span></td><td>Killswitch</td><td><code>envforge revoke --all</code></td><td>Instantly revoke all access</td></tr>
-          <tr><td><span class="layer-tag layer-context">Context</span></td><td>AI-Safe Schema</td><td><code>envforge schema emit-ai</code></td><td>Types &amp; names without values</td></tr>
-          <tr><td><span class="layer-tag layer-context">Context</span></td><td>Safe Export</td><td><code>envforge export --safe</code></td><td>Redacted [REDACTED] values</td></tr>
-          <tr><td><span class="layer-tag layer-context">Context</span></td><td>Ignore File</td><td><code>.envforgeignore</code></td><td>Mark files AI tools should skip</td></tr>
-          <tr><td><span class="layer-tag layer-remediation">Remediation</span></td><td>MCP Scan</td><td><code>envforge scan --mcp</code></td><td>Find creds in AI tool configs</td></tr>
-          <tr><td><span class="layer-tag layer-remediation">Remediation</span></td><td>MCP Harden</td><td><code>envforge mcp harden</code></td><td>Auto-replace with ${VAR} refs</td></tr>
-          <tr><td><span class="layer-tag layer-remediation">Remediation</span></td><td>Prompt Sanitizer</td><td><code>envforge sanitize</code></td><td>Strip secrets from any file</td></tr>
-          <tr><td><span class="layer-tag layer-detection">Detection</span></td><td>Canary Secrets</td><td><code>envforge canary create</code></td><td>Honeypot credentials &mdash; alert on exfiltration</td></tr>
-          <tr><td><span class="layer-tag layer-detection">Detection</span></td><td>AI Leak Audit</td><td><code>envforge audit --ai-leaks</code></td><td>Scan git for AI-assisted leaks</td></tr>
-          <tr><td><span class="layer-tag layer-detection">Detection</span></td><td>Access Audit</td><td><code>envforge audit --access</code></td><td>JSONL log of all proxy access</td></tr>
-          <tr><td><span class="layer-tag layer-governance">Governance</span></td><td>Approval Flow</td><td><code>--require-approval</code></td><td>Human approves each access</td></tr>
-          <tr><td><span class="layer-tag layer-governance">Governance</span></td><td>Dependency Map</td><td><code>envforge deps KEY</code></td><td>What breaks if this secret rotates?</td></tr>
-          <tr><td><span class="layer-tag layer-governance">Governance</span></td><td>External Scanner</td><td><code>ENVFORGE_EXTERNAL_SCANNER</code></td><td>Delegate to ggshield 500+ detectors</td></tr>
-        </tbody>
-      </table>
-    </section>
-
-    <!-- Core Features -->
-    <section>
-      <h2>Beyond AI safety</h2>
-      <p>A complete environment variable manager with 90+ commands.</p>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128274;</span> Encrypted Sync</h3>
-          <p>Git-based cross-machine sync with age encryption. Selective keys, machine overrides, rollback. Offline-first.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128273;</span> 13 Secret Providers</h3>
-          <p>Vault, AWS SSM, 1Password, Doppler, Infisical, GCP, Azure, Bitwarden, Akeyless, Conjur, SOPS, pass/gopass, Keeper. Pull, push, reference.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128196;</span> Schema Validation</h3>
-          <p>.env.schema with types, defaults, descriptions. Drift detection. JSON Schema for editor autocomplete. Docs generation.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128187;</span> TUI + CLI</h3>
-          <p>Vim-style TUI with fuzzy search, grouping, masking. 90+ CLI commands with --json and --dry-run. Shell completions.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128230;</span> 8 Export Formats</h3>
-          <p>dotenv, JSON, YAML, TOML, Docker, Docker Secrets, Kubernetes Secret, Terraform tfvars.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#9889;</span> Smart Workflows</h3>
-          <p>Profiles, snapshots, rotation with propagation, shell auto-load, secure sharing, unified health check.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Run with protection -->
-    <section>
-      <h2>Run with maximum protection</h2>
-      <p>Secrets in memory. Logs redacted. Leases enforced. Nothing leaks.</p>
-      <div class="terminal">
-        <div class="terminal-header">
-          <div class="terminal-dot red"></div>
-          <div class="terminal-dot yellow"></div>
-          <div class="terminal-dot green"></div>
-        </div>
-        <div class="terminal-body"><pre>
-<span class="c"># Secrets in memory only + log redaction</span>
-<span class="p">$</span> envforge run <span class="k">--volatile</span> <span class="k">--redact</span> <span class="k">--</span> npm start
-<span class="o">  Volatile mode: secrets resolved in memory only</span>
-<span class="o">  Connecting to [REDACTED:DB_PASSWORD]@host...</span>
-<span class="s">  Server running on port 3000</span>
-
-<span class="c"># Time-bounded access with credential proxy</span>
 <span class="p">$</span> envforge lease create <span class="k">--ttl</span> <span class="v">1h</span> <span class="k">--keys</span> <span class="v">DB_URL,API_KEY</span>
-<span class="o">  Lease created: session-143052</span>
-<span class="o">  Expires: 2026-04-20T21:00:00Z</span>
-<span class="o">  Keys: DB_URL, API_KEY</span>
-
-<span class="p">$</span> envforge proxy <span class="k">--port</span> <span class="v">8100</span> <span class="k">--require-lease</span>
-<span class="o">  Credential proxy on http://127.0.0.1:8100</span>
-<span class="o">  Lease enforcement: ON</span>
-
-<span class="c"># Emergency: revoke all access instantly</span>
 <span class="p">$</span> envforge revoke <span class="k">--all</span>
-<span class="w">  KILLSWITCH: 3 lease(s) revoked.</span>
-</pre></div>
+<span class="w">  KILLSWITCH: 3 leases revoked</span></pre>
+        </figure>
+      </div>
+
+      <!-- 4.0 WATCH -->
+      <div class="stage reveal">
+        <div>
+          <div class="stage__num">4.0</div>
+          <h3 class="stage__name">WATCH</h3>
+          <p class="stage__desc">Plant honeypot canaries that <strong>alert on exfiltration</strong>, audit git history for AI-assisted leaks, and map what breaks before you rotate. Detection and governance, not just prevention.</p>
+        </div>
+        <figure class="transcript">
+          <figcaption class="transcript__bar"><span>watch</span><span class="live">detection · governance</span></figcaption>
+          <pre><span class="c"># honeypot credential — tripwire on read/exfil</span>
+<span class="p">$</span> envforge canary create <span class="v">STRIPE_KEY</span>
+<span class="s">  canary planted · monitoring enabled</span>
+
+<span class="p">$</span> envforge audit <span class="k">--ai-leaks</span>
+<span class="o">  scanned 1,204 commits · 0 AI-assisted leaks</span>
+
+<span class="p">$</span> envforge deps <span class="v">DB_URL</span>
+<span class="o">  3 services depend on this secret</span></pre>
+        </figure>
       </div>
     </section>
 
-    <!-- Git & Privacy -->
-    <section>
-      <h2>Git-native privacy</h2>
-      <p>Everything versioned. Everything encrypted. Nothing leaks into your repo.</p>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128275;</span> Encrypted Sync</h3>
-          <p>Age (X25519) encrypted snapshots pushed to any Git remote. Auto-decrypt on pull. Your env vars are ciphertext in the repo &mdash; only your machines can read them.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128200;</span> Git Merge Driver</h3>
-          <p>Semantic three-way merge for .env files. Different keys auto-merged. Same key, different values &rarr; clean conflict markers. <code>envforge git install-merge-driver</code></p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128269;</span> Secret Scanning</h3>
-          <p>Scan source code and staged files for leaked secrets. Pre-commit hook blocks commits. MCP config scanning for AI tool credentials.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128221;</span> Audit Trail</h3>
-          <p>Full change history from sync Git log. SOC2 compliance reports. Chain of custody tracking. Tamper-evident logs with cryptographic integrity verification. <code>envforge audit-trail report --report-type compliance</code></p>
-        </div>
+    <!-- editors -->
+    <section id="editors" class="wrap">
+      <div class="sec-head">
+        <h2>See the danger in your editor.</h2>
+        <p>EnvForge ships a Language Server and first-party VS Code + IntelliJ plugins. The AI-exposure story lives where you write code — not buried in a CLI.</p>
       </div>
-    </section>
-
-    <!-- Integrations -->
-    <section>
-      <h2>Integrations</h2>
-      <p>Plugs into your existing stack. No migration required.</p>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#9729;&#65039;</span> Secret Providers</h3>
-          <p>Pull and push secrets from 13 providers. Configure once, use everywhere. URI refs: <code>vault://secret/myapp/DB_URL</code></p>
-          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
-            HashiCorp Vault &middot; AWS SSM &middot; 1Password &middot; Doppler &middot; Infisical &middot; GCP Secret Manager &middot; Azure Key Vault &middot; Bitwarden &middot; Akeyless &middot; CyberArk Conjur &middot; Mozilla SOPS &middot; pass/gopass &middot; Keeper
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#9881;&#65039;</span> CI/CD</h3>
-          <p>Official GitHub Action with 5 modes: validate, secrets-pull, export, run, drift. Works in any CI pipeline via <code>envforge run</code>.</p>
-          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
-            GitHub Actions &middot; GitLab CI &middot; CircleCI &middot; Jenkins &middot; Any CI with shell
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128194;</span> Shell Integration</h3>
-          <p>direnv-style auto-load. Profile switches without shell restart. IDE-style completions for all major shells + carapace, inshellisense, kiro, fig.</p>
-          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
-            eval "$(envforge hook zsh)" &middot; eval "$(envforge hook bash)" &middot; envforge hook fish | source
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128230;</span> Export Anywhere</h3>
-          <p>8 formats. One command. Feed your secrets into any infrastructure tool.</p>
-          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
-            .env &middot; JSON &middot; YAML &middot; TOML &middot; Docker &middot; Docker Secrets &middot; Kubernetes Secret &middot; Terraform tfvars
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128187;</span> IDE Extensions</h3>
-          <p>Built-in LSP server. Diagnostics, hover, completions, go-to-definition in your editor. Variables panel with grouping and profile switching.</p>
-          <p style="margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
-            <a href="https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager" style="color: var(--accent);">VS Code</a> &middot;
-            <a href="https://plugins.jetbrains.com/plugin/31385-envforge" style="color: var(--accent);">IntelliJ IDEA</a> &middot;
-            Neovim &middot; Helix &middot; Sublime Text
-          </p>
+      <div class="editor-grid">
+        <ul class="spec-list reveal">
+          <li><b>Exposure heatmap</b> — a colored dot in the gutter on every env-var line. The classification is byte-identical to the CLI.</li>
+          <li><b>Canary tripwire glyphs</b> — a shield replaces the dot when a canary is registered. Hover for status.</li>
+          <li><b>Status-bar trio</b> — variable count, fence shield (<code>AI BLOCKED</code> / <code>AI ALLOWED</code>), and a live volatile-lease countdown.</li>
+          <li><b>Source-language goto-definition</b> — ctrl-click <code>process.env.X</code>, <code>os.environ["X"]</code>, <code>std::env::var("X")</code> across 11 languages, land on the schema entry.</li>
+          <li><b>MCP config linter</b> — credential patterns flagged inline in <code>.cursor/mcp.json</code>, <code>.claude/settings.json</code> and friends.</li>
+          <li><b>One-key quick-fixes</b> — plant a canary, mark as secret, generate <code>.env</code> from schema, swap in a secret reference.</li>
+        </ul>
+        <div class="legend reveal">
+          <div class="legend__title">Gutter heatmap — what the dots mean</div>
+          <div class="legend__row"><span class="dot dot--red" aria-hidden="true"></span><code>RED</code><span>plaintext, readable by AI agents right now</span></div>
+          <div class="legend__row"><span class="dot dot--amber" aria-hidden="true"></span><code>AMBER</code><span>sensitive — will be redacted by AI-guard</span></div>
+          <div class="legend__row"><span class="dot dot--green" aria-hidden="true"></span><code>GREEN</code><span>fenced — the agent can’t reach it</span></div>
+          <p class="editors-note">Both plugins are thin clients over <code class="inline-code">envforge lsp</code>. Same backend, contract-locked parity. Also works in Neovim, Helix &amp; Sublime Text.</p>
         </div>
       </div>
     </section>
 
-    <!-- Developer Experience -->
-    <section>
-      <h2>Built for developers</h2>
-      <p>Every workflow thought through. Every edge case handled.</p>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128270;</span> Explain</h3>
-          <p>X-ray view of any key. Source file, line number, profile, schema type, encryption status, sync marking, secret age &mdash; all in one command. <code>envforge explain KEY</code></p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128260;</span> Secret Rotation</h3>
-          <p>Guided interactive rotation. Masked input. Auto-resets age. Pushes to provider and sync with <code>--propagate</code>. Bulk rotate stale secrets with <code>--stale</code>.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128247;</span> Snapshots</h3>
-          <p>Backup and restore your entire env state. Diff against previous snapshots. Auto-prune to 20. Safety net before any risky change.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#129657;</span> Unified Check</h3>
-          <p>One command runs doctor + validate + scan + age + drift. Fix hints for every failure. <code>--only</code> for selective checks. <code>--json</code> for CI.</p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128101;</span> Secure Sharing</h3>
-          <p>Age-encrypted share files. Recipient decrypts with their key. Optional expiry. <code>envforge share create --recipient age1... --all</code></p>
-        </div>
-        <div class="feature-card">
-          <h3><span class="feature-icon">&#128736;</span> Multi-Profile</h3>
-          <p>Dev, staging, prod &mdash; switch instantly. Merge multiple profiles: <code>envforge run --profiles dev,staging</code>. Last wins. Compare with <code>profile diff</code>.</p>
-        </div>
+    <!-- tools table -->
+    <section id="tools" class="wrap">
+      <div class="sec-head">
+        <h2>27 tools. Six layers.</h2>
+        <p>From prevention to governance — the most comprehensive AI-agent secret protection of any CLI.</p>
       </div>
-    </section>
-
-    <!-- Comparison -->
-    <section>
-      <h2>How EnvForge compares</h2>
-      <p>The only tool with comprehensive AI safety AND full env management.</p>
-      <div style="overflow-x: auto;">
-        <table class="comparison-table">
+      <div class="table-scroll reveal">
+        <table class="tools">
           <thead>
-            <tr>
-              <th></th>
-              <th class="envforge">EnvForge</th>
-              <th>ggshield</th>
-              <th>dotenvx</th>
-              <th>Infisical</th>
-              <th>Doppler</th>
-              <th>Varlock</th>
-            </tr>
+            <tr><th>Layer</th><th>Tool</th><th>Command</th><th>What it does</th></tr>
           </thead>
           <tbody>
-            <tr><td>AI safety tools</td><td class="envforge"><span class="yes">22</span></td><td><span class="yes">3</span></td><td><span class="yes">2</span></td><td><span class="yes">1</span></td><td><span class="no">0</span></td><td><span class="yes">7</span></td></tr>
-            <tr><td>Pre-tool scanning</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>Canary secrets</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>Session leases + killswitch</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>MCP config harden</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>Volatile mode (no disk)</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>Dependency mapping</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>Full env management</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td></tr>
-            <tr><td>TUI interface</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>13 secret providers</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td></tr>
-            <tr><td>Encrypted sync</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td></tr>
-            <tr><td>Free &amp; open source</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">&#10003;</span></td><td><span class="yes">Partial</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td></tr>
-            <tr><td>Zero cloud dependency</td><td class="envforge"><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td><td><span class="no">&#10005;</span></td><td><span class="no">&#10005;</span></td><td><span class="yes">&#10003;</span></td></tr>
+            <tr><td><span class="layer layer--prevention">Prevention</span></td><td>Secret Fence</td><td><code>envforge fence</code></td><td>Ignore rules for Cursor, Copilot, Claude Code</td></tr>
+            <tr><td><span class="layer layer--prevention">Prevention</span></td><td>Fence Status</td><td><code>fence --status</code></td><td>Verify ignore rules are active</td></tr>
+            <tr><td><span class="layer layer--prevention">Prevention</span></td><td>Pre-Commit Hook</td><td><code>scan --install-hook</code></td><td>Block commits containing secrets</td></tr>
+            <tr><td><span class="layer layer--prevention">Prevention</span></td><td>3-Stage AI Guard</td><td><code>ai-guard pre-tool</code></td><td>Scan before &amp; after AI tool execution</td></tr>
+            <tr><td><span class="layer layer--prevention">Prevention</span></td><td>AI Hooks</td><td><code>ai-hook install</code></td><td>PreToolUse + PostToolUse hooks</td></tr>
+            <tr><td><span class="layer layer--prevention">Prevention</span></td><td>Hook Status</td><td><code>ai-hook status</code></td><td>Check which tools have active hooks</td></tr>
+            <tr><td><span class="layer layer--prevention">Prevention</span></td><td>File Alerts</td><td><em>built-in</em></td><td>Warn on .env, .pem, .ssh/ access</td></tr>
+            <tr><td><span class="layer layer--runtime">Runtime</span></td><td>Volatile Mode</td><td><code>run --volatile</code></td><td>Secrets in memory only — never on disk</td></tr>
+            <tr><td><span class="layer layer--runtime">Runtime</span></td><td>Log Redaction</td><td><code>run --redact</code></td><td>Mask secrets in subprocess output</td></tr>
+            <tr><td><span class="layer layer--runtime">Runtime</span></td><td>Credential Proxy</td><td><code>proxy --port 8100</code></td><td>HTTP API with allowlist + audit</td></tr>
+            <tr><td><span class="layer layer--runtime">Runtime</span></td><td>Session Leases</td><td><code>lease create --ttl</code></td><td>Time-bounded secret access</td></tr>
+            <tr><td><span class="layer layer--runtime">Runtime</span></td><td>Killswitch</td><td><code>revoke --all</code></td><td>Instantly revoke all active leases</td></tr>
+            <tr><td><span class="layer layer--context">Context</span></td><td>AI-Safe Schema</td><td><code>schema emit-ai</code></td><td>Types &amp; names without values</td></tr>
+            <tr><td><span class="layer layer--context">Context</span></td><td>Safe Export</td><td><code>export --safe</code></td><td>Redacted [REDACTED] values</td></tr>
+            <tr><td><span class="layer layer--context">Context</span></td><td>Ignore File</td><td><code>.envforgeignore</code></td><td>Mark files AI tools should skip</td></tr>
+            <tr><td><span class="layer layer--remediation">Remediation</span></td><td>MCP Scan</td><td><code>mcp status</code></td><td>Find creds in AI tool configs</td></tr>
+            <tr><td><span class="layer layer--remediation">Remediation</span></td><td>MCP Harden</td><td><code>mcp harden</code></td><td>Auto-replace with ${VAR} references</td></tr>
+            <tr><td><span class="layer layer--remediation">Remediation</span></td><td>Prompt Sanitizer</td><td><code>sanitize FILE</code></td><td>Strip secrets from any file</td></tr>
+            <tr><td><span class="layer layer--detection">Detection</span></td><td>Canary Secrets</td><td><code>canary create</code></td><td>Honeypot credentials — alert on exfiltration</td></tr>
+            <tr><td><span class="layer layer--detection">Detection</span></td><td>AI Leak Audit</td><td><code>audit --ai-leaks</code></td><td>Scan git for AI-assisted leaks</td></tr>
+            <tr><td><span class="layer layer--detection">Detection</span></td><td>Access Audit</td><td><code>audit --access</code></td><td>JSONL log of proxy access</td></tr>
+            <tr><td><span class="layer layer--governance">Governance</span></td><td>Approval Flow</td><td><code>--require-approval</code></td><td>Human approves each secret access</td></tr>
+            <tr><td><span class="layer layer--governance">Governance</span></td><td>Dependency Map</td><td><code>deps KEY --source</code></td><td>What breaks if this secret rotates?</td></tr>
+            <tr><td><span class="layer layer--governance">Governance</span></td><td>External Scanner</td><td><code>scanner test</code></td><td>Multi-scanner pipeline (Lakera, ggshield)</td></tr>
+            <tr><td><span class="layer layer--governance">Governance</span></td><td>Session Scoping</td><td><code>session start --ttl</code></td><td>Per-AI-tool scoping with auto-detection</td></tr>
+            <tr><td><span class="layer layer--governance">Governance</span></td><td>Lifecycle Automation</td><td><code>lifecycle check</code></td><td>Rule-based create / rotate / decommission</td></tr>
+            <tr><td><span class="layer layer--governance">Governance</span></td><td>Analytics</td><td><code>analytics unused</code></td><td>Dormant-secret detection &amp; retention</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <!-- Install -->
-    <section id="install" class="install">
-      <h2>Start protecting your secrets</h2>
-      <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Rust 1.75+ required. Linux and macOS.</p>
-      <div class="install-cmd" onclick="navigator.clipboard.writeText('cargo install env-forge-tui').then(() => this.querySelector('.dollar').textContent = '$ copied!')">
-        <span class="dollar">$</span> cargo install env-forge-tui
+    <!-- beyond -->
+    <section class="wrap">
+      <div class="sec-head">
+        <h2>Beyond AI safety.</h2>
+        <p>A complete environment-variable manager underneath — 100+ commands, no migration required.</p>
       </div>
-      <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 1rem;">
-        Or build from source:
-        <code style="background: var(--bg-tertiary); padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.8rem;">
-          git clone https://github.com/emreerinc/envforge && cd envforge && cargo install --path .
-        </code>
-      </p>
-      <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 1.5rem;">
-        Then set up shell completions and man pages:
-      </p>
-      <div class="terminal" style="max-width: 600px; margin: 1rem auto;">
-        <div class="terminal-header">
-          <div class="terminal-dot red"></div>
-          <div class="terminal-dot yellow"></div>
-          <div class="terminal-dot green"></div>
-        </div>
-        <div class="terminal-body"><pre>
-<span class="c"># Shell completions (auto-install)</span>
-<span class="p">$</span> envforge completions zsh --install
-<span class="p">$</span> envforge completions bash --install
-<span class="p">$</span> envforge completions fish --install
-
-<span class="c"># IDE-style autocomplete (carapace / inshellisense / kiro / fig)</span>
-<span class="p">$</span> envforge completions carapace --install
-<span class="p">$</span> envforge completions inshellisense --install
-<span class="p">$</span> envforge completions kiro --install
-<span class="p">$</span> kiro-cli restart
-
-<span class="c"># Built-in man pages</span>
-<span class="p">$</span> envforge man           <span class="c"># full command index</span>
-<span class="p">$</span> envforge man fence     <span class="c"># specific command</span>
-</pre></div>
+      <div class="features">
+        <div class="feature reveal"><h3><span class="mk">+</span>Encrypted sync</h3><p>Git-based cross-machine sync with age (X25519) encryption. Selective keys, machine overrides, rollback, offline-first. Your env vars are ciphertext in the repo.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>13 secret providers</h3><p>Pull, push and reference across Vault, AWS SSM, 1Password, Doppler, GCP, Azure and more — with URI refs like <code>vault://secret/app/DB_URL</code>.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>Schema validation</h3><p><code>.env.schema</code> with types, defaults &amp; descriptions. Drift detection, JSON Schema for autocomplete, onboarding wizard.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>TUI + CLI</h3><p>Vim-style TUI with fuzzy search, grouping and masking. 100+ CLI commands with <code>--json</code> and <code>--dry-run</code>.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>8 export formats</h3><p>dotenv, JSON, YAML, TOML, Docker, Docker Secrets, Kubernetes Secret, Terraform tfvars — one command.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>Workflows &amp; audit</h3><p>Profiles, snapshots, guided rotation with propagation, secure sharing, a unified <code>check</code>, plus SOC2 audit-trail reports.</p></div>
       </div>
     </section>
 
-  </div>
+    <!-- providers belt -->
+    <section class="wrap" aria-label="Supported secret providers">
+      <div class="sec-head"><h2>Plugs into your stack.</h2><p>Configure once, reference everywhere.</p></div>
+      <div class="providers reveal">
+        <span class="chip">HashiCorp Vault</span><span class="chip">AWS SSM</span><span class="chip">1Password</span>
+        <span class="chip">Doppler</span><span class="chip">Infisical</span><span class="chip">GCP Secret Manager</span>
+        <span class="chip">Azure Key Vault</span><span class="chip">Bitwarden</span><span class="chip">Akeyless</span>
+        <span class="chip">CyberArk Conjur</span><span class="chip">Mozilla SOPS</span><span class="chip">pass / gopass</span>
+        <span class="chip">Keeper</span>
+      </div>
+    </section>
 
-  <!-- Footer -->
-  <footer>
-    <div class="footer-links">
-      <a href="https://github.com/emreerinc/envforge">GitHub</a>
-      <a href="docs.html">Documentation</a>
-      <a href="https://crates.io/crates/env-forge-tui">Crates.io</a>
-      <a href="https://github.com/emreerinc/envforge/blob/main/LICENSE">MIT License</a>
-      <a href="https://github.com/emreerinc/envforge/blob/main/CHANGELOG.md">Changelog</a>
+    <!-- comparison -->
+    <section id="compare" class="wrap">
+      <div class="sec-head">
+        <h2>How EnvForge compares.</h2>
+        <p>The only tool pairing comprehensive AI safety with full environment management.</p>
+      </div>
+      <div class="table-scroll reveal">
+        <table class="compare">
+          <thead>
+            <tr><th></th><th class="col-ef">EnvForge</th><th>ggshield</th><th>dotenvx</th><th>Infisical</th><th>Doppler</th><th>Varlock</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>AI safety tools</td><td class="col-ef"><b class="num">27</b></td><td><b class="num">3</b></td><td><b class="num">2</b></td><td><b class="num">1</b></td><td><span class="no">0</span></td><td><b class="num">7</b></td></tr>
+            <tr><td>Pre-tool scanning</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
+            <tr><td>Canary secrets</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
+            <tr><td>Session leases + killswitch</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
+            <tr><td>MCP config harden</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
+            <tr><td>Volatile mode (no disk)</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
+            <tr><td>Full env management</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td></tr>
+            <tr><td>TUI interface</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
+            <tr><td>13 secret providers</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td></tr>
+            <tr><td>Encrypted sync</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="no">✕</span></td></tr>
+            <tr><td>Zero cloud dependency</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- install -->
+    <section id="install" class="wrap">
+      <div class="sec-head">
+        <h2>Install in 10 seconds.</h2>
+        <p>Rust 1.75+ · Linux and macOS.</p>
+      </div>
+      <div class="install-block reveal">
+        <button type="button" class="copycmd" data-copy="cargo install env-forge-tui" aria-label="Copy install command">
+          <span class="dollar">$</span><span class="cmd-text">cargo install env-forge-tui</span><span class="hint">copy</span>
+        </button>
+        <p class="install-meta">Or build from source: <code>git clone https://github.com/emreerinc/envforge &amp;&amp; cd envforge &amp;&amp; cargo install --path .</code></p>
+        <figure class="transcript">
+          <figcaption class="transcript__bar"><span>setup</span><span class="live">completions · man</span></figcaption>
+          <pre><span class="c"># shell completions (auto-install)</span>
+<span class="p">$</span> envforge completions zsh <span class="k">--install</span>
+
+<span class="c"># IDE-style autocomplete: carapace / inshellisense / kiro / fig</span>
+<span class="p">$</span> envforge completions carapace <span class="k">--install</span>
+
+<span class="c"># built-in man pages</span>
+<span class="p">$</span> envforge man            <span class="c"># full command index</span>
+<span class="p">$</span> envforge man fence      <span class="c"># a specific command</span></pre>
+        </figure>
+        <div class="cta-row">
+          <a class="btn-star" href="https://github.com/emreerinc/envforge">★ Star on GitHub</a>
+          <a href="docs.html" style="font-family: var(--font-mono); font-size: var(--text-sm);">Read the docs →</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- footer · Ft5 statement -->
+  <footer class="foot">
+    <div class="foot__inner">
+      <p class="foot__line">Keep your secrets <span class="ok">yours</span> — even from the model.</p>
+      <div class="foot__links">
+        <a href="https://github.com/emreerinc/envforge">GitHub</a>
+        <a href="docs.html">Documentation</a>
+        <a href="api-doc.html">API reference</a>
+        <a href="crates.html">Crates.io</a>
+        <a href="https://github.com/emreerinc/envforge/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager">VS Code</a>
+        <a href="https://plugins.jetbrains.com/plugin/31385-envforge">IntelliJ</a>
+      </div>
+      <div class="foot__meta">
+        <span class="wordmark">envforge</span>
+        <span>© 2026 Emre Erinc · Source-available · Elastic License 2.0 · Written in Rust</span>
+      </div>
     </div>
-    <p>Built by <a href="https://github.com/emreerinc">Emre Erinc</a>. Written in Rust.</p>
   </footer>
+
+  <script>
+    // copy-to-clipboard — silent success, brief tick, no toast
+    document.querySelectorAll('.copycmd').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var text = btn.getAttribute('data-copy');
+        navigator.clipboard.writeText(text).then(function () {
+          var hint = btn.querySelector('.hint');
+          if (!hint || btn.classList.contains('copied')) return;
+          var prev = hint.textContent;
+          btn.classList.add('copied');
+          hint.textContent = '✓ copied';
+          setTimeout(function () { hint.textContent = prev; btn.classList.remove('copied'); }, 1600);
+        });
+      });
+    });
+
+    // one orchestrated reveal on first view — IntersectionObserver, reveal-once
+    var prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var reveals = document.querySelectorAll('.reveal');
+    if (prefersReduced || !('IntersectionObserver' in window)) {
+      reveals.forEach(function (el) { el.classList.add('in'); });
+    } else {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+        });
+      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.1 });
+      reveals.forEach(function (el) { io.observe(el); });
+    }
+  </script>
 
 </body>
 </html>

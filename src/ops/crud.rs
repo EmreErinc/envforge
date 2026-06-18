@@ -416,8 +416,14 @@ pub fn ensure_managed_zone(shell_file: &mut ShellFile) -> bool {
         original_text: ENVFORGE_END_MARKER.to_string(),
     };
 
-    shell_file.lines.insert(start_pos, start_node);
-    shell_file.lines.insert(end_pos + 1, end_node);
+    // M9: marker positions can exceed the line count on a short/marker-less rc
+    // (e.g. the (None, None) branch returns `len`, and the end search returns
+    // `len + 1`). Clamp both insert indices to the current length so the markers
+    // simply append instead of panicking with "insertion index > len".
+    let start_idx = start_pos.min(shell_file.lines.len());
+    shell_file.lines.insert(start_idx, start_node);
+    let end_idx = (end_pos + 1).min(shell_file.lines.len());
+    shell_file.lines.insert(end_idx, end_node);
 
     true
 }
@@ -513,6 +519,26 @@ mod tests {
 
     fn make_shell_file(content: &str) -> ShellFile {
         parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
+    }
+
+    // ─── ensure_managed_zone (M9: no panic on short/empty files) ──
+
+    #[test]
+    fn test_ensure_managed_zone_empty_file_no_panic() {
+        let mut sf = make_shell_file("");
+        assert!(ensure_managed_zone(&mut sf));
+        assert!(serialize_shell_file(&sf).contains(ENVFORGE_START_MARKER));
+    }
+
+    #[test]
+    fn test_ensure_managed_zone_short_file_no_panic() {
+        // Fewer lines than the historical protected-offset → used to panic with
+        // "insertion index N should be <= len M".
+        let mut sf = make_shell_file("# one line\n");
+        assert!(ensure_managed_zone(&mut sf));
+        let out = serialize_shell_file(&sf);
+        assert!(out.contains(ENVFORGE_START_MARKER));
+        assert!(out.contains(ENVFORGE_END_MARKER));
     }
 
     // ─── edit_entry ───────────────────────────────────────────

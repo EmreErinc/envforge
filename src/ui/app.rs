@@ -98,7 +98,10 @@ pub struct App {
     pub add_key_input: TextInput,
     pub add_value_input: TextInput,
     pub notification: Option<Notification>,
-    pub revealed: HashSet<usize>,
+    /// Keys (not row indices) whose value is currently revealed. Keyed by the
+    /// env var name so scrolling/sorting/regrouping can't reveal the wrong
+    /// secret when a row index is later reused (L9).
+    pub revealed: HashSet<String>,
     pub should_quit: bool,
     pub diff_content: String,
     pub has_unsaved_changes: bool,
@@ -300,16 +303,13 @@ impl App {
     }
 
     /// Check if a value should be masked.
-    pub fn is_masked(&self, idx: usize, key: &str) -> bool {
-        if self.revealed.contains(&idx) {
+    pub fn is_masked(&self, key: &str) -> bool {
+        // Reveal is tracked by key identity (L9), not row index.
+        if self.revealed.contains(key) {
             return false;
         }
-        let key_lower = key.to_lowercase();
-        key_lower.contains("secret")
-            || key_lower.contains("token")
-            || key_lower.contains("password")
-            || key_lower.contains("credential")
-            || (key_lower.contains("key") && !key_lower.contains("keyboard"))
+        // Delegate to the canonical key-sensitivity decision (FR6 / L6 / L12).
+        crate::ops::dotenv::is_sensitive_key(key)
     }
 
     /// Set a notification message.
@@ -577,10 +577,14 @@ impl App {
                 }
             }
             KeyCode::Char('v') => {
-                if self.revealed.contains(&self.selected) {
-                    self.revealed.remove(&self.selected);
-                } else {
-                    self.revealed.insert(self.selected);
+                // Toggle reveal for the selected entry's KEY (L9).
+                if let Some(entry) = self.selected_entry() {
+                    let k = entry.key;
+                    if self.revealed.contains(&k) {
+                        self.revealed.remove(&k);
+                    } else {
+                        self.revealed.insert(k);
+                    }
                 }
             }
             KeyCode::Char('L') => {
@@ -1139,6 +1143,10 @@ impl App {
                 diffs.push('\n');
             }
         }
+        // H2/FR1: redact sensitive cleartext values (old AND new sides) before
+        // the diff is stored in App state or rendered — the diff preview is the
+        // one screen that would otherwise show a secret in full.
+        let diffs = crate::ops::sanitize::redact_sensitive_assignments(&diffs);
         self.diff_content = if diffs.is_empty() {
             "No changes to preview.".to_string()
         } else {
@@ -1183,6 +1191,18 @@ pub fn run_tui() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // H3/FR8: guarantee terminal restore on ANY exit path — normal return,
+    // `?` early-return, or panic — so a revealed secret can never be stranded
+    // on a raw/alt screen. The panic hook restores BEFORE the default panic
+    // message prints (otherwise it renders into a raw terminal); the RAII
+    // guard covers the non-panic paths.
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        original_hook(info);
+    }));
+    let _tui_guard = TuiGuard;
+
     // Main loop
     let tick_rate = Duration::from_millis(250);
     let mut last_tick = Instant::now();
@@ -1215,16 +1235,31 @@ pub fn run_tui() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
+    // Terminal restore is handled by `_tui_guard` (Drop) — covers normal,
+    // `?`, and panic paths uniformly.
     Ok(())
+}
+
+/// Restore the terminal to a sane state: leave raw mode + alternate screen and
+/// re-enable the cursor. Best-effort and idempotent — called from both the
+/// Drop guard and the panic hook, so it must never panic or early-return.
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(
+        io::stdout(),
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        crossterm::cursor::Show
+    );
+}
+
+/// RAII guard that restores the terminal when `run_tui` returns by any path.
+struct TuiGuard;
+
+impl Drop for TuiGuard {
+    fn drop(&mut self) {
+        restore_terminal();
+    }
 }
 
 /// Expand ~ in path strings.

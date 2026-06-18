@@ -24,7 +24,7 @@ fn test_cli_get_command_parsing() {
     assert!(cli.is_ok());
     let cli = cli.unwrap();
     match cli.command {
-        Some(Commands::Get { key }) => assert_eq!(key, "MY_VAR"),
+        Some(Commands::Get { key, .. }) => assert_eq!(key, "MY_VAR"),
         _ => panic!("Expected Get command"),
     }
 }

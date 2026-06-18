@@ -177,6 +177,6 @@ fn mask_value(value: &str) -> String {
     if value.len() <= 4 {
         "****".to_string()
     } else {
-        format!("{}***", &value[..3])
+        format!("{}***", crate::ops::sanitize::char_prefix(value, 3))
     }
 }

@@ -1386,6 +1386,69 @@ impl Backend {
         })
     }
 
+    // ── EnvForge custom LSP requests (H4) ──────────────────────────────
+    // Constrained, *named* security operations. The generic
+    // `workspace/executeCommand` is permanently disabled (arbitrary-command
+    // surface); each method below instead maps to exactly ONE fixed command
+    // id, so a client can only invoke this vetted allowlist. All share the
+    // stable `{ ok, result|error }` JSON shape from `dispatch_command`.
+    fn ef_workspace_root(&self) -> Option<std::path::PathBuf> {
+        self.workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|u| u.to_file_path().ok())
+    }
+
+    fn ef_dispatch(&self, id: &str, arg: serde_json::Value) -> Result<serde_json::Value> {
+        let root = self.ef_workspace_root();
+        Ok(super::commands::dispatch_command(
+            id,
+            &[arg],
+            root.as_deref(),
+        ))
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn fence_status(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.fence.status", serde_json::Value::Null)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn fence_toggle(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.fence.toggle", serde_json::Value::Null)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn canary_scan(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.canary.scan", params)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn canary_check(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.canary.check", serde_json::Value::Null)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn reveal_value(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.reveal.value", params)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn run_volatile(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.run.volatile", params)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn volatile_status(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.volatile.status", serde_json::Value::Null)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn volatile_extend(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.volatile.extend", params)
+    }
+
     fn extract_keys_from_hover_position(&self, params: &HoverParams) -> Vec<String> {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
@@ -1429,6 +1492,15 @@ pub async fn serve() {
 
     let (service, socket) = LspService::build(Backend::new)
         .custom_method("envforge/exposureMap", Backend::exposure_map)
+        // H4: constrained, named security requests (NOT generic executeCommand).
+        .custom_method("envforge/fenceStatus", Backend::fence_status)
+        .custom_method("envforge/fenceToggle", Backend::fence_toggle)
+        .custom_method("envforge/canaryScan", Backend::canary_scan)
+        .custom_method("envforge/canaryCheck", Backend::canary_check)
+        .custom_method("envforge/revealValue", Backend::reveal_value)
+        .custom_method("envforge/runVolatile", Backend::run_volatile)
+        .custom_method("envforge/volatileStatus", Backend::volatile_status)
+        .custom_method("envforge/volatileExtend", Backend::volatile_extend)
         .finish();
     Server::new(stdin, stdout, socket).serve(service).await;
 }

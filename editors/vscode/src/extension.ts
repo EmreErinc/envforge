@@ -86,9 +86,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
     outputChannel.appendLine(`Binary found: ${binaryPath}`);
 
-    // LSP
+    // LSP — gated on workspace trust (H5). In an untrusted workspace we must
+    // not spawn the envforge binary or let it write fence files. Start (or
+    // re-start) the language server only once the workspace is trusted.
     const config = vscode.workspace.getConfiguration('envforge');
-    if (config.get<boolean>('lsp.enable', true)) {
+    const startLsp = async () => {
+        if (!config.get<boolean>('lsp.enable', true)) {
+            return;
+        }
         try {
             client = await startLanguageServer(context, binaryPath);
             outputChannel.appendLine('Language Server started');
@@ -96,6 +101,19 @@ export async function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine(`LSP start failed: ${e.message}`);
             vscode.window.showErrorMessage(`EnvForge LSP failed: ${e.message}`);
         }
+    };
+    if (vscode.workspace.isTrusted) {
+        await startLsp();
+    } else {
+        outputChannel.appendLine(
+            'Workspace not trusted — EnvForge language server and binary are disabled (limited mode). Trust the workspace to enable them.'
+        );
+        context.subscriptions.push(
+            vscode.workspace.onDidGrantWorkspaceTrust(() => {
+                outputChannel.appendLine('Workspace trust granted — starting EnvForge language server.');
+                void startLsp();
+            })
+        );
     }
 
     // AI-exposure heatmap renderer — drives `.env*` gutter glyphs off

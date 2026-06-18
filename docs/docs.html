@@ -6,19 +6,25 @@
   <link rel="icon" type="image/svg+xml" href="envforge-icon.svg">
   <title>EnvForge CLI Reference — Complete Command Documentation</title>
   <meta name="description" content="Complete CLI reference for EnvForge. 90+ commands covering variable management, AI safety, encryption hardening, secret providers (13), sync, schema validation, MCP integrity, and more. Credential encryption is mandatory by default.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
   <style>
+    /* docs.html adopts the Terminal design system — legacy var names remapped onto tokens.css */
     :root {
-      --bg: #0d1117;
-      --bg-secondary: #161b22;
-      --bg-tertiary: #21262d;
-      --text: #e6edf3;
-      --text-muted: #8b949e;
-      --accent: #58a6ff;
-      --accent-green: #3fb950;
-      --accent-yellow: #d29922;
-      --border: #30363d;
-      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
-      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      --bg:           var(--color-paper);
+      --bg-secondary: var(--color-paper-2);
+      --bg-tertiary:  var(--color-paper-3);
+      --text:         var(--color-ink);
+      --text-muted:   var(--color-muted);
+      --accent:       var(--color-accent);
+      --accent-green: var(--color-accent);
+      --accent-yellow: var(--color-amber);
+      --border:       var(--color-rule);
+      /* --font-mono inherited from tokens.css (JetBrains Mono) */
+      --font-sans:    "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -295,26 +301,63 @@
       font-size: 0.8rem;
     }
 
+    /* mobile drawer toggle (hidden on desktop) */
+    .menu-toggle {
+      display: none;
+      font-family: var(--font-mono); font-size: 1.1rem; line-height: 1;
+      background: var(--bg-secondary); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.3rem 0.6rem; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .menu-toggle:hover { border-color: var(--accent); color: var(--accent); }
+    .sidebar-backdrop {
+      display: none; position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,0.55);
+    }
+
     @media (max-width: 768px) {
-      .sidebar { display: none; }
+      .menu-toggle { display: inline-flex; align-items: center; }
+      nav { flex-wrap: wrap; gap: 0.75rem; padding: 0.75rem 1.25rem; }
+      nav .nav-logo { margin-right: auto; }
+      .layout { display: block; }
+      .sidebar {
+        position: fixed; top: 0; left: 0; z-index: 40;
+        width: min(82vw, 320px); height: 100dvh; min-width: 0;
+        background: var(--bg); border-right: 1px solid var(--border);
+        transform: translateX(-100%);
+        transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .sidebar.open { transform: none; }
+      .sidebar-backdrop.open { display: block; }
       .content { padding: 1.5rem; }
+      .content h1 { font-size: 1.6rem; }
+      .content h2 { font-size: 1.25rem; }
+      .content pre { font-size: 0.8rem; }
+      /* wide command tables scroll instead of overflowing the viewport */
+      .content table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sidebar { transition: none; }
     }
   </style>
 </head>
 <body>
 
   <nav>
+    <button class="menu-toggle" id="menu-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">&#9776;</button>
     <a href="index.html" class="nav-logo"><img src="envforge-icon.svg" alt="EnvForge" width="24" height="24" style="vertical-align: middle; margin-right: 6px; border-radius: 4px;"> envforge</a>
     <div class="nav-links">
       <a href="docs.html" class="active">Docs</a>
       <a href="https://github.com/emreerinc/envforge">GitHub</a>
-      <a href="https://crates.io/crates/env-forge-tui">Crates.io</a>
+      <a href="crates.html">Crates.io</a>
     </div>
   </nav>
 
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
   <div class="layout">
 
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="search-box">
         <span class="search-icon">&#x1F50D;</span>
         <input type="text" id="search-input" placeholder="Search commands..." autocomplete="off" spellcheck="false">
@@ -687,6 +730,40 @@
         searchInput.select();
       }
     });
+  </script>
+
+  <script>
+    // mobile sidebar drawer
+    (function () {
+      var toggle = document.getElementById('menu-toggle');
+      var sidebar = document.getElementById('sidebar');
+      var backdrop = document.getElementById('sidebar-backdrop');
+      if (!toggle || !sidebar || !backdrop) return;
+
+      function open() {
+        sidebar.classList.add('open');
+        backdrop.classList.add('open');
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+      function close() {
+        sidebar.classList.remove('open');
+        backdrop.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+
+      toggle.addEventListener('click', function () {
+        sidebar.classList.contains('open') ? close() : open();
+      });
+      backdrop.addEventListener('click', close);
+      // close when a real nav link is tapped (not a section expander)
+      sidebar.addEventListener('click', function (e) {
+        var a = e.target.closest('a');
+        if (a && !a.classList.contains('section-toggle')) close();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) close();
+      });
+    })();
   </script>
 
 </body>

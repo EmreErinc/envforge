@@ -35,7 +35,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             *reveal,
             *keys_only,
         ),
-        Commands::Get { key } => cmd_get(key, json),
+        Commands::Get { key, reveal } => cmd_get(key, json, *reveal),
         Commands::Set { assignment, stdin } => cmd_set(assignment, dry_run, *stdin),
         Commands::Delete { key } => cmd_delete(key, dry_run),
         Commands::Copy { key, key_only } => cmd_copy(key, *key_only),
@@ -50,6 +50,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             format,
             k8s_name,
             k8s_namespace,
+            reveal,
         } => {
             if *safe {
                 cmd_export_safe(path.as_deref())
@@ -62,6 +63,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
                     filter.as_deref(),
                     k8s_name.as_deref(),
                     k8s_namespace.as_deref(),
+                    *reveal,
                 )
             } else {
                 cmd_export(path.as_deref(), *exclude_sensitive, filter.as_deref())
@@ -535,24 +537,21 @@ fn cmd_search(
 }
 
 fn is_sensitive(key: &str) -> bool {
-    let lower = key.to_lowercase();
-    lower.contains("secret")
-        || lower.contains("token")
-        || lower.contains("password")
-        || lower.contains("credential")
-        || (lower.contains("key") && !lower.contains("keyboard"))
+    // Canonical key-sensitivity decision lives in ops::dotenv. Delegate so the
+    // CLI, TUI mask, and export paths can never drift apart (FR6 / L6 / L12).
+    crate::ops::dotenv::is_sensitive_key(key)
 }
 
 fn mask_value(value: &str) -> String {
     if value.len() < 8 {
         return "****".to_string();
     }
-    let first2 = &value[..3];
-    let last2 = &value[value.len() - 3..];
+    let first2 = crate::ops::sanitize::char_prefix(value, 3);
+    let last2 = crate::ops::sanitize::char_suffix(value, 3);
     format!("{}***{}", first2, last2)
 }
 
-fn cmd_get(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_get(key: &str, json: bool, reveal: bool) -> Result<(), Box<dyn std::error::Error>> {
     let (_config, shell_files) = load_context()?;
     let entries = collect_all_entries(&shell_files);
 
@@ -561,27 +560,40 @@ fn cmd_get(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
         .find(|e| e.key == key && e.location != EntryLocation::Commented);
 
     if let Some(e) = entry {
-        crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
-            source: crate::ops::monitor::EventSource::Reveal,
-            key: Some(key.to_string()),
-            message: format!(
-                "CLI get: access to '{}' from {}",
-                key,
-                e.source_file.display()
-            ),
-            timestamp: chrono::Utc::now(),
-            severity: crate::ops::monitor::SecuritySeverity::Info,
-        });
+        // L11: only emit a Reveal event when a sensitive value is actually
+        // disclosed in cleartext (--reveal on a sensitive key). A masked default
+        // read is not a reveal and shouldn't fire a (Warn) reveal event.
+        if reveal && is_sensitive(key) {
+            crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+                source: crate::ops::monitor::EventSource::Reveal,
+                key: Some(key.to_string()),
+                message: format!(
+                    "CLI get --reveal: cleartext access to '{}' from {}",
+                    key,
+                    e.source_file.display()
+                ),
+                timestamp: chrono::Utc::now(),
+                severity: crate::ops::monitor::SecuritySeverity::Warn,
+            });
+        }
+        // H6/FR28: a value-bearing read masks sensitive values by default;
+        // cleartext only with explicit --reveal. Non-sensitive keys print as-is.
+        let display_value = if is_sensitive(key) && !reveal {
+            mask_value(&e.value)
+        } else {
+            e.value.clone()
+        };
         if json {
             let obj = serde_json::json!({
                 "key": e.key,
-                "value": e.value,
+                "value": display_value,
+                "redacted": is_sensitive(key) && !reveal,
                 "source_file": e.source_file.to_string_lossy(),
                 "line_number": e.line_number,
             });
             println!("{}", serde_json::to_string_pretty(&obj)?);
         } else {
-            println!("{}", e.value);
+            println!("{}", display_value);
         }
         Ok(())
     } else {
@@ -656,11 +668,17 @@ fn cmd_set(assignment: &str, dry_run: bool, stdin: bool) -> Result<(), Box<dyn s
             &serialize_shell_file(sf),
             &sf.path.to_string_lossy(),
         );
-        print!("{}", diff);
+        // L2/FR3: never echo a sensitive cleartext value in the dry-run diff
+        // (would defeat `--stdin`). Redacts both old and new sides.
+        print!(
+            "{}",
+            crate::ops::sanitize::redact_sensitive_assignments(&diff)
+        );
     } else {
         let content = serialize_shell_file(sf);
         safe_write(&sf.path, &content, Some(sf.hash))?;
-        println!("Set {} ({} chars)", key, value.len());
+        // L1/FR4: do not disclose the secret's length.
+        println!("Set {}", key);
         crate::ops::schema::auto_update_ai_context();
     }
     zeroize_secret_value(value);
@@ -891,6 +909,7 @@ fn cmd_export_format(
     filter_query: Option<&str>,
     k8s_name: Option<&str>,
     k8s_namespace: Option<&str>,
+    reveal: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::export_format::{export_as, ExportFormat};
 
@@ -906,24 +925,46 @@ fn cmd_export_format(
         entries
     };
 
-    let output = export_as(&filtered, &format, k8s_name, k8s_namespace);
+    // M7/FR28: redact sensitive values by default; `--reveal` emits cleartext.
+    // Otherwise `export --format …` would write every secret to stdout/file.
+    let mut redacted = 0usize;
+    let to_export: Vec<EnvEntry> = if reveal {
+        filtered
+    } else {
+        filtered
+            .into_iter()
+            .map(|mut e| {
+                if e.location != EntryLocation::Commented && is_sensitive(&e.key) {
+                    e.value = "[REDACTED]".to_string();
+                    redacted += 1;
+                }
+                e
+            })
+            .collect()
+    };
+
+    let output = export_as(&to_export, &format, k8s_name, k8s_namespace);
+    let exported_count = to_export
+        .iter()
+        .filter(|e| e.location != EntryLocation::Commented)
+        .count();
 
     match path {
         Some(p) => {
             std::fs::write(p, &output)?;
             println!(
                 "Exported {} entries to {} ({})",
-                filtered
-                    .iter()
-                    .filter(|e| e.location != EntryLocation::Commented)
-                    .count(),
-                p,
-                format_name
+                exported_count, p, format_name
             );
         }
         None => {
             print!("{}", output);
         }
+    }
+    if !reveal && redacted > 0 {
+        eprintln!(
+            "note: {redacted} sensitive value(s) redacted as [REDACTED]; pass --reveal to export cleartext."
+        );
     }
     Ok(())
 }
@@ -1520,6 +1561,23 @@ fn cmd_backup(action: &BackupAction, json: bool) -> Result<(), Box<dyn std::erro
                 return Err(format!("Backup file not found: {}", file).into());
             }
 
+            // L4: the path is user-supplied. Confine reads to the backups
+            // directory and refuse symlink/`..` escape — otherwise this reads
+            // (and, once restore gains write capability, could clobber)
+            // arbitrary files outside the backup store.
+            let backups_root = backups_dir().map_err(|e| e.to_string())?;
+            let canonical_backup = std::fs::canonicalize(backup_path)
+                .map_err(|e| format!("cannot resolve backup path: {}", e))?;
+            let canonical_root = std::fs::canonicalize(&backups_root)
+                .map_err(|e| format!("cannot resolve backups directory: {}", e))?;
+            if !canonical_backup.starts_with(&canonical_root) {
+                return Err(format!(
+                    "refusing to restore from outside the backups directory ({})",
+                    canonical_root.display()
+                )
+                .into());
+            }
+
             let file_name = backup_path
                 .file_name()
                 .unwrap_or_default()
@@ -1530,7 +1588,9 @@ fn cmd_backup(action: &BackupAction, json: bool) -> Result<(), Box<dyn std::erro
                 return Err("Cannot determine target file from backup name".into());
             }
 
-            let content = std::fs::read_to_string(backup_path)?;
+            // O_NOFOLLOW read on the confined, canonicalized path.
+            let content = crate::config::safe_fs::safe_read_to_string(&canonical_backup)
+                .map_err(|e| format!("failed to read backup: {}", e))?;
             if json {
                 println!(
                     "{}",
@@ -2188,23 +2248,8 @@ fn is_likely_secret(value: &str) -> bool {
             }
         }
     }
-    if value.len() > 16 {
-        return true;
-    }
-    if value.contains("://") {
-        return true;
-    }
-    let lower = value.to_lowercase();
-    for prefix in &[
-        "sk-", "ak-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "xoxb-", "xoxp-", "xapp-", "glpat-",
-        "gldt-", "glft-", "glsoat-", "key-", "pk.", "sk.", "whsec_", "eyJ", "AKIA", "ssh-",
-        "BEGIN ", "s3cr3t", "passw", "token", "api_key", "secret",
-    ] {
-        if lower.starts_with(prefix) {
-            return true;
-        }
-    }
-    false
+    // Canonical detection (incl. M1 entropy path) lives in ops::sanitize.
+    crate::ops::sanitize::value_looks_like_secret(value)
 }
 
 fn zeroize_secret_value(value: String) {

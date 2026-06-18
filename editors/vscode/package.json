@@ -1,7 +1,7 @@
 {
   "publisher": "emreerinc",
   "name": "envforge-env-manager",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "displayName": "EnvForge - AI-Safe Environment Manager",
   "description": "Terminal environment variable manager (with schema validation, secret scanning, and multi-profile support) with AI safety",
   "license": "Elastic-2.0",
@@ -35,6 +35,12 @@
     "validation"
   ],
   "icon": "icon.png",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "EnvForge launches the envforge binary against workspace files and can write fence files. In an untrusted workspace it stays read-only: the language server and binary are not started until you trust the workspace."
+    }
+  },
   "activationEvents": [
     "workspaceContains:**/.env",
     "workspaceContains:**/.env.*",

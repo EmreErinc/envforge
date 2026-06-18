@@ -558,8 +558,13 @@ fn mask_value(value: &str) -> String {
     if len <= 4 {
         "*".repeat(len)
     } else {
-        let visible = &value[..2];
-        format!("{}{}...{}", visible, "*".repeat(4), &value[len - 2..])
+        let visible = crate::ops::sanitize::char_prefix(value, 2);
+        format!(
+            "{}{}...{}",
+            visible,
+            "*".repeat(4),
+            crate::ops::sanitize::char_suffix(value, 2)
+        )
     }
 }
 

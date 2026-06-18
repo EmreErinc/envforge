@@ -74,6 +74,9 @@ pub enum Commands {
     Get {
         /// Variable name
         key: String,
+        /// Reveal the full value; sensitive values are masked by default
+        #[arg(long)]
+        reveal: bool,
     },
 
     /// Set a variable (create or update)
@@ -132,6 +135,10 @@ pub enum Commands {
         /// Redact sensitive values as `[REDACTED]` (safe for AI tools)
         #[arg(long)]
         safe: bool,
+
+        /// For --format export: emit sensitive values in cleartext (default: redacted)
+        #[arg(long)]
+        reveal: bool,
 
         /// Generate .env.example from schema with placeholder values
         #[arg(long)]
