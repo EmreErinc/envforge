@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="envforge-icon.svg">
   <title>EnvForge CLI Reference — Complete Command Documentation</title>
-  <meta name="description" content="Complete CLI reference for EnvForge. 90+ commands covering variable management, AI safety, encryption hardening, secret providers (13), sync, schema validation, MCP integrity, and more. Credential encryption is mandatory by default.">
+  <meta name="description" content="Complete CLI reference for EnvForge. 100+ commands covering variable management, AI safety, encryption hardening, secret providers (13), sync, schema validation, MCP integrity, and more. Credential encryption is mandatory by default.">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -369,7 +369,7 @@
 
     <main class="content" id="docs-content">
       <h1>CLI Reference</h1>
-      <p>Complete documentation for EnvForge v0.6.2 — 90+ commands.</p>
+      <p>Complete documentation for EnvForge v0.8.3 — 100+ commands.</p>
 
       <!-- Content will be loaded from markdown -->
       <noscript>
@@ -535,7 +535,7 @@
       .then(r => r.text())
       .then(md => {
         document.getElementById('docs-content').innerHTML =
-          '<h1>CLI Reference</h1><p>Complete documentation for EnvForge v0.6.2 — 90+ commands.</p>' +
+          '<h1>CLI Reference</h1><p>Complete documentation for EnvForge v0.8.3 — 100+ commands.</p>' +
           renderMarkdown(md);
         buildSidebar();
         buildSearchIndex();

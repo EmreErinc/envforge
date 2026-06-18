@@ -422,7 +422,7 @@ envforge::ops::validation →  rule-based value validation
 
 ### LSP (`envforge::lsp`)
 
-Run the server with `envforge lsp` (stdio transport). Every plugin / editor client that speaks LSP can connect; VS Code (`envforge-env-manager` 0.1.7+) and IntelliJ (lsp4ij-based plugin) are first-party. Configs for Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, and Lapce live in [`docs/lsp-clients.md`](lsp-clients.md).
+Run the server with `envforge lsp` (stdio transport). Every plugin / editor client that speaks LSP can connect; VS Code (`envforge-env-manager` 0.1.8+) and IntelliJ (lsp4ij-based plugin) are first-party. Configs for Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, and Lapce live in [`docs/lsp-clients.md`](lsp-clients.md).
 
 #### `run_lsp()`
 
@@ -451,17 +451,23 @@ Boots the tokio runtime and serves the language-server backend over stdin/stdout
 | Workspace symbols | `workspace/symbol` | Project-wide env var search |
 | Folding ranges | `textDocument/foldingRange` | Comment / blank-region folds |
 
-#### `workspace/executeCommand` provider (15 commands)
+#### Named custom requests (security operations)
+
+The generic `workspace/executeCommand` provider is **permanently disabled** (it
+returns `MethodNotFound`) to avoid an arbitrary-command surface. Security
+operations are instead exposed as **named, constrained JSON-RPC requests**, each
+mapping to exactly one fixed operation:
 
 ```
-envforge.fence.enable    envforge.fence.disable   envforge.fence.toggle   envforge.fence.status
-envforge.canary.plant    envforge.canary.list     envforge.canary.scan    envforge.canary.check
-envforge.volatile.status envforge.volatile.extend
-envforge.sync.push       envforge.sync.pull       envforge.sync.status
-envforge.run.volatile    envforge.reveal.value
+envforge/fenceStatus     envforge/fenceToggle
+envforge/canaryScan      envforge/canaryCheck
+envforge/volatileStatus  envforge/volatileExtend
+envforge/runVolatile     envforge/revealValue
 ```
 
-All commands return a stable `{ok: bool, result|error, ...}` JSON shape. See `docs/ide-behavior-contract.md` for per-command argument schemas.
+All return a stable `{ok: bool, result|error}` JSON shape. They are registered
+via `LspService::build().custom_method(...)` alongside `envforge/exposureMap`.
+See `docs/ide-behavior-contract.md` for per-request argument schemas.
 
 #### Custom request: `envforge/exposureMap`
 

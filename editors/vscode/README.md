@@ -1,6 +1,8 @@
 # EnvForge for VS Code
 
-Environment variable management with schema validation, secret scanning, and multi-profile support.
+Manage environment variables with schema validation, secret scanning, and multi-profile support — built to protect your secrets from AI coding agents.
+
+> Activates only in a **trusted workspace** — the language server and `envforge` binary don't start in an untrusted workspace.
 
 ## Features
 
@@ -9,7 +11,7 @@ Environment variable management with schema validation, secret scanning, and mul
 - **Completions** — Key names from `.env.schema` (only missing keys suggested)
 - **Go-to-definition** — Click a key in `.env` to jump to its `.env.schema` section
 - **Syntax highlighting** — `.env` and `.env.schema` files
-- **13 commands** — Validate, scan, export, sync, profile switch, health check
+- **50+ commands** — Validate, scan, export, sync, profile switch, health check, plus the security suite (fence, guard, MCP scan, canary, volatile sessions, audit-logged reveal, lifecycle)
 - **Status bar** — Variable count, auto-refreshes
 
 ## Security Features
@@ -53,7 +55,7 @@ cd editors/vscode
 npm install
 npm run bundle
 npx vsce package --allow-missing-repository
-code --install-extension envforge-env-manager-0.1.3.vsix
+code --install-extension envforge-env-manager-0.1.8.vsix
 ```
 
 ### From source (development)

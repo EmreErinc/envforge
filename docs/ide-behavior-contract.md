@@ -4,7 +4,9 @@ Every IDE feature is implemented once in `envforge lsp` and rendered identically
 
 This file is the single source of truth for triggers, wording, icons, and keybindings. Plugins MUST match. Tests in `tests/lsp_phase1_tests.rs` (and successor parity files) enforce the LSP response body.
 
-**Third-party LSP clients** (Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, Lapce, …) consume the same `textDocument/*` capabilities, `workspace/executeCommand` commands, and the `envforge/exposureMap` custom request — they just don't get the native status-bar / gutter-heatmap UI without a dedicated plugin. See [`lsp-clients.md`](lsp-clients.md) for per-editor setup snippets.
+**Third-party LSP clients** (Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, Lapce, …) consume the same `textDocument/*` capabilities plus the named `envforge/*` custom requests (`envforge/exposureMap`, `envforge/fenceStatus`, `envforge/revealValue`, …) — they just don't get the native status-bar / gutter-heatmap UI without a dedicated plugin. The generic `workspace/executeCommand` provider is **disabled**; security operations go through the named requests instead. See [`lsp-clients.md`](lsp-clients.md) for per-editor setup snippets.
+
+> **Note (v0.8.3):** Sections below that describe security commands via `workspace/executeCommand` reflect the prior wiring. The operations are unchanged, but they are now invoked as named `envforge/*` JSON-RPC requests (same `{ok, result|error}` payloads); the generic `executeCommand` endpoint returns `MethodNotFound`.
 
 ## Conventions
 

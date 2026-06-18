@@ -186,10 +186,17 @@ Usage: envforge get [OPTIONS] <KEY>
 |----------|-------------|
 | `<KEY>` | Variable name |
 
+| Option | Description |
+|--------|-------------|
+| `--reveal` | Show the full value. Sensitive values (SECRET/TOKEN/PASSWORD/KEY/…) are **masked by default**; pass `--reveal` for cleartext. Applies to text and `--json` output. |
+| `--json` | JSON output (includes a `redacted` flag) |
+
 **Examples:**
 
 ```bash
-envforge get DATABASE_URL
+envforge get DATABASE_URL                # non-sensitive value shown as-is
+envforge get API_KEY                     # sensitive → masked (e.g. sk-***xyz)
+envforge get API_KEY --reveal            # cleartext (audit-logged)
 envforge get API_KEY --json
 ```
 
@@ -207,12 +214,19 @@ Usage: envforge set [OPTIONS] <ASSIGNMENT>
 |----------|-------------|
 | `<ASSIGNMENT>` | KEY=VALUE pair |
 
+| Option | Description |
+|--------|-------------|
+| `--stdin` | Read the value from stdin (keeps secrets off argv / `ps` / `/proc` / shell history) |
+| `--dry-run` | Preview the diff without writing. Sensitive values are redacted in the diff. |
+
+> Secrets are detected on the command line (length, known prefixes, and entropy) and refused with a hint to use `--stdin`. On success, `set` prints only `Set <KEY>` — never the value or its length.
+
 **Examples:**
 
 ```bash
-envforge set DATABASE_URL=postgres://localhost/mydb
-envforge set API_KEY=sk-abc123 --dry-run
-envforge set NODE_ENV=production --json
+envforge set NODE_ENV=production
+echo "$SECRET" | envforge set API_KEY --stdin   # safe path for secrets
+envforge set API_KEY --stdin --dry-run           # preview (value redacted)
 ```
 
 ---
@@ -450,11 +464,14 @@ Usage: envforge export [OPTIONS] [PATH]
 |------|-------------|
 | `--exclude-sensitive` | Exclude sensitive keys (SECRET, TOKEN, PASSWORD, etc.) |
 | `--safe` | Redact sensitive values as [REDACTED] (safe for AI tools) |
+| `--reveal` | For `--format` export: emit sensitive values in **cleartext**. By default `--format` output redacts sensitive values as `[REDACTED]` (prints a note to stderr). |
 | `--env-example` | Generate .env.example from schema with placeholder values |
 | `--filter <FILTER>` | Only export entries matching this query |
-| `--format <FORMAT>` | Output format: `dotenv`, `json`, `yaml`, `toml`, `docker`, `k8s`, `tfvars` |
+| `--format <FORMAT>` | Output format: `dotenv`, `json`, `yaml`, `toml`, `docker`, `docker-secrets`, `k8s`, `tfvars` (8 formats) |
 | `--k8s-name <K8S_NAME>` | Kubernetes Secret name (for k8s format, default: envforge-secrets) |
 | `--k8s-namespace <K8S_NAMESPACE>` | Kubernetes namespace (for k8s format, default: default) |
+
+> **Redaction default:** `export --format …` masks sensitive values by default so a stray export can't leak secrets to stdout/scrollback or a committed file. Pass `--reveal` to emit real values (e.g. when generating a deployable secret manifest).
 
 **Examples:**
 
@@ -1552,12 +1569,14 @@ Usage: envforge sync init [OPTIONS]
 | `--remote <REMOTE>` | Remote git URL to clone from |
 | `--machine-id <MACHINE_ID>` | Custom machine ID |
 | `--force` | Force reinitialize (backup existing) |
+| `--enforce-ssh` | Reject non-SSH (http/https) remotes at clone time; persisted to the sync config so later operations stay SSH-only |
 
 **Examples:**
 
 ```bash
 envforge sync init
 envforge sync init --remote git@github.com:myorg/env-sync.git
+envforge sync init --remote git@github.com:myorg/env-sync.git --enforce-ssh
 envforge sync init --force --machine-id macbook-work
 ```
 

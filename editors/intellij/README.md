@@ -1,6 +1,8 @@
 # EnvForge for IntelliJ IDEA
 
-Environment variable management with schema validation, secret scanning, and multi-profile support.
+Manage environment variables with schema validation, secret scanning, and multi-profile support — built to protect your secrets from AI coding agents.
+
+> Activates only in a **trusted project** — the language server and `envforge` binary don't start in an untrusted project.
 
 ## Features
 
@@ -20,7 +22,7 @@ Environment variable management with schema validation, secret scanning, and mul
 ### Actions (Tools > EnvForge)
 - List Variables, Switch Profile, Diff Profiles
 - Validate, Scan, Health Check, Run All Checks
-- Export (7 formats), Sync Push/Pull, Generate Schema
+- Export (8 formats), Sync Push/Pull, Generate Schema
 
 ### Status Bar
 - Variable count widget
@@ -82,12 +84,12 @@ cd editors/intellij
 ./gradlew buildPlugin
 
 # The plugin ZIP will be at:
-# build/distributions/envforge-intellij-0.1.3.zip
+# build/distributions/envforge-intellij-0.1.8.zip
 ```
 
 Install manually:
 1. Open **Settings** > **Plugins** > gear icon > **Install Plugin from Disk...**
-2. Select `build/distributions/envforge-intellij-0.1.3.zip`
+2. Select `build/distributions/envforge-intellij-0.1.8.zip`
 3. Restart IDE
 
 ### Run in development mode
@@ -122,7 +124,7 @@ All actions available under **Tools > EnvForge** menu:
 | Scan for Secret Leaks | Scan for leaked secrets |
 | Health Check | Run envforge doctor |
 | Run All Checks | Run doctor + validate + scan + age + drift |
-| Export Variables... | Pick format and export (dotenv/json/yaml/toml/docker/k8s/tfvars) |
+| Export Variables... | Pick format and export (dotenv/json/yaml/toml/docker/docker-secrets/k8s/tfvars) |
 | Sync Push | Push env changes to remote |
 | Sync Pull | Pull env changes from remote |
 | Generate Schema | Auto-generate `.env.schema` from current variables |

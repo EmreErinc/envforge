@@ -3,7 +3,7 @@
   "name": "envforge-env-manager",
   "version": "0.1.8",
   "displayName": "EnvForge - AI-Safe Environment Manager",
-  "description": "Terminal environment variable manager (with schema validation, secret scanning, and multi-profile support) with AI safety",
+  "description": "Manage environment variables with schema validation, secret scanning, and multi-profile support — built to protect your secrets from AI coding agents.",
   "license": "Elastic-2.0",
   "repository": {
     "type": "git",
@@ -31,8 +31,11 @@
     "environment",
     "dotenv",
     "secrets",
+    "secrets manager",
     "schema",
-    "validation"
+    "validation",
+    "security",
+    "ai safety"
   ],
   "icon": "icon.png",
   "capabilities": {
@@ -385,12 +388,12 @@
       },
       {
         "command": "envforge.toggleFence",
-        "title": "Toggle Fence",
+        "title": "Toggle AI Fence",
         "icon": "$(shield)"
       },
       {
         "command": "envforge.toggleGuard",
-        "title": "Toggle Guard",
+        "title": "Toggle AI Guard",
         "icon": "$(shield)"
       },
       {

@@ -2,7 +2,7 @@
 
 The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **27 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 90+ commands. Ships with a Language Server (`envforge lsp`) and VS Code + IntelliJ plugins that surface the AI-safety story directly in the editor — gutter exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, source-language goto-definition. **2,400+ tests passing.**
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **25 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 100+ commands. Ships with a Language Server (`envforge lsp`) and VS Code + IntelliJ plugins that surface the AI-safety story directly in the editor — gutter exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, source-language goto-definition. **2,500+ tests passing.**
 
 ![License: ELv2](https://img.shields.io/badge/License-ELv2-blue.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
@@ -1474,7 +1474,7 @@ For project-level validation, create a `.env.schema` file (see [ENV Schema](#env
 
 ### Shell Completions
 
-Tab completion for all 90+ commands and flags. Use `--install` for automatic setup:
+Tab completion for all 100+ commands and flags. Use `--install` for automatic setup:
 
 ```bash
 # Zsh — auto-install to ~/.zfunc/_envforge
@@ -1754,4 +1754,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+Elastic License 2.0 (ELv2). See [LICENSE](LICENSE) for details.
