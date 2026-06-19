@@ -174,7 +174,7 @@ fn test_collect_key_names_union_sorted_deduped() {
 
     // Verify sorted order.
     let mut sorted = keys.clone();
-    sorted.sort();
+    sorted.sort_unstable();
     assert_eq!(keys, sorted, "keys must be sorted");
 }
 
@@ -277,7 +277,7 @@ fn test_describe_sorted_by_key() {
     let vars = describe(dir.path());
     let keys: Vec<&str> = vars.iter().map(|v| v.key.as_str()).collect();
     let mut sorted = keys.clone();
-    sorted.sort();
+    sorted.sort_unstable();
     assert_eq!(keys, sorted, "describe output must be sorted by key");
 }
 

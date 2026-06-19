@@ -1,4 +1,4 @@
-# EnvForge API Reference v0.8.1
+# EnvForge API Reference v0.8.3
 
 > Rust library reference for integrating envforge types and functions into your own tools.  
 > IDE extension authors, CI/CD tool builders, custom shell managers — this is your dictionary.
@@ -422,7 +422,7 @@ envforge::ops::validation →  rule-based value validation
 
 ### LSP (`envforge::lsp`)
 
-Run the server with `envforge lsp` (stdio transport). Every plugin / editor client that speaks LSP can connect; VS Code (`envforge-env-manager` 0.1.8+) and IntelliJ (lsp4ij-based plugin) are first-party. Configs for Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, and Lapce live in [`docs/lsp-clients.md`](lsp-clients.md).
+Run the server with `envforge lsp` (stdio transport). Every plugin / editor client that speaks LSP can connect; VS Code (`envforge-env-manager`), IntelliJ (lsp4ij-based), Neovim (`editors/nvim`), and Zed (`editors/zed`) are first-party. LSP-only configs for Helix, Emacs, Sublime Text, Kakoune, and Lapce live in [`docs/lsp-clients.md`](lsp-clients.md).
 
 #### `run_lsp()`
 

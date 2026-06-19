@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.0] - Unreleased — "Omnipresence"
+## [0.8.3] - 2026-06-19 — "Omnipresence"
 
 Broad expansion of AI-tool and editor coverage so EnvForge's secret-fencing,
 leak-linting, and exfil-detection are present wherever a developer's code and
@@ -54,7 +54,7 @@ AI agent run. See `docs/integration-matrix.md`.
   LSP quick-fix). The `mcp-server` feature adds 13 more (MCP handshake + tools +
   256-case no-secret property test).
 
-## [0.8.3] - 2026-06-18
+### Security hardening (earlier 0.8.3 work)
 
 Security-hardening pass across all surfaces (TUI, CLI, providers/sync, plugins/LSP),
 grounded in a 2026 best-practice audit + code re-validation (`docs/security-audit-findings.md`).

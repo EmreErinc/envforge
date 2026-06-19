@@ -4,7 +4,7 @@ Every IDE feature is implemented once in `envforge lsp` and rendered identically
 
 This file is the single source of truth for triggers, wording, icons, and keybindings. Plugins MUST match. Tests in `tests/lsp_phase1_tests.rs` (and successor parity files) enforce the LSP response body.
 
-**Third-party LSP clients** (Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, Lapce, …) consume the same `textDocument/*` capabilities plus the named `envforge/*` custom requests (`envforge/exposureMap`, `envforge/fenceStatus`, `envforge/revealValue`, …) — they just don't get the native status-bar / gutter-heatmap UI without a dedicated plugin. The generic `workspace/executeCommand` provider is **disabled**; security operations go through the named requests instead. See [`lsp-clients.md`](lsp-clients.md) for per-editor setup snippets.
+**Third-party LSP clients** (Helix, Emacs, Sublime Text, Kakoune, Lapce, … — Neovim and Zed now have first-party integrations under `editors/`) consume the same `textDocument/*` capabilities plus the named `envforge/*` custom requests (`envforge/exposureMap`, `envforge/fenceStatus`, `envforge/revealValue`, …) — they just don't get the native status-bar / gutter-heatmap UI without a dedicated plugin. The generic `workspace/executeCommand` provider is **disabled**; security operations go through the named requests instead. See [`lsp-clients.md`](lsp-clients.md) for per-editor setup snippets.
 
 > **Note (v0.8.3):** Sections below that describe security commands via `workspace/executeCommand` reflect the prior wiring. The operations are unchanged, but they are now invoked as named `envforge/*` JSON-RPC requests (same `{ok, result|error}` payloads); the generic `executeCommand` endpoint returns `MethodNotFound`.
 
@@ -310,7 +310,7 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | cwd | Workspace root from `initialize`. Sync subcommands fail with `"workspace root not available"` when absent. |
 | Success shape | `{ "ok": true, "result": <JSON the CLI emitted> }`. The CLI's existing `--json` schemas pass through unchanged so any client that already understands the CLI output understands the LSP response. |
 | Failure shape | `{ "ok": false, "error": "sync <action> failed", "detail": { "exit_code": <int>, "stdout": <JSON or string>, "stderr": "<string>" } }`. Lets clients render the same error UX whether the user invoked sync via terminal or via plugin. |
-| Plugin parity | VS Code (`envforge.syncPush`, `envforge.syncPull`, `envforge.syncStatus`) and IntelliJ (`SyncPushAction`, `SyncPullAction`) already shell out to the CLI directly. The new LSP routes are additive — third-party LSP clients (Neovim, Emacs, JetBrains Fleet via lsp4ij) can now drive sync without spawning subprocesses themselves. |
+| Plugin parity | VS Code (`envforge.syncPush`, `envforge.syncPull`, `envforge.syncStatus`) and IntelliJ (`SyncPushAction`, `SyncPullAction`) already shell out to the CLI directly. The new LSP routes are additive — third-party LSP clients (Neovim, Emacs, and other LSP clients) can now drive sync without spawning subprocesses themselves. |
 | Test IDs | `test_command_dispatch_sync_push_requires_workspace_root`, `test_command_dispatch_sync_pull_requires_workspace_root`, `test_command_dispatch_sync_status_requires_workspace_root`, `test_command_dispatch_sync_push_in_non_sync_dir_reports_error` |
 
 ### P6 — Actionable CodeLens on secret values

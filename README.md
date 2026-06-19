@@ -111,7 +111,7 @@ envforge revoke --all
 | **Encryption** | Age (X25519) encryption at rest, encrypted sync, per-value encrypt/decrypt |
 | **Remote Sync** | Git-based cross-machine sync, age-encrypted, selective keys, rollback |
 | **Secret Managers** | 13 providers, URI refs (`vault://`), TTL, offline fallback, cache — [Provider Guides](docs/cli-reference.md#provider-integration-guides) |
-| **IDE Extensions** | VS Code + IntelliJ — LSP diagnostics, hover, completions, go-to-definition |
+| **IDE Extensions** | VS Code, IntelliJ, Neovim, Zed — LSP diagnostics, hover, completions, go-to-definition, exposure heatmap |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
 | **Health Check** | `envforge doctor` + `envforge check` — 15+ checks with fix suggestions |
 | **Lifecycle** | Automated secret create/rotate/decommission with state machine, trigger engine, rollback |
@@ -422,7 +422,7 @@ Additional TUI features:
 
 All commands support `--json` for machine-readable output and `--dry-run` for preview.
 
-Full documentation: [CLI Reference](docs/cli-reference.md) (100+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [LSP Client Setup](docs/lsp-clients.md) (Neovim, Helix, Emacs, Sublime, Zed, Kakoune, Fleet, Lapce, …) &middot; [IDE Behavior Contract](docs/ide-behavior-contract.md) (per-feature parity spec) &middot; [Scanner Recipes](docs/scanner-recipes.md)
+Full documentation: [CLI Reference](docs/cli-reference.md) (100+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [LSP Client Setup](docs/lsp-clients.md) (Neovim, Zed first-party; Helix, Emacs, Sublime, Kakoune, Lapce via LSP) &middot; [IDE Behavior Contract](docs/ide-behavior-contract.md) (per-feature parity spec) &middot; [Integration Matrix](docs/integration-matrix.md) (tools × editors) &middot; [MCP Server](docs/mcp-server.md) &middot; [CI Gating](docs/ci-gating.md) &middot; [Scanner Recipes](docs/scanner-recipes.md)
 
 ```bash
 # Variable management
@@ -1561,7 +1561,7 @@ envforge man fenc
 
 ### IDE Extensions
 
-EnvForge includes a built-in Language Server (`envforge lsp`) and extensions for VS Code and IntelliJ IDEA.
+EnvForge includes a built-in Language Server (`envforge lsp`) and first-party plugins for VS Code, IntelliJ, Neovim, and Zed.
 
 **VS Code** — [Marketplace](https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager)
 

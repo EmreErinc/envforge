@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="envforge-icon.svg">
   <title>EnvForge — AI-safe environment variable manager | Protect secrets from AI agents</title>
-  <meta name="description" content="The environment variable manager built to protect secrets from AI coding agents. 25 AI safety tools, encrypted sync, 13 secret providers, a Rust CLI + TUI, and a Language Server for VS Code & IntelliJ.">
+  <meta name="description" content="The environment variable manager built to protect secrets from AI coding agents. 25 AI safety tools, encrypted sync, 13 secret providers, a Rust CLI + TUI, and a Language Server for VS Code, IntelliJ, Neovim & Zed.">
   <meta name="keywords" content="environment variable manager, env file security, AI agent secrets, secrets management CLI, dotenv alternative, protect secrets from AI, vibe coding security, MCP secrets">
   <meta name="author" content="Emre Erinc">
 
@@ -353,7 +353,7 @@
       <div class="grid-bg" aria-hidden="true"></div>
       <div class="wrap">
         <div class="hero__inner">
-          <p class="hero__kicker reveal"><span class="ok">●</span> 25 AI safety tools · Rust · source-available · VS&nbsp;Code + IntelliJ plugins</p>
+          <p class="hero__kicker reveal"><span class="ok">●</span> 25 AI safety tools · Rust · source-available · VS&nbsp;Code, IntelliJ, Neovim, Zed</p>
           <h1 class="reveal">Your secrets aren’t <span class="danger">safe</span> from AI.</h1>
           <p class="hero__sub reveal">EnvForge is the environment-variable manager built to protect secrets <strong>from</strong> AI coding agents — not just store them. Fence the files, intercept the tool calls, run with secrets sealed in memory, and trip a canary if anything leaks. <strong>One Rust CLI, a TUI, and a Language Server</strong> that lights up your editor.</p>
           <div class="cta-row reveal">
@@ -363,7 +363,7 @@
             </button>
           </div>
           <div class="statbar reveal">
-            <span><b>27</b> AI safety tools</span>
+            <span><b>25</b> AI safety tools</span>
             <span><b>13</b> secret providers</span>
             <span><b>100+</b> commands</span>
             <span><b>2,400+</b> tests passing</span>
@@ -473,7 +473,7 @@
     <section id="editors" class="wrap">
       <div class="sec-head">
         <h2>See the danger in your editor.</h2>
-        <p>EnvForge ships a Language Server and first-party VS Code + IntelliJ plugins. The AI-exposure story lives where you write code — not buried in a CLI.</p>
+        <p>EnvForge ships a Language Server and first-party VS Code, IntelliJ, Neovim & Zed plugins. The AI-exposure story lives where you write code — not buried in a CLI.</p>
       </div>
       <div class="editor-grid">
         <ul class="spec-list reveal">
@@ -489,7 +489,7 @@
           <div class="legend__row"><span class="dot dot--red" aria-hidden="true"></span><code>RED</code><span>plaintext, readable by AI agents right now</span></div>
           <div class="legend__row"><span class="dot dot--amber" aria-hidden="true"></span><code>AMBER</code><span>sensitive — will be redacted by AI-guard</span></div>
           <div class="legend__row"><span class="dot dot--green" aria-hidden="true"></span><code>GREEN</code><span>fenced — the agent can’t reach it</span></div>
-          <p class="editors-note">Both plugins are thin clients over <code class="inline-code">envforge lsp</code>. Same backend, contract-locked parity. Also works in Neovim, Helix &amp; Sublime Text.</p>
+          <p class="editors-note">All first-party plugins are thin clients over <code class="inline-code">envforge lsp</code> — same backend, contract-locked parity. Also works LSP-only in Helix, Emacs, Sublime Text, Kakoune &amp; Lapce.</p>
         </div>
       </div>
     </section>
@@ -636,6 +636,10 @@
         <a href="api-doc.html">API reference</a>
         <a href="crates.html">Crates.io</a>
         <a href="https://github.com/emreerinc/envforge/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/emreerinc/envforge/blob/main/docs/integration-matrix.md">Integrations</a>
+        <a href="https://github.com/emreerinc/envforge/blob/main/docs/mcp-server.md">MCP server</a>
+        <a href="https://github.com/emreerinc/envforge/blob/main/docs/ci-gating.md">CI gating</a>
+        <a href="https://github.com/emreerinc/envforge/blob/main/docs/lsp-clients.md">Editors</a>
         <a href="https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager">VS Code</a>
         <a href="https://plugins.jetbrains.com/plugin/31385-envforge">IntelliJ</a>
       </div>

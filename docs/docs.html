@@ -531,19 +531,63 @@
       });
     }
 
-    fetch('cli-reference.md')
-      .then(r => r.text())
-      .then(md => {
-        document.getElementById('docs-content').innerHTML =
-          '<h1>CLI Reference</h1><p>Complete documentation for EnvForge v0.8.3 — 100+ commands.</p>' +
-          renderMarkdown(md);
-        buildSidebar();
-        buildSearchIndex();
-      })
-      .catch(() => {
-        document.getElementById('docs-content').innerHTML =
-          '<h1>CLI Reference</h1><p>Could not load documentation. <a href="cli-reference.md">View raw Markdown.</a></p>';
-      });
+    // Multi-doc viewer — pick any public reference doc to render in place.
+    const DOCS = [
+      { id: 'cli-reference', file: 'cli-reference.md', title: 'CLI Reference', desc: 'Complete documentation for EnvForge v0.8.3 — 100+ commands.' },
+      { id: 'api-reference', file: 'api-reference.md', title: 'API Reference', desc: 'Public Rust API for library consumers.' },
+      { id: 'integration-matrix', file: 'integration-matrix.md', title: 'Integration Matrix', desc: 'AI tools × editors × capabilities.' },
+      { id: 'mcp-server', file: 'mcp-server.md', title: 'MCP Server', desc: 'Read-safe MCP server + client config.' },
+      { id: 'ci-gating', file: 'ci-gating.md', title: 'CI Gating', desc: 'Gate CI on fence coverage + credential scan.' },
+      { id: 'lsp-clients', file: 'lsp-clients.md', title: 'Editor / LSP Setup', desc: 'First-party + LSP-only editor setup.' },
+      { id: 'ide-behavior-contract', file: 'ide-behavior-contract.md', title: 'IDE Behavior Contract', desc: 'Per-feature plugin parity spec.' },
+      { id: 'scanner-recipes', file: 'scanner-recipes.md', title: 'Scanner Recipes', desc: 'Secret-scanning recipes.' },
+    ];
+
+    function buildDocPicker(activeId) {
+      let picker = document.getElementById('doc-picker');
+      if (!picker) {
+        picker = document.createElement('div');
+        picker.id = 'doc-picker';
+        picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:1rem;';
+        const sb = document.getElementById('sidebar');
+        sb.insertBefore(picker, sb.firstChild);
+      }
+      picker.innerHTML = DOCS.map(d =>
+        '<a href="?doc=' + d.id + '" data-doc="' + d.id + '" style="font-family:var(--font-mono);font-size:var(--text-sm);padding:.2rem .5rem;border-radius:6px;text-decoration:none;border:1px solid var(--color-border,#333);' +
+        (d.id === activeId ? 'background:var(--color-accent-dim,#2a2a2a);font-weight:600;' : '') + '">' + d.title + '</a>'
+      ).join('');
+      picker.querySelectorAll('a').forEach(a => a.addEventListener('click', function (e) {
+        e.preventDefault();
+        const d = DOCS.find(x => x.id === a.dataset.doc);
+        if (d) loadDoc(d);
+      }));
+    }
+
+    function loadDoc(d) {
+      history.replaceState(null, '', '?doc=' + d.id);
+      const raw = document.querySelector('footer a[href$=".md"]');
+      if (raw) raw.setAttribute('href', d.file);
+      buildDocPicker(d.id);
+      fetch(d.file)
+        .then(r => r.text())
+        .then(md => {
+          document.getElementById('docs-content').innerHTML =
+            '<h1>' + d.title + '</h1><p>' + d.desc + '</p>' + renderMarkdown(md);
+          buildSidebar();
+          buildSearchIndex();
+          window.scrollTo(0, 0);
+        })
+        .catch(() => {
+          document.getElementById('docs-content').innerHTML =
+            '<h1>' + d.title + '</h1><p>Could not load documentation. <a href="' + d.file + '">View raw Markdown.</a></p>';
+        });
+    }
+
+    (function initDocs() {
+      const want = new URLSearchParams(location.search).get('doc');
+      const d = DOCS.find(x => x.id === want) || DOCS[0];
+      loadDoc(d);
+    })();
 
     // Search
     let searchIndex = [];

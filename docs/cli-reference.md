@@ -1,6 +1,6 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.8.1
+> Generated for EnvForge v0.8.3
 
 ## Quick Recipes
 
@@ -42,7 +42,7 @@ Every command accepts these flags:
 
 ### envforge fence
 
-Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code). Which targets are written is configurable per-target — see `fence config`.
+Create AI-tool ignore/rules files for all detected AI tools (11 targets incl. Cursor, Copilot, Claude Code, Windsurf, Cline, Aider, Gemini CLI, Amazon Q, the `AGENTS.md` standard). Per-target configurable — see `fence config`. `fence --status` reports honest per-tool coverage.
 
 ```
 Usage: envforge fence [OPTIONS] [COMMAND]
@@ -2270,6 +2270,28 @@ Usage: envforge mcp status [OPTIONS]
 ```bash
 envforge mcp status
 envforge mcp status --json
+```
+
+Exits non-zero (2) when a hardcoded credential is found, so it can gate CI (see [`ci-gating.md`](ci-gating.md)).
+
+---
+
+### envforge mcp serve
+
+Run the EnvForge **MCP server** over stdio: a read-safe Model Context Protocol
+server that exposes env-var key names and schema metadata (redacted, audited —
+**never raw secret values**) to AI agents. Requires a build with the
+`mcp-server` feature. Tools: `list_keys`, `describe_schema`. Client config
+snippets: [`mcp-server.md`](mcp-server.md).
+
+```
+Usage: envforge mcp serve
+```
+
+**Example (Claude Code `.mcp.json`):**
+
+```json
+{ "mcpServers": { "envforge": { "command": "envforge", "args": ["mcp", "serve"] } } }
 ```
 
 ---

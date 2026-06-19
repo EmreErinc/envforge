@@ -34,12 +34,13 @@ src/
 ├── model/    # Data types (LineNode, ShellFile, ExportStyle, errors)
 ├── parser/   # Shell file parser & writer (byte-for-byte round-trip safe)
 ├── config/   # App config, backup, atomic writes
-├── ops/      # Core operations (35+ modules) — pure business logic
+├── ops/      # Core operations (40+ modules incl. data-driven fence registry) — pure business logic
 │   ├── sync/     # Git-based cross-machine sync
 │   └── secrets/  # 13 secret provider integrations
 ├── ui/       # Ratatui TUI (app state, rendering, dialogs)
 ├── cli/      # Clap CLI (80+ subcommands)
-└── lsp/      # Language Server Protocol for IDE extensions
+├── lsp/      # Language Server Protocol for IDE extensions
+└── mcp/      # MCP server (`envforge mcp serve`) — read-safe, gated on `mcp-server` feature
 ```
 
 ### Running the Application

@@ -1,4 +1,4 @@
-# EnvForge Integration Matrix (v0.9 "Omnipresence")
+# EnvForge Integration Matrix (0.8.3 "Omnipresence")
 
 What EnvForge covers across AI coding tools and editors. Generated from the
 fence target registry (`src/ops/fence/registry.rs`) and the editor plugins.
@@ -57,10 +57,10 @@ Cursor, VS Code, Windsurf, Cline: see `mcp-server.md`.
 | MCP-config credential lint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | MCP server (read-safe egress) | ✓ | — | ✓ client | ✓ client | ✓ client | ✓ extension |
 
-## Deferred to Vision (not in v0.9)
+## Deferred to Vision (not in 0.8.3)
 
 - Long-tail fence tools as community registry data: Roo Code, Continue, Augment, Tabnine, OpenAI Codex (several already covered via `AGENTS.md`).
 - MCP **remote** transport (Streamable HTTP + OAuth 2.1 / RFC 8707) and extra MCP tools (`exposure_map`, `canary_scan`, `canary_check`).
 - First-party **Emacs** / **Sublime Text** plugins (native UI).
 - Native **Zed** status-bar/gutter UI (blocked on Zed Visual Extension API, Draft RFC #53403).
-- Standalone `envforge doctor --ai` (detection is folded into `fence --status` for v0.9).
+- Standalone `envforge doctor --ai` (detection is folded into `fence --status` for 0.8.3).
