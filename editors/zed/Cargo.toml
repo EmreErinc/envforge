@@ -1,0 +1,14 @@
+[package]
+name = "zed_envforge"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Pin to the Zed extension API version you build against. Verify the exact
+# `language_server_command` / `context_server_command` signatures match this
+# release before publishing (Zed's API evolves).
+zed_extension_api = "0.2"

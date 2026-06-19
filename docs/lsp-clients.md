@@ -17,15 +17,16 @@ default, plus the named `envforge/*` custom requests
 |---|---|---|
 | VS Code | ✓ `envforge-env-manager` 0.1.8 | Install via Marketplace or the bundled `.vsix` |
 | IntelliJ Platform (Idea, GoLand, PyCharm, RustRover, …) | ✓ `envforge-intellij` 0.1.6 | Settings → Plugins → Install Plugin from Disk |
-| Neovim (`nvim-lspconfig`) | LSP only | [config below](#neovim) |
+| Neovim | ✓ first-party plugin (`editors/nvim`) | statusline + exposure heatmap + fence toggle — see [`editors/nvim/README.md`](../editors/nvim/README.md) |
+| Zed | LSP + MCP (first-party extension `editors/zed`) | LSP + read-safe MCP context server; no custom UI (Zed API limit) — see [`editors/zed/README.md`](../editors/zed/README.md) |
 | Helix | LSP only | [config below](#helix) |
 | Emacs (`eglot` / `lsp-mode`) | LSP only | [config below](#emacs) |
 | Sublime Text (LSP package) | LSP only | [config below](#sublime-text) |
-| Zed | LSP only (custom ext) | [config below](#zed) |
 | Kakoune (`kak-lsp`) | LSP only | [config below](#kakoune) |
-| JetBrains Fleet | LSP-native, no plugin | [config below](#jetbrains-fleet) |
 | Lapce | LSP only | [config below](#lapce) |
 | Any other LSP client | LSP only | [generic notes](#generic-lsp-client-notes) |
+
+> **JetBrains Fleet** was dropped as a target — Fleet was discontinued (Dec 2025, succeeded by "Air"). The IntelliJ Platform plugin is unaffected.
 
 ## What works in every LSP client (no plugin needed)
 
@@ -199,17 +200,6 @@ roots = [".env.schema.toml", ".env.schema", ".git"]
 command = "envforge"
 args = ["lsp"]
 ```
-
-## JetBrains Fleet
-
-Fleet speaks LSP natively. Settings → Languages → register server:
-
-- **Command:** `envforge`
-- **Arguments:** `lsp`
-- **File types:** `.env`, `.env.*`, `*.env`
-
-No plugin needed. Status bar / gutter heatmap unavailable until a
-dedicated Fleet plugin lands.
 
 ## Lapce
 

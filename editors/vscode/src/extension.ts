@@ -214,6 +214,10 @@ async function startLanguageServer(
             { scheme: 'file', pattern: '**/.cursor/mcp.json' },
             { scheme: 'file', pattern: '**/.claude/settings.json' },
             { scheme: 'file', pattern: '**/claude_desktop_config.json' },
+            // Story 3.1 (FR18): widened AI-tool/agent MCP config coverage.
+            { scheme: 'file', pattern: '**/.claude.json' },          // Claude Code user config
+            { scheme: 'file', pattern: '**/mcp_config.json' },       // Windsurf (Cascade)
+            { scheme: 'file', pattern: '**/cline_mcp_settings.json' }, // Cline
         ],
         synchronize: {
             fileEvents: [

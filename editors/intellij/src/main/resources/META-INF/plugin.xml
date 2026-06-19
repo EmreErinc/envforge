@@ -67,6 +67,10 @@ AI coding agents.</p>
         <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".mcp.json"/>
         <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="claude_desktop_config.json"/>
         <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="settings.json"/>
+        <!-- Story 3.1 (FR18): widened AI-tool/agent MCP config coverage. -->
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".claude.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="mcp_config.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="cline_mcp_settings.json"/>
     </extensions>
 
   <extensions defaultExtensionNs="com.intellij">

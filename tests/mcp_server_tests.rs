@@ -92,8 +92,7 @@ async fn test_handshake_over_duplex_transport() {
     let (server_transport, client_transport) = tokio::io::duplex(8192);
 
     // Spawn the server.
-    let server_handle =
-        tokio::spawn(async move { EnvForgeMcp.serve(server_transport).await });
+    let server_handle = tokio::spawn(async move { EnvForgeMcp.serve(server_transport).await });
 
     // Split the client half.
     let (client_read, mut client_write) = tokio::io::split(client_transport);
@@ -118,14 +117,8 @@ async fn test_handshake_over_duplex_transport() {
         serde_json::from_str(response_line.trim()).expect("valid JSON response");
 
     // Assert it is a successful InitializeResult with our server name.
-    assert_eq!(
-        response["jsonrpc"], "2.0",
-        "must be JSON-RPC 2.0"
-    );
-    assert_eq!(
-        response["id"], 1,
-        "response id must match request id"
-    );
+    assert_eq!(response["jsonrpc"], "2.0", "must be JSON-RPC 2.0");
+    assert_eq!(response["id"], 1, "response id must match request id");
     assert!(
         response["error"].is_null(),
         "no error in initialize response: {response}"
@@ -137,8 +130,7 @@ async fn test_handshake_over_duplex_transport() {
     );
 
     // Send: initialized notification so the server enters main loop.
-    let init_notif =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n";
+    let init_notif = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n";
     client_write
         .write_all(init_notif.as_bytes())
         .await
@@ -166,9 +158,18 @@ fn test_collect_key_names_union_sorted_deduped() {
 
     // Schema declares DATABASE_URL, STRIPE_KEY, APP_DEBUG.
     // .env also sets DATABASE_URL (overlap → deduped).
-    assert!(keys.contains(&"DATABASE_URL".to_string()), "DATABASE_URL must be present");
-    assert!(keys.contains(&"STRIPE_KEY".to_string()), "STRIPE_KEY must be present");
-    assert!(keys.contains(&"APP_DEBUG".to_string()), "APP_DEBUG must be present");
+    assert!(
+        keys.contains(&"DATABASE_URL".to_string()),
+        "DATABASE_URL must be present"
+    );
+    assert!(
+        keys.contains(&"STRIPE_KEY".to_string()),
+        "STRIPE_KEY must be present"
+    );
+    assert!(
+        keys.contains(&"APP_DEBUG".to_string()),
+        "APP_DEBUG must be present"
+    );
     assert_eq!(keys.len(), 3, "no duplicates");
 
     // Verify sorted order.
@@ -203,11 +204,17 @@ fn test_describe_current_value_redacted_or_null() {
     let dir = make_project_dir();
     let vars = describe(dir.path());
 
-    let db = vars.iter().find(|v| v.key == "DATABASE_URL")
+    let db = vars
+        .iter()
+        .find(|v| v.key == "DATABASE_URL")
         .expect("DATABASE_URL must be present");
-    let stripe = vars.iter().find(|v| v.key == "STRIPE_KEY")
+    let stripe = vars
+        .iter()
+        .find(|v| v.key == "STRIPE_KEY")
         .expect("STRIPE_KEY must be present");
-    let debug = vars.iter().find(|v| v.key == "APP_DEBUG")
+    let debug = vars
+        .iter()
+        .find(|v| v.key == "APP_DEBUG")
         .expect("APP_DEBUG must be present");
 
     // DATABASE_URL is set in .env → must be "***"
@@ -217,8 +224,14 @@ fn test_describe_current_value_redacted_or_null() {
         "set key must be redacted"
     );
     // STRIPE_KEY and APP_DEBUG are not set → must be None
-    assert!(stripe.current_value.is_none(), "unset sensitive key current_value must be null");
-    assert!(debug.current_value.is_none(), "unset key current_value must be null");
+    assert!(
+        stripe.current_value.is_none(),
+        "unset sensitive key current_value must be null"
+    );
+    assert!(
+        debug.current_value.is_none(),
+        "unset key current_value must be null"
+    );
 }
 
 /// describe returns correct metadata fields.
@@ -227,19 +240,31 @@ fn test_describe_metadata_fields() {
     let dir = make_project_dir();
     let vars = describe(dir.path());
 
-    let db = vars.iter().find(|v| v.key == "DATABASE_URL").expect("DATABASE_URL");
+    let db = vars
+        .iter()
+        .find(|v| v.key == "DATABASE_URL")
+        .expect("DATABASE_URL");
     assert_eq!(db.var_type, "url");
     assert!(db.required);
     assert!(!db.sensitive);
-    assert_eq!(db.description.as_deref(), Some("Primary database connection string"));
+    assert_eq!(
+        db.description.as_deref(),
+        Some("Primary database connection string")
+    );
 
-    let stripe = vars.iter().find(|v| v.key == "STRIPE_KEY").expect("STRIPE_KEY");
+    let stripe = vars
+        .iter()
+        .find(|v| v.key == "STRIPE_KEY")
+        .expect("STRIPE_KEY");
     assert_eq!(stripe.var_type, "string");
     assert!(stripe.required);
     assert!(stripe.sensitive);
     assert_eq!(stripe.example.as_deref(), Some("sk_test_EXAMPLE"));
 
-    let debug = vars.iter().find(|v| v.key == "APP_DEBUG").expect("APP_DEBUG");
+    let debug = vars
+        .iter()
+        .find(|v| v.key == "APP_DEBUG")
+        .expect("APP_DEBUG");
     assert_eq!(debug.var_type, "bool");
     assert!(!debug.required);
     assert_eq!(debug.default.as_deref(), Some("false"));
@@ -310,12 +335,24 @@ fn test_audit_message_excludes_values() {
     assert_eq!(msg_describe, "MCP describe_schema");
 
     // Must start with the grep-able prefix.
-    assert!(msg_list.starts_with("MCP "), "message must start with 'MCP '");
-    assert!(msg_describe.starts_with("MCP "), "message must start with 'MCP '");
+    assert!(
+        msg_list.starts_with("MCP "),
+        "message must start with 'MCP '"
+    );
+    assert!(
+        msg_describe.starts_with("MCP "),
+        "message must start with 'MCP '"
+    );
 
     // Must contain no '=' characters (no KEY=VALUE content).
-    assert!(!msg_list.contains('='), "audit message must not contain '='");
-    assert!(!msg_describe.contains('='), "audit message must not contain '='");
+    assert!(
+        !msg_list.contains('='),
+        "audit message must not contain '='"
+    );
+    assert!(
+        !msg_describe.contains('='),
+        "audit message must not contain '='"
+    );
 
     // Must not contain any of the characters typical of secret values.
     for ch in ['/', ':', '@', '$', '+'] {

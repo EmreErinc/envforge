@@ -15,10 +15,10 @@
 use std::path::Path;
 
 use rmcp::{
-    ServerHandler, ServiceExt,
     model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo},
     tool, tool_router,
     transport::stdio,
+    ServerHandler, ServiceExt,
 };
 use serde::Serialize;
 
@@ -110,12 +110,11 @@ pub struct VarDesc {
 pub fn describe(dir: &Path) -> Vec<VarDesc> {
     // Determine which keys are set in `.env` (keys only — values discarded).
     let dotenv_path = dir.join(".env");
-    let set_keys: std::collections::HashSet<String> =
-        parse_dotenv(&dotenv_path)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|e| e.key)
-            .collect();
+    let set_keys: std::collections::HashSet<String> = parse_dotenv(&dotenv_path)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.key)
+        .collect();
 
     // Load schema; if none, return empty list.
     let schema_path = {

@@ -100,15 +100,16 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | Field | Value |
 |---|---|
 | LSP method | `textDocument/publishDiagnostics` (push on `did_open` + `did_change`) |
-| Trigger | Open or edit one of: `**/mcp.json`, `**/.mcp.json`, `**/.cursor/mcp.json`, `**/.claude/settings.json`, `**/claude_desktop_config.json` |
+| Trigger | Open or edit one of: `**/mcp.json` (covers `.cursor/`, `.vscode/`), `**/.mcp.json`, `**/.claude/settings.json`, `**/claude_desktop_config.json`, `**/.claude.json` (Claude Code), `**/mcp_config.json` (Windsurf), `**/cline_mcp_settings.json` (Cline) — widened in Story 3.1 (FR18) |
 | Severity | `Warning` |
 | Source tag | `envforge-mcp` (distinct from `envforge` on `.env` diagnostics so clients can filter independently) |
 | Detection rules | Reuses `ops::mcp_scan` heuristics: known-prefix tokens (AWS, GitHub, Stripe, Slack, SendGrid, JWT, …), connection strings with embedded credentials, sensitive-key-name + secret-looking value combinations |
 | Message format | `Hardcoded credential in MCP config: <pattern> at \`<json.path>\` (value \`<masked>\`). Replace with \`${ENV_VAR}\` and load via envforge.` |
 | Range | First occurrence of the offending JSON value's string contents in the source line; falls back to (0,0)–(0,0) if not locatable. |
 | Ignored | Values starting with `${` or `$`, values shorter than 4 chars, valid JSON parse failures (file silently skipped). |
-| VS Code wiring | `documentSelector` extended with 5 MCP config glob patterns. |
-| IntelliJ wiring | 4 `languageMapping` entries with `fileNamePattern` for JSON-typed MCP/Claude config filenames. |
+| Quick-fix (Story 3.2 / FR19) | `textDocument/codeAction` on an `envforge-mcp` diagnostic offers `Replace hardcoded credential with ${VAR}` (QUICKFIX, `is_preferred`): replaces the value range with `${VAR}` where `VAR` is the camelCase-aware SCREAMING_SNAKE of the JSON key. CLI batch equivalent: `envforge mcp harden`. |
+| VS Code wiring | `documentSelector` extended with 8 MCP config glob patterns (Story 3.1). |
+| IntelliJ wiring | 7 `languageMapping` entries with `fileNamePattern` for JSON-typed MCP/agent config filenames (Story 3.1). |
 | Test IDs | `test_mcp_diagnostic_flags_aws_access_key`, `test_mcp_diagnostic_flags_github_pat_with_range`, `test_mcp_diagnostic_ignores_env_var_references`, `test_mcp_diagnostic_flags_postgres_connection_string`, `test_mcp_diagnostic_skips_invalid_json`, `test_mcp_diagnostic_flags_multiple_findings` |
 
 ### L13 — Save-time AI-guard diagnostics
