@@ -26,6 +26,8 @@ pub struct AppConfig {
     pub lifecycle: LifecycleConfig,
     #[serde(default)]
     pub analytics: AnalyticsConfig,
+    #[serde(default)]
+    pub fence: FenceConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +106,54 @@ fn default_true() -> bool {
 }
 fn default_snapshot_retention() -> u32 {
     30
+}
+
+/// Configuration for the AI tool fence.
+///
+/// Controls which fence files are written when `envforge fence` runs.
+/// All targets default to enabled — absent config is identical to writing all five files.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct FenceConfig {
+    /// Per-target enable/disable flags.
+    #[serde(default)]
+    pub targets: FenceTargets,
+}
+
+/// Individual on/off flags for each AI-tool fence target.
+///
+/// Every field defaults to `true`, so a missing key or missing `[fence]` section
+/// is byte-identical to enabling every target (NFR5 — backward compatibility).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FenceTargets {
+    /// `.envforgeignore` — primary ignore file owned entirely by EnvForge.
+    #[serde(default = "default_true")]
+    pub envforgeignore: bool,
+    /// `.cursorignore` — Cursor AI ignore rules (appended, not owned).
+    #[serde(default = "default_true")]
+    pub cursor_ignore: bool,
+    /// `.cursorrules` — Cursor AI behavior rules (appended, not owned).
+    #[serde(default = "default_true")]
+    pub cursor_rules: bool,
+    /// `.github/copilot-instructions.md` — GitHub Copilot safety rules.
+    #[serde(default = "default_true")]
+    pub copilot: bool,
+    /// `.claude/settings.json` — Claude Code deny-list rules.
+    #[serde(default = "default_true")]
+    pub claude_code: bool,
+}
+
+impl Default for FenceTargets {
+    fn default() -> Self {
+        Self {
+            envforgeignore: true,
+            cursor_ignore: true,
+            cursor_rules: true,
+            copilot: true,
+            claude_code: true,
+        }
+    }
 }
 
 impl Default for LifecycleConfig {
@@ -194,6 +244,7 @@ impl Default for AppConfig {
             clipboard: ClipboardConfig::default(),
             lifecycle: LifecycleConfig::default(),
             analytics: AnalyticsConfig::default(),
+            fence: FenceConfig::default(),
         }
     }
 }

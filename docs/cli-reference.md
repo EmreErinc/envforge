@@ -42,10 +42,10 @@ Every command accepts these flags:
 
 ### envforge fence
 
-Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code).
+Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code). Which targets are written is configurable per-target — see `fence config`.
 
 ```
-Usage: envforge fence [OPTIONS]
+Usage: envforge fence [OPTIONS] [COMMAND]
 ```
 
 | Flag | Description |
@@ -53,10 +53,14 @@ Usage: envforge fence [OPTIONS]
 | `--status` | Check fence status instead of creating |
 | `--disable` | Remove envforge-owned fence content |
 
+| Command | Description |
+|---------|-------------|
+| `config` | List or change which fence targets are written (see below) |
+
 **Examples:**
 
 ```bash
-# Enable fence (writes .cursorignore, etc.)
+# Enable fence (writes only the enabled targets)
 envforge fence
 
 # Check status
@@ -64,6 +68,10 @@ envforge fence --status
 
 # Disable fence
 envforge fence --disable
+
+# Manage which targets fence writes
+envforge fence config --list
+envforge fence config --disable copilot
 ```
 
 ---
@@ -2287,16 +2295,16 @@ envforge mcp harden --dry-run
 
 ### envforge fence
 
-Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), check status, or remove the envforge-owned fence content while preserving user content.
+Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), check status, or remove the envforge-owned fence content while preserving user content. By default all five targets are written; use `fence config` to enable/disable individual targets. Configuration is read from the global config (`~/.config/envforge/config.toml`, `[fence.targets]`); when no config is present every target is enabled (identical to prior behavior).
 
 ```
-Usage: envforge fence [OPTIONS]
+Usage: envforge fence [OPTIONS] [COMMAND]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--status` | Check if all ignore rules are correctly installed (mutually exclusive with `--disable`) |
-| `--disable` | Strip envforge-owned fence content from `.envforgeignore`, `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json`. User content is preserved; `.envforgeignore` (fully envforge-owned) is deleted outright. |
+| `--status` | Check if all *enabled* ignore rules are correctly installed (mutually exclusive with `--disable`). `all_fenced` is computed over the enabled target set. |
+| `--disable` | Strip envforge-owned fence content from `.envforgeignore`, `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json` (all known targets, regardless of config). User content is preserved; `.envforgeignore` (fully envforge-owned) is deleted outright. |
 
 **Examples:**
 
@@ -2306,6 +2314,30 @@ envforge fence --status
 envforge fence --status --json
 envforge fence --disable
 envforge fence --dry-run
+```
+
+### envforge fence config
+
+Inspect or change which fence targets are written. Targets: `envforgeignore`, `cursor_ignore`, `cursor_rules`, `copilot`, `claude_code`. Changes persist to the global config (atomic write). Disabled targets are skipped by `fence` activation across every surface (CLI, TUI, LSP, IDE plugins); `fence --disable` still cleans up all known targets.
+
+```
+Usage: envforge fence config [--list] [--enable <TARGET>] [--disable <TARGET>] [--json]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--list` | Show each target with its effective state and source (`default` / `global`) |
+| `--enable <TARGET>` | Enable a target, persisting the choice |
+| `--disable <TARGET>` | Disable a target, persisting the choice |
+| `--json` | Emit the target list as JSON (`[{"target","enabled","source"}]`) for scripts/plugins |
+
+**Examples:**
+
+```bash
+envforge fence config --list
+envforge fence config --list --json
+envforge fence config --disable copilot
+envforge fence config --enable copilot
 ```
 
 ### envforge fence apply

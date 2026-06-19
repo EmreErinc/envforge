@@ -1,6 +1,198 @@
 use std::path::{Path, PathBuf};
 
 use super::OpError;
+use crate::config::{FenceConfig, FenceTargets};
+
+// ─── Canonical Target Enum ───────────────────────────────────────────────────
+
+/// The five AI-tool fence targets EnvForge can manage.
+///
+/// This enum is the single source of truth for the target set (NFR10).
+/// No other module may define or enumerate these targets independently.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize,
+)]
+#[clap(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum FenceTarget {
+    /// `.envforgeignore` — fully-owned by EnvForge.
+    Envforgeignore,
+    /// `.cursorignore` — Cursor AI ignore rules.
+    CursorIgnore,
+    /// `.cursorrules` — Cursor AI behavior rules.
+    CursorRules,
+    /// `.github/copilot-instructions.md` — GitHub Copilot safety rules.
+    Copilot,
+    /// `.claude/settings.json` — Claude Code deny-list rules.
+    ClaudeCode,
+}
+
+impl FenceTarget {
+    /// Returns the canonical snake_case identifier string for this target.
+    /// Used in JSON output, config keys, and CLI display.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Envforgeignore => "envforgeignore",
+            Self::CursorIgnore => "cursor_ignore",
+            Self::CursorRules => "cursor_rules",
+            Self::Copilot => "copilot",
+            Self::ClaudeCode => "claude_code",
+        }
+    }
+
+    /// Returns all five targets in canonical order.
+    #[must_use]
+    pub fn all() -> [FenceTarget; 5] {
+        [
+            Self::Envforgeignore,
+            Self::CursorIgnore,
+            Self::CursorRules,
+            Self::Copilot,
+            Self::ClaudeCode,
+        ]
+    }
+}
+
+impl FenceTargets {
+    /// Returns whether the given target is enabled according to this config.
+    ///
+    /// This is the single decision point for "is target X enabled?" (NFR10).
+    #[must_use]
+    pub fn is_enabled(&self, target: FenceTarget) -> bool {
+        match target {
+            FenceTarget::Envforgeignore => self.envforgeignore,
+            FenceTarget::CursorIgnore => self.cursor_ignore,
+            FenceTarget::CursorRules => self.cursor_rules,
+            FenceTarget::Copilot => self.copilot,
+            FenceTarget::ClaudeCode => self.claude_code,
+        }
+    }
+
+    /// Sets the enabled state for a specific target.
+    pub fn set_enabled(&mut self, target: FenceTarget, enabled: bool) {
+        match target {
+            FenceTarget::Envforgeignore => self.envforgeignore = enabled,
+            FenceTarget::CursorIgnore => self.cursor_ignore = enabled,
+            FenceTarget::CursorRules => self.cursor_rules = enabled,
+            FenceTarget::Copilot => self.copilot = enabled,
+            FenceTarget::ClaudeCode => self.claude_code = enabled,
+        }
+    }
+}
+
+// ─── Config Resolution ───────────────────────────────────────────────────────
+
+/// Where a target's enabled state originates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfigSource {
+    /// No explicit config — using the compiled-in default (`true`).
+    Default,
+    /// Explicitly set in the user's global config file.
+    Global,
+}
+
+/// Resolved state for a single fence target: effective value + where it came from.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ResolvedTarget {
+    pub target: FenceTarget,
+    pub enabled: bool,
+    pub source: ConfigSource,
+}
+
+/// Format the resolved enabled fence targets as a compact read-only summary string.
+///
+/// Returns a string suitable for status bars and footers:
+/// - All five enabled → `"fence: (5/5)"`
+/// - Subset enabled → `"fence: cursor_ignore,copilot (2/5)"`
+/// - None enabled → `"fence: none (0/5)"`
+///
+/// This is a pure function with no I/O so it is directly unit-testable (FR16 / NFR10).
+///
+/// # Examples
+///
+/// ```
+/// use envforge::ops::fence::{fence_target_summary, resolve_fence_targets};
+/// use envforge::config::FenceConfig;
+///
+/// let cfg = FenceConfig::default();
+/// let resolved = resolve_fence_targets(&cfg);
+/// let s = fence_target_summary(&resolved);
+/// assert!(s.contains("5/5"), "all-enabled summary: {s}");
+/// ```
+#[must_use]
+pub fn fence_target_summary(resolved: &[ResolvedTarget]) -> String {
+    let enabled_names: Vec<&str> = resolved
+        .iter()
+        .filter(|r| r.enabled)
+        .map(|r| r.target.as_str())
+        .collect();
+    let total = resolved.len();
+    let count = enabled_names.len();
+
+    if count == 0 {
+        format!("fence: none ({count}/{total})")
+    } else if count == total {
+        format!("fence: ({count}/{total})")
+    } else {
+        format!("fence: {} ({count}/{total})", enabled_names.join(","))
+    }
+}
+
+/// Resolve the effective fence target set from config.
+///
+/// For MVP, layering is: Global config overrides Default (all-true).
+/// If a field matches the default (`true`), source is `Default`; otherwise `Global`.
+/// The Growth per-project layer would add a third `ConfigSource::Project` here.
+///
+/// Reads config once per call (NFR4).
+#[must_use]
+pub fn resolve_fence_targets(cfg: &FenceConfig) -> Vec<ResolvedTarget> {
+    FenceTarget::all()
+        .into_iter()
+        .map(|target| {
+            let enabled = cfg.targets.is_enabled(target);
+            // If the value is false, it was explicitly set in global config.
+            // If true, it could be default or global-set-to-true; we treat
+            // explicit false as the only unambiguous Global indicator at MVP.
+            let source = if enabled {
+                ConfigSource::Default
+            } else {
+                ConfigSource::Global
+            };
+            ResolvedTarget {
+                target,
+                enabled,
+                source,
+            }
+        })
+        .collect()
+}
+
+/// Load the fence config with a fail-safe fallback.
+///
+/// On any `ConfigError` (IO or parse), emits a monitor warning and returns
+/// `FenceConfig::default()` (all targets enabled). This ensures fence activation
+/// fails-safe: a broken config file never blocks protection (FR19, NFR2).
+fn load_fence_config_or_safe_default() -> FenceConfig {
+    match crate::config::load_or_create_default() {
+        Ok(cfg) => cfg.fence,
+        Err(e) => {
+            crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+                source: crate::ops::monitor::EventSource::Fence,
+                key: None,
+                message: format!(
+                    "Failed to load fence config (fail-safe: all targets enabled): {}",
+                    e
+                ),
+                timestamp: chrono::Utc::now(),
+                severity: crate::ops::monitor::SecuritySeverity::Warn,
+            });
+            FenceConfig::default()
+        }
+    }
+}
 
 /// Result of creating AI tool fence files.
 pub struct FenceResult {
@@ -88,7 +280,27 @@ Never hardcode secrets, API keys, tokens, or passwords.
 const FENCE_MARKER: &str = "# EnvForge secret fence";
 
 /// Generate and write AI tool ignore rules for all supported tools.
+///
+/// Loads the fence config with a fail-safe fallback (all targets enabled if
+/// config is missing or malformed) then delegates to [`create_fence_with`].
+/// All four existing callers (CLI, TUI, LSP, plugins-via-CLI) use this
+/// signature unchanged (NFR8).
 pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, OpError> {
+    let cfg = load_fence_config_or_safe_default();
+    create_fence_with(project_dir, dry_run, &cfg)
+}
+
+/// Generate and write AI tool ignore rules gated by `cfg`.
+///
+/// Targets that are disabled in `cfg` are not written; their paths are
+/// pushed to `files_skipped` so callers can report what was omitted.
+/// Use this variant in tests to supply explicit configs without touching
+/// the global config file.
+pub fn create_fence_with(
+    project_dir: &Path,
+    dry_run: bool,
+    cfg: &FenceConfig,
+) -> Result<FenceResult, OpError> {
     // Emit monitor event
     crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
         source: crate::ops::monitor::EventSource::Fence,
@@ -108,19 +320,45 @@ pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, Op
     };
 
     // 1. .envforgeignore
-    write_envforgeignore(project_dir, dry_run, &mut result)?;
+    if cfg.targets.is_enabled(FenceTarget::Envforgeignore) {
+        write_envforgeignore(project_dir, dry_run, &mut result)?;
+    } else {
+        result
+            .files_skipped
+            .push(project_dir.join(".envforgeignore"));
+    }
 
     // 2. .cursorignore
-    write_cursorignore(project_dir, dry_run, &mut result)?;
+    if cfg.targets.is_enabled(FenceTarget::CursorIgnore) {
+        write_cursorignore(project_dir, dry_run, &mut result)?;
+    } else {
+        result.files_skipped.push(project_dir.join(".cursorignore"));
+    }
 
     // 3. .cursorrules
-    write_cursorrules(project_dir, dry_run, &mut result)?;
+    if cfg.targets.is_enabled(FenceTarget::CursorRules) {
+        write_cursorrules(project_dir, dry_run, &mut result)?;
+    } else {
+        result.files_skipped.push(project_dir.join(".cursorrules"));
+    }
 
     // 4. .github/copilot-instructions.md
-    write_copilot_instructions(project_dir, dry_run, &mut result)?;
+    if cfg.targets.is_enabled(FenceTarget::Copilot) {
+        write_copilot_instructions(project_dir, dry_run, &mut result)?;
+    } else {
+        result
+            .files_skipped
+            .push(project_dir.join(".github/copilot-instructions.md"));
+    }
 
     // 5. .claude/settings.json
-    write_claude_settings(project_dir, dry_run, &mut result)?;
+    if cfg.targets.is_enabled(FenceTarget::ClaudeCode) {
+        write_claude_settings(project_dir, dry_run, &mut result)?;
+    } else {
+        result
+            .files_skipped
+            .push(project_dir.join(".claude/settings.json"));
+    }
 
     Ok(result)
 }
@@ -657,14 +895,38 @@ fn write_or_delete(
 }
 
 /// Check which fence files exist and are properly configured.
+///
+/// Status is computed over the **enabled** target set only (D5).
+/// A disabled target's stale file on disk does not make the fence `Partial`.
+/// `all_fenced` is `true` iff every *enabled* target is present and fenced.
 pub fn check_fence_status(project_dir: &Path) -> Result<FenceStatus, OpError> {
-    let files = vec![
-        check_file_status(project_dir, ".envforgeignore"),
-        check_file_status(project_dir, ".cursorignore"),
-        check_file_status(project_dir, ".cursorrules"),
-        check_file_status(project_dir, ".github/copilot-instructions.md"),
-        check_file_status(project_dir, ".claude/settings.json"),
-    ];
+    check_fence_status_with(project_dir, &load_fence_config_or_safe_default())
+}
+
+/// Like [`check_fence_status`] but takes an explicit config (for testing / callers
+/// that have already loaded config).
+pub fn check_fence_status_with(
+    project_dir: &Path,
+    cfg: &FenceConfig,
+) -> Result<FenceStatus, OpError> {
+    /// Maps a `FenceTarget` to its relative path string.
+    fn target_rel_path(target: FenceTarget) -> &'static str {
+        match target {
+            FenceTarget::Envforgeignore => ".envforgeignore",
+            FenceTarget::CursorIgnore => ".cursorignore",
+            FenceTarget::CursorRules => ".cursorrules",
+            FenceTarget::Copilot => ".github/copilot-instructions.md",
+            FenceTarget::ClaudeCode => ".claude/settings.json",
+        }
+    }
+
+    // Build status entries for enabled targets only.
+    let files: Vec<FenceFileStatus> = FenceTarget::all()
+        .into_iter()
+        .filter(|t| cfg.targets.is_enabled(*t))
+        .map(|t| check_file_status(project_dir, target_rel_path(t)))
+        .collect();
+
     let all_fenced = files.iter().all(|f| f.fenced);
     let unfenced: Vec<FenceFileStatus> = files.iter().filter(|f| !f.fenced).cloned().collect();
     let completeness = if all_fenced {
@@ -911,5 +1173,242 @@ mod tests {
         let content = std::fs::read_to_string(tmp.path().join(".cursorignore")).unwrap();
         assert!(content.contains("node_modules/"));
         assert!(content.contains(FENCE_MARKER));
+    }
+
+    // ─── FenceConfig / FenceTarget / Resolution Tests ──────────────
+
+    /// Absent config → all five targets enabled (NFR5 / AC3 from Story 1.1).
+    #[test]
+    fn test_fence_config_absent_all_enabled() {
+        let cfg = FenceConfig::default();
+        for target in FenceTarget::all() {
+            assert!(
+                cfg.targets.is_enabled(target),
+                "target {:?} should default to enabled",
+                target
+            );
+        }
+    }
+
+    /// Per-target skip: each target can be disabled individually.
+    /// Tests that exactly the disabled target is skipped and the other 4 are created.
+    #[test]
+    fn test_fence_config_skip_envforgeignore() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.envforgeignore = false;
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(
+            !tmp.path().join(".envforgeignore").exists(),
+            "disabled target must not be created"
+        );
+        // Other 4 created
+        assert_eq!(result.files_created.len(), 4);
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with(".envforgeignore")));
+    }
+
+    #[test]
+    fn test_fence_config_skip_cursor_ignore() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.cursor_ignore = false;
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(!tmp.path().join(".cursorignore").exists());
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with(".cursorignore")));
+    }
+
+    #[test]
+    fn test_fence_config_skip_cursor_rules() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.cursor_rules = false;
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(!tmp.path().join(".cursorrules").exists());
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with(".cursorrules")));
+    }
+
+    #[test]
+    fn test_fence_config_skip_copilot() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.copilot = false;
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(!tmp.path().join(".github/copilot-instructions.md").exists());
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with("copilot-instructions.md")));
+    }
+
+    #[test]
+    fn test_fence_config_skip_claude_code() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.claude_code = false;
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(!tmp.path().join(".claude/settings.json").exists());
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with("settings.json")));
+    }
+
+    /// Byte-identical default: no config → same 5 files as current behavior (NFR5).
+    #[test]
+    fn test_fence_config_default_byte_identical_output() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = FenceConfig::default();
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert_eq!(
+            result.files_created.len(),
+            5,
+            "default config must create all 5 files"
+        );
+        assert!(result.files_updated.is_empty());
+        // The skipped list should be empty (all enabled, fresh dir)
+        assert!(result.files_skipped.is_empty());
+    }
+
+    /// check_fence_status_with: disabled target does not make status Partial.
+    #[test]
+    fn test_check_fence_status_disabled_target_not_partial() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.copilot = false;
+
+        // Create fence without copilot
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+        let status = check_fence_status_with(tmp.path(), &cfg).unwrap();
+
+        // All enabled targets (4) should be fenced
+        assert!(
+            status.all_fenced,
+            "disabled target must not make status Partial"
+        );
+        assert!(matches!(status.completeness, FenceCompleteness::Complete));
+        // Only 4 entries (copilot excluded)
+        assert_eq!(status.files.len(), 4);
+    }
+
+    /// Stale disabled file must not flip status to Partial.
+    #[test]
+    fn test_check_fence_status_stale_disabled_file_not_partial() {
+        let tmp = TempDir::new().unwrap();
+
+        // Create an unfenced copilot file (stale) before configuring fence
+        let github_dir = tmp.path().join(".github");
+        std::fs::create_dir_all(&github_dir).unwrap();
+        std::fs::write(github_dir.join("copilot-instructions.md"), "# My docs\n").unwrap();
+
+        // Config: copilot disabled
+        let mut cfg = FenceConfig::default();
+        cfg.targets.copilot = false;
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let status = check_fence_status_with(tmp.path(), &cfg).unwrap();
+        assert!(
+            status.all_fenced,
+            "stale disabled file must not cause Partial status"
+        );
+    }
+
+    /// Enabled-missing target makes status Partial.
+    #[test]
+    fn test_check_fence_status_enabled_missing_is_partial() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = FenceConfig::default();
+        // Don't create any files; all enabled but none exist
+        let status = check_fence_status_with(tmp.path(), &cfg).unwrap();
+        assert!(!status.all_fenced);
+        assert!(matches!(status.completeness, FenceCompleteness::Partial(_)));
+    }
+
+    /// resolve_fence_targets: source is Default when all enabled.
+    #[test]
+    fn test_resolve_fence_targets_all_default() {
+        let cfg = FenceConfig::default();
+        let resolved = resolve_fence_targets(&cfg);
+        assert_eq!(resolved.len(), 5);
+        for r in &resolved {
+            assert!(r.enabled);
+            assert_eq!(r.source, ConfigSource::Default);
+        }
+    }
+
+    /// resolve_fence_targets: disabled target reports source=Global.
+    #[test]
+    fn test_resolve_fence_targets_disabled_is_global() {
+        let mut cfg = FenceConfig::default();
+        cfg.targets.claude_code = false;
+        let resolved = resolve_fence_targets(&cfg);
+        let claude = resolved
+            .iter()
+            .find(|r| r.target == FenceTarget::ClaudeCode)
+            .unwrap();
+        assert!(!claude.enabled);
+        assert_eq!(claude.source, ConfigSource::Global);
+    }
+
+    /// FenceTarget::all() returns all 5 distinct targets.
+    #[test]
+    fn test_fence_target_all_five_unique() {
+        let all = FenceTarget::all();
+        assert_eq!(all.len(), 5);
+        let strs: Vec<&str> = all.iter().map(|t| t.as_str()).collect();
+        let unique: std::collections::HashSet<_> = strs.iter().collect();
+        assert_eq!(unique.len(), 5, "all targets must have unique string IDs");
+    }
+
+    /// Story 1.5: remove_fence operates on all targets regardless of config.
+    #[test]
+    fn test_remove_fence_config_independent_cleans_disabled_target() {
+        let tmp = TempDir::new().unwrap();
+
+        // Create with all enabled first (simulating a prior full fence)
+        let full_cfg = FenceConfig::default();
+        create_fence_with(tmp.path(), false, &full_cfg).unwrap();
+
+        // Now disable copilot in config — but remove_fence must still clean it
+        let remove_result = super::remove_fence(tmp.path(), false).unwrap();
+        // copilot file should have been cleaned (it exists and has fence content)
+        assert!(
+            remove_result
+                .files_removed
+                .iter()
+                .chain(remove_result.files_updated.iter())
+                .any(|p| p.to_str().unwrap_or("").contains("copilot")),
+            "remove_fence must clean copilot even if config disables it"
+        );
+    }
+
+    /// is_enabled / set_enabled round-trip for each target.
+    #[test]
+    fn test_fence_targets_set_enabled_roundtrip() {
+        for target in FenceTarget::all() {
+            let mut targets = FenceTargets::default();
+            // Disable
+            targets.set_enabled(target, false);
+            assert!(
+                !targets.is_enabled(target),
+                "set_enabled false failed for {:?}",
+                target
+            );
+            // Re-enable
+            targets.set_enabled(target, true);
+            assert!(
+                targets.is_enabled(target),
+                "set_enabled true failed for {:?}",
+                target
+            );
+        }
     }
 }

@@ -117,6 +117,9 @@ pub struct App {
     pub fence_enabled: bool,
     /// Whether the first-run security setup has been completed
     pub first_run_completed: bool,
+    /// Resolved fence targets for the current config — shown read-only in the footer (FR16).
+    /// Populated once on construction; refreshed when the fence is toggled.
+    pub fence_resolved_targets: Vec<crate::ops::fence::ResolvedTarget>,
 }
 
 impl App {
@@ -192,6 +195,14 @@ impl App {
             }
         }
 
+        // Resolve fence targets once at startup for the read-only footer display (FR16).
+        let fence_resolved_targets = {
+            let fence_cfg = crate::config::load_or_create_default()
+                .map(|c| c.fence)
+                .unwrap_or_default();
+            crate::ops::fence::resolve_fence_targets(&fence_cfg)
+        };
+
         Ok(Self {
             entries,
             shell_files,
@@ -220,6 +231,7 @@ impl App {
             lifecycle_info: String::new(),
             fence_enabled: false,
             first_run_completed: false,
+            fence_resolved_targets,
         })
     }
 
@@ -775,6 +787,8 @@ impl App {
 
     fn toggle_fence(&mut self) {
         let cwd = std::env::current_dir().unwrap_or_default();
+        // Refresh the resolved target summary after any config-touching toggle (FR16).
+        self.refresh_fence_resolved_targets();
         if self.fence_enabled {
             match crate::ops::fence::remove_fence(&cwd, false) {
                 Ok(result) => {
@@ -810,6 +824,17 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Reload the resolved fence target list from config.
+    ///
+    /// Called after operations that may change config (toggle, first-run).
+    /// On any error the resolved list is reset to the all-enabled default.
+    pub fn refresh_fence_resolved_targets(&mut self) {
+        let fence_cfg = crate::config::load_or_create_default()
+            .map(|c| c.fence)
+            .unwrap_or_default();
+        self.fence_resolved_targets = crate::ops::fence::resolve_fence_targets(&fence_cfg);
     }
 
     fn handle_import_key(&mut self, key: KeyEvent) {

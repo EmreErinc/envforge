@@ -145,6 +145,7 @@ pub fn run_wizard() -> Result<bool, Box<dyn std::error::Error>> {
         clipboard: ClipboardConfig::default(),
         lifecycle: LifecycleConfig::default(),
         analytics: crate::model::AnalyticsConfig::default(),
+        fence: crate::config::FenceConfig::default(),
     };
 
     let config_path = config_file_path().map_err(|e| format!("Config path error: {}", e))?;

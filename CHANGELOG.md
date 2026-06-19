@@ -77,6 +77,32 @@ grounded in a 2026 best-practice audit + code re-validation (`docs/security-audi
 - **`get` emits a reveal audit event only on actual cleartext disclosure (L11).** A masked
   default read no longer fires a (now `Warn`) reveal event.
 
+### Added — Configurable fence targets (Epic 3)
+
+- **Per-target fence configuration.** Each of the five AI-tool fence targets
+  (`envforgeignore`, `cursor_ignore`, `cursor_rules`, `copilot`, `claude_code`) can now be
+  individually enabled or disabled via `[fence.targets]` in the global config. Absent keys
+  default to `true` (fail-safe); an unknown key is rejected at parse time (deny_unknown_fields).
+- **`envforge fence config` CLI subcommand.** `--list` shows resolved state with source
+  (`default` / `global`); `--enable TARGET` / `--disable TARGET` persist changes; `--json`
+  for machine-readable output. All five canonical snake_case target IDs accepted.
+- **Aggregate-fenced-state semantic change (behavior change for status consumers).**
+  `check_fence_status` / `all_fenced` are now relative to the *enabled* target set only.
+  A disabled target's stale file on disk does not make the fence `Partial`. Plugin status
+  bars and any tooling that reads `all_fenced` from `envforge fence --status --json` should
+  note this change: previously any missing file triggered `false`; now only missing *enabled*
+  targets do.
+- **LSP `envforge.fence.config` named command.** Returns `[{target, enabled, source}]` for
+  the resolved config. `envforge.fence.status` response now includes `resolved_targets`
+  alongside the existing `files`, `all_fenced`, and `completeness` fields. Both commands
+  follow the stable `{ok, result|error}` contract; `envforge.fence.config` requires
+  `workspace_root` and returns an error if absent.
+- **TUI read-only target summary.** When the fence is on, the footer now shows a compact
+  summary next to `[fence:on]`, e.g. `fence: cursor_ignore,copilot (2/5)`, derived from
+  the resolved config. No new popup or key handler; the `F` key is unchanged.
+- **2,507 tests passing** (up from 2,501; +6 new tests across fence_config_tests.rs and
+  lsp_phase1_tests.rs).
+
 ## [0.8.2] - 2026-06-16
 
 ### Fixed

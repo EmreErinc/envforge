@@ -12,8 +12,8 @@ use crate::ops::*;
 use crate::parser::*;
 
 use super::{
-    AiHookAction, BackupAction, Commands, LeaseAction, McpAction, ProjectAction, ProjectEnvAction,
-    SessionAction, ShareAction, SnapshotAction,
+    AiHookAction, BackupAction, Commands, FenceAction, FenceConfigArgs, LeaseAction, McpAction,
+    ProjectAction, ProjectEnvAction, SessionAction, ShareAction, SnapshotAction,
 };
 
 /// Execute a CLI subcommand.
@@ -204,8 +204,14 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             reveal,
         } => cmd_search(query, json, *fuzzy, *reveal),
         Commands::Exposure { file } => cmd_exposure(file),
-        Commands::Fence { status, disable } => {
-            if *status {
+        Commands::Fence {
+            status,
+            disable,
+            action,
+        } => {
+            if let Some(FenceAction::Config(args)) = action {
+                cmd_fence_config(args, json)
+            } else if *status {
                 cmd_fence_status(json)
             } else if *disable {
                 cmd_fence_disable(dry_run)
@@ -4195,6 +4201,100 @@ fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    Ok(())
+}
+
+/// Dispatch `envforge fence config [--list | enable <target> | disable <target>] [--json]`.
+fn cmd_fence_config(args: &FenceConfigArgs, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    // Determine mode: enable/disable mutations take priority; otherwise list.
+    if let Some(target) = args.enable {
+        cmd_fence_config_enable(target)
+    } else if let Some(target) = args.disable {
+        cmd_fence_config_disable(target)
+    } else {
+        // --list (or bare `fence config` with no flags)
+        cmd_fence_config_list(json)
+    }
+}
+
+fn cmd_fence_config_list(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::config::load_or_create_default;
+    use crate::ops::fence::resolve_fence_targets;
+
+    let cfg = load_or_create_default().map_err(|e| e.to_string())?;
+    let resolved = resolve_fence_targets(&cfg.fence);
+
+    if json {
+        let items: Vec<serde_json::Value> = resolved
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "target": r.target.as_str(),
+                    "enabled": r.enabled,
+                    "source": match r.source {
+                        crate::ops::fence::ConfigSource::Default => "default",
+                        crate::ops::fence::ConfigSource::Global => "global",
+                    },
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&items)?);
+    } else {
+        println!("Fence Target Configuration\n");
+        println!("{:<20} {:<10} SOURCE", "TARGET", "ENABLED");
+        println!("{}", "-".repeat(42));
+        for r in &resolved {
+            let state = if r.enabled { "enabled" } else { "disabled" };
+            let source = match r.source {
+                crate::ops::fence::ConfigSource::Default => "default",
+                crate::ops::fence::ConfigSource::Global => "global",
+            };
+            let state_colored = if r.enabled {
+                format!("\x1b[32m{state}\x1b[0m")
+            } else {
+                format!("\x1b[31m{state}\x1b[0m")
+            };
+            println!(
+                "{:<20} {:<10} ({})",
+                r.target.as_str(),
+                state_colored,
+                source
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_fence_config_enable(
+    target: crate::ops::fence::FenceTarget,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::config::{config_file_path, load_or_create_default, save_config};
+
+    let mut cfg = load_or_create_default().map_err(|e| e.to_string())?;
+    cfg.fence.targets.set_enabled(target, true);
+    let path = config_file_path().map_err(|e| e.to_string())?;
+    save_config(&cfg, &path).map_err(|e| e.to_string())?;
+    println!(
+        "\x1b[32m\u{2713}\x1b[0m Fence target '{}' enabled.",
+        target.as_str()
+    );
+    Ok(())
+}
+
+fn cmd_fence_config_disable(
+    target: crate::ops::fence::FenceTarget,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::config::{config_file_path, load_or_create_default, save_config};
+
+    let mut cfg = load_or_create_default().map_err(|e| e.to_string())?;
+    cfg.fence.targets.set_enabled(target, false);
+    let path = config_file_path().map_err(|e| e.to_string())?;
+    save_config(&cfg, &path).map_err(|e| e.to_string())?;
+    println!(
+        "\x1b[31m\u{2717}\x1b[0m Fence target '{}' disabled.",
+        target.as_str()
+    );
     Ok(())
 }
 

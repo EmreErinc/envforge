@@ -182,31 +182,34 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | IntelliJ render | Tints via lsp4ij semantic highlighting bridge to JetBrains color scheme |
 | Test IDs | `test_semantic_tokens_emits_key_value_comment`, `test_semantic_tokens_marks_sensitive_keys_readonly`, `test_semantic_tokens_delta_encoding_first_token_absolute`, `test_semantic_tokens_delta_encoding_subsequent_token_same_line`, `test_semantic_tokens_delta_encoding_new_line_resets_start`, `test_semantic_tokens_uses_schema_sensitive_flag`, `test_semantic_tokens_skip_blank_and_other_lines` |
 
-### C3 — Workspace executeCommand (fence enable / status)
+### C3 — Workspace executeCommand (fence enable / status / config)
 
 | Field | Value |
 |---|---|
 | LSP method | `workspace/executeCommand` |
 | Capability | `execute_command_provider` advertises `SUPPORTED_COMMANDS` legend in `initialize` |
-| Command set | `envforge.fence.enable` (calls `ops::fence::create_fence`), `envforge.fence.disable` (calls `ops::fence::remove_fence` — strips envforge-owned content, preserves user content), `envforge.fence.toggle` (probes status, flips direction; returns `{"action": "enabled"\|"disabled"}`), `envforge.fence.status` (calls `ops::fence::check_fence_status`) |
+| Command set | `envforge.fence.enable` (calls `ops::fence::create_fence`), `envforge.fence.disable` (calls `ops::fence::remove_fence` — strips envforge-owned content, preserves user content), `envforge.fence.toggle` (probes status, flips direction; returns `{"action": "enabled"\|"disabled"}`), `envforge.fence.status` (calls `ops::fence::check_fence_status`), `envforge.fence.config` (returns resolved per-target config as `[{target, enabled, source}]`) |
 | Return shape | `{ "ok": true, "result": <payload> }` on success, `{ "ok": false, "error": "<msg>" }` on failure. Stable JSON contract so plugins don't depend on internal Rust types. |
+| `envforge.fence.config` result | Array of 5 objects: `[{ "target": "<snake_case_id>", "enabled": <bool>, "source": "default"\|"global" }]`. Ordered by `FenceTarget::all()` canonical order. `workspace_root` required; returns error if absent. |
+| `envforge.fence.status` result (v0.8.3+) | Includes `resolved_targets` field alongside existing `files`, `all_fenced`, `completeness` — same shape as `fence.config` result. `all_fenced` is now relative to the *enabled* target set only (behavior change from v0.8.2 and earlier). |
 | Workspace root | Derived from `Backend.workspace_root` (set in `initialize`); commands that touch the filesystem fail with `"workspace root not available"` if absent. |
 | Unknown command | Returns `{ "ok": false, "error": "unknown command: <id>" }` rather than throwing — keeps clients robust. |
-| Test IDs | `test_command_dispatch_unknown_command_returns_error`, `test_command_dispatch_fence_enable_requires_workspace_root`, `test_command_dispatch_fence_status_requires_workspace_root`, `test_command_dispatch_fence_enable_writes_fence_files`, `test_command_dispatch_fence_status_reflects_freshly_enabled_state`, `test_command_dispatch_fence_status_clean_dir_not_all_fenced` |
+| Test IDs | `test_command_dispatch_unknown_command_returns_error`, `test_command_dispatch_fence_enable_requires_workspace_root`, `test_command_dispatch_fence_status_requires_workspace_root`, `test_command_dispatch_fence_enable_writes_fence_files`, `test_command_dispatch_fence_status_reflects_freshly_enabled_state`, `test_command_dispatch_fence_status_clean_dir_not_all_fenced`, `test_command_dispatch_fence_config_requires_workspace_root`, `test_command_dispatch_fence_config_returns_target_array`, `test_command_dispatch_fence_config_default_all_enabled`, `test_command_dispatch_fence_status_includes_resolved_targets`, `test_command_dispatch_fence_config_parity_with_fence_status`, `test_command_dispatch_unknown_fence_variant_still_rejected` |
 
 ### P1+P2 — Status bar fence indicator + toggle
 
 | Field | Value |
 |---|---|
 | Trigger | Always-on status bar item; click fires `envforge.fence.toggle` (VS Code) or "Tools > EnvForge > Toggle Fence" (IntelliJ) |
-| Data source | Both plugins shell out to `envforge fence --status --json` and read `all_fenced` boolean. Plugins cache + refresh every 30 s. |
+| Data source | Both plugins shell out to `envforge fence --status --json` and read `all_fenced` boolean. Plugins cache + refresh every 30 s. `all_fenced` is relative to the *enabled* target set (v0.8.3+): a disabled target's stale file does not flip `all_fenced` to `false`. |
+| Tooltip (v0.8.3+) | Tooltip now lists the active fence targets from `resolved_targets` in the `fence.status` response (e.g. "cursor_ignore, copilot (2/5)"). Plugins should read `result.resolved_targets` from `envforge.fence.status` or call `envforge.fence.config` to populate the tooltip. |
 | Render — fenced | `$(shield) AI BLOCKED` (VS Code) / `… · AI BLOCKED` (IntelliJ widget text). VS Code uses warning-tinted background. |
 | Render — unfenced | `$(shield) AI ALLOWED` (VS Code) / `… · AI ALLOWED` (IntelliJ). Plain background. |
 | Render — unknown | Hidden (don't misrepresent fence state) |
 | VS Code wiring | New `envforge.fence.toggle` VSCode command in `commands.ts`: confirms via modal, sends `workspace/executeCommand` with `envforge.fence.enable`, refreshes status bar. Registered in `package.json` `contributes.commands`. |
 | IntelliJ wiring | `EnvForgeStatusWidget` extended to compose `<N> vars · AI BLOCKED/ALLOWED`. Refresh moved off the UI thread (`executeOnPooledThread`). Existing `ToggleFenceAction` in Tools menu serves as the toggle action surface. |
-| Toggle behavior | Click probes `envforge.fence.status`; calls `envforge.fence.toggle` which flips direction. User content in `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json` is preserved when fence is disabled; envforge-owned blocks are stripped surgically. `.envforgeignore` is fully envforge-owned and deleted on disable. |
-| CLI parity | `envforge fence` enables; `envforge fence --disable` disables; `envforge fence --status [--json]` reads state. |
+| Toggle behavior | Click probes `envforge.fence.status`; calls `envforge.fence.toggle` which flips direction. User content in `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json` is preserved when fence is disabled; envforge-owned blocks are stripped surgically. `.envforgeignore` is fully envforge-owned and deleted on disable. Only *enabled* targets are written on enable. |
+| CLI parity | `envforge fence` enables; `envforge fence --disable` disables; `envforge fence --status [--json]` reads state; `envforge fence config [--list\|--enable\|--disable TARGET\|--json]` manages per-target config. |
 | VS Code tests | Manual smoke in both IDEs. LSP-side coverage via the C3 test IDs above. |
 
 ### L6 — Code actions (expanded quick-fix set)

@@ -2462,6 +2462,149 @@ fn test_command_dispatch_fence_status_clean_dir_not_all_fenced() {
     );
 }
 
+// ─── Story 3.3: envforge.fence.config dispatch tests ──────────────────────────
+
+/// fence.config requires workspace root — no-root path returns an error (AC1/AC3).
+#[cfg(feature = "dangerous-execute-command")]
+#[test]
+fn test_command_dispatch_fence_config_requires_workspace_root() {
+    let result = commands::dispatch_command("envforge.fence.config", &[], None);
+    assert_eq!(
+        result["ok"],
+        serde_json::Value::Bool(false),
+        "fence.config without workspace root must return ok:false"
+    );
+    assert!(
+        result["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("workspace root"),
+        "error must mention workspace root"
+    );
+}
+
+/// fence.config returns ok:true with a result array of 5 target entries (AC1).
+#[cfg(feature = "dangerous-execute-command")]
+#[test]
+fn test_command_dispatch_fence_config_returns_target_array() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let result = commands::dispatch_command("envforge.fence.config", &[], Some(tmp.path()));
+    assert_eq!(
+        result["ok"],
+        serde_json::Value::Bool(true),
+        "fence.config must succeed: {:?}",
+        result
+    );
+    let arr = result["result"]
+        .as_array()
+        .expect("result must be an array of target entries");
+    assert_eq!(arr.len(), 5, "must have exactly 5 target entries");
+    // Each entry must have target, enabled, source fields
+    for entry in arr {
+        assert!(entry.get("target").is_some(), "entry missing 'target'");
+        assert!(entry.get("enabled").is_some(), "entry missing 'enabled'");
+        assert!(entry.get("source").is_some(), "entry missing 'source'");
+    }
+}
+
+/// fence.config default config → all five targets enabled (AC1 / NFR10).
+#[cfg(feature = "dangerous-execute-command")]
+#[test]
+fn test_command_dispatch_fence_config_default_all_enabled() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let result = commands::dispatch_command("envforge.fence.config", &[], Some(tmp.path()));
+    assert_eq!(result["ok"], serde_json::Value::Bool(true));
+    let arr = result["result"].as_array().unwrap();
+    for entry in arr {
+        assert_eq!(
+            entry["enabled"],
+            serde_json::Value::Bool(true),
+            "default config: all targets must be enabled, got: {:?}",
+            entry
+        );
+    }
+}
+
+/// fence.status now includes resolved_targets in its response (AC2 / FR17).
+#[cfg(feature = "dangerous-execute-command")]
+#[test]
+fn test_command_dispatch_fence_status_includes_resolved_targets() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let status = commands::dispatch_command("envforge.fence.status", &[], Some(tmp.path()));
+    assert_eq!(status["ok"], serde_json::Value::Bool(true));
+    let resolved = status["result"]
+        .get("resolved_targets")
+        .and_then(|v| v.as_array())
+        .expect("fence.status result must include resolved_targets array");
+    assert_eq!(
+        resolved.len(),
+        5,
+        "resolved_targets must list all 5 targets"
+    );
+    // Each item must carry target + enabled + source
+    for entry in resolved {
+        assert!(
+            entry.get("target").is_some(),
+            "missing 'target' in resolved_targets entry"
+        );
+        assert!(entry.get("enabled").is_some(), "missing 'enabled'");
+        assert!(entry.get("source").is_some(), "missing 'source'");
+    }
+}
+
+/// fence.config returns the same enabled-set as create_fence uses (FR15 parity).
+/// This is the cross-surface parity assertion from Story 3.1 AC2.
+#[cfg(feature = "dangerous-execute-command")]
+#[test]
+fn test_command_dispatch_fence_config_parity_with_fence_status() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let cfg_result = commands::dispatch_command("envforge.fence.config", &[], Some(tmp.path()));
+    let status_result = commands::dispatch_command("envforge.fence.status", &[], Some(tmp.path()));
+    assert_eq!(cfg_result["ok"], serde_json::Value::Bool(true));
+    assert_eq!(status_result["ok"], serde_json::Value::Bool(true));
+
+    let cfg_targets = cfg_result["result"].as_array().unwrap();
+    let status_targets = status_result["result"]["resolved_targets"]
+        .as_array()
+        .unwrap();
+
+    // Same set, same order
+    assert_eq!(
+        cfg_targets.len(),
+        status_targets.len(),
+        "fence.config and fence.status resolved_targets must have same length"
+    );
+    for (c, s) in cfg_targets.iter().zip(status_targets.iter()) {
+        assert_eq!(
+            c["target"], s["target"],
+            "target name mismatch between fence.config and fence.status"
+        );
+        assert_eq!(
+            c["enabled"], s["enabled"],
+            "enabled mismatch for target {:?}",
+            c["target"]
+        );
+    }
+}
+
+/// Generic executeCommand with fence.config as if it were an unknown command
+/// must NOT regress — fence.config is a NAMED command and unknown names still
+/// return error (AC3 / no re-opening of generic endpoint).
+#[cfg(feature = "dangerous-execute-command")]
+#[test]
+fn test_command_dispatch_unknown_fence_variant_still_rejected() {
+    let result = commands::dispatch_command("envforge.fence.configure", &[], None);
+    assert_eq!(
+        result["ok"],
+        serde_json::Value::Bool(false),
+        "typo 'fence.configure' must be rejected as unknown"
+    );
+    assert!(result["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("unknown command"));
+}
+
 const READONLY_BIT: u32 = 1 << 0;
 const TYPE_VARIABLE_IDX: u32 = 0;
 const TYPE_STRING_IDX: u32 = 1;

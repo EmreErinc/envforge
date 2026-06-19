@@ -504,6 +504,9 @@ pub enum Commands {
         /// Remove envforge-owned fence content (preserves user content)
         #[arg(long, conflicts_with = "status")]
         disable: bool,
+        /// Fence configuration management
+        #[command(subcommand)]
+        action: Option<FenceAction>,
     },
 
     /// Compute AI-exposure classification for an .env file (red/amber/green per line)
@@ -877,6 +880,30 @@ pub enum McpAction {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+}
+
+/// Sub-actions for `envforge fence`.
+#[derive(Subcommand)]
+pub enum FenceAction {
+    /// Manage fence target configuration
+    Config(FenceConfigArgs),
+}
+
+/// Arguments for `envforge fence config`.
+#[derive(clap::Args)]
+pub struct FenceConfigArgs {
+    /// List all targets with their current enabled state and source
+    #[arg(long)]
+    pub list: bool,
+    /// Enable a fence target and persist to global config
+    #[arg(long, value_name = "TARGET")]
+    pub enable: Option<crate::ops::fence::FenceTarget>,
+    /// Disable a fence target and persist to global config
+    #[arg(long, value_name = "TARGET", conflicts_with = "enable")]
+    pub disable: Option<crate::ops::fence::FenceTarget>,
+    /// Output as JSON array `[{target, enabled, source}]`
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Subcommand)]
