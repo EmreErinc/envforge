@@ -25,21 +25,25 @@ fn isolated_config_dir() -> (tempfile::TempDir, PathBuf) {
 #[test]
 fn test_fence_config_default_all_true() {
     let cfg = FenceConfig::default();
-    assert!(cfg.targets.envforgeignore);
-    assert!(cfg.targets.cursor_ignore);
-    assert!(cfg.targets.cursor_rules);
-    assert!(cfg.targets.copilot);
-    assert!(cfg.targets.claude_code);
+    for t in FenceTarget::all() {
+        assert!(
+            cfg.targets.is_enabled(t),
+            "target {:?} must default to enabled",
+            t
+        );
+    }
 }
 
 #[test]
 fn test_fence_targets_default_all_true() {
-    let t = FenceTargets::default();
-    assert!(t.envforgeignore);
-    assert!(t.cursor_ignore);
-    assert!(t.cursor_rules);
-    assert!(t.copilot);
-    assert!(t.claude_code);
+    let targets = FenceTargets::default();
+    for t in FenceTarget::all() {
+        assert!(
+            targets.is_enabled(t),
+            "target {:?} must default to enabled",
+            t
+        );
+    }
 }
 
 /// Absent `[fence]` section → all targets enabled.
@@ -66,11 +70,13 @@ markers = []
 "#;
     std::fs::write(&path, toml_content).unwrap();
     let cfg = load_config(&path).unwrap();
-    assert!(cfg.fence.targets.envforgeignore);
-    assert!(cfg.fence.targets.cursor_ignore);
-    assert!(cfg.fence.targets.cursor_rules);
-    assert!(cfg.fence.targets.copilot);
-    assert!(cfg.fence.targets.claude_code);
+    for t in FenceTarget::all() {
+        assert!(
+            cfg.fence.targets.is_enabled(t),
+            "target {:?} must be enabled when [fence] section absent",
+            t
+        );
+    }
 }
 
 /// Absent single key within `[fence.targets]` → that target defaults to true.
@@ -100,12 +106,12 @@ claude_code = false
     std::fs::write(&path, toml_content).unwrap();
     let cfg = load_config(&path).unwrap();
     // Explicitly set field
-    assert!(!cfg.fence.targets.claude_code);
+    assert!(!cfg.fence.targets.is_enabled(FenceTarget::ClaudeCode));
     // All other targets default to true
-    assert!(cfg.fence.targets.envforgeignore);
-    assert!(cfg.fence.targets.cursor_ignore);
-    assert!(cfg.fence.targets.cursor_rules);
-    assert!(cfg.fence.targets.copilot);
+    assert!(cfg.fence.targets.is_enabled(FenceTarget::Envforgeignore));
+    assert!(cfg.fence.targets.is_enabled(FenceTarget::CursorIgnore));
+    assert!(cfg.fence.targets.is_enabled(FenceTarget::CursorRules));
+    assert!(cfg.fence.targets.is_enabled(FenceTarget::Copilot));
 }
 
 /// deny_unknown_fields: unknown key in [fence.targets] → parse error (FR5).
@@ -159,18 +165,21 @@ fn test_fence_config_roundtrip_preserves_other_sections() {
     let (_dir, path) = isolated_config_dir();
 
     let mut config = AppConfig::default();
-    config.fence.targets.copilot = false;
+    config
+        .fence
+        .targets
+        .set_enabled(FenceTarget::Copilot, false);
     config.general.default_shell = "bash".to_string();
 
     save_config(&config, &path).unwrap();
     let loaded = load_config(&path).unwrap();
 
     // fence config preserved
-    assert!(!loaded.fence.targets.copilot);
-    assert!(loaded.fence.targets.envforgeignore);
-    assert!(loaded.fence.targets.cursor_ignore);
-    assert!(loaded.fence.targets.cursor_rules);
-    assert!(loaded.fence.targets.claude_code);
+    assert!(!loaded.fence.targets.is_enabled(FenceTarget::Copilot));
+    assert!(loaded.fence.targets.is_enabled(FenceTarget::Envforgeignore));
+    assert!(loaded.fence.targets.is_enabled(FenceTarget::CursorIgnore));
+    assert!(loaded.fence.targets.is_enabled(FenceTarget::CursorRules));
+    assert!(loaded.fence.targets.is_enabled(FenceTarget::ClaudeCode));
 
     // Unrelated section preserved
     assert_eq!(loaded.general.default_shell, "bash");
@@ -191,18 +200,24 @@ fn test_fence_config_disable_persists() {
 
     // Reload and disable claude_code
     let mut loaded = load_config(&path).unwrap();
-    loaded.fence.targets.claude_code = false;
+    loaded
+        .fence
+        .targets
+        .set_enabled(FenceTarget::ClaudeCode, false);
     save_config(&loaded, &path).unwrap();
 
     // Reload again — change persists
     let reloaded = load_config(&path).unwrap();
     assert!(
-        !reloaded.fence.targets.claude_code,
+        !reloaded.fence.targets.is_enabled(FenceTarget::ClaudeCode),
         "disabled state must persist after save/load"
     );
     // Other fields unaffected
-    assert!(reloaded.fence.targets.envforgeignore);
-    assert!(reloaded.fence.targets.cursor_ignore);
+    assert!(reloaded
+        .fence
+        .targets
+        .is_enabled(FenceTarget::Envforgeignore));
+    assert!(reloaded.fence.targets.is_enabled(FenceTarget::CursorIgnore));
 }
 
 /// Enable after disable: persisted true.
@@ -211,17 +226,23 @@ fn test_fence_config_enable_after_disable_persists() {
     let (_dir, path) = isolated_config_dir();
 
     let mut config = AppConfig::default();
-    config.fence.targets.cursor_rules = false;
+    config
+        .fence
+        .targets
+        .set_enabled(FenceTarget::CursorRules, false);
     save_config(&config, &path).unwrap();
 
     // Re-enable
     let mut loaded = load_config(&path).unwrap();
-    loaded.fence.targets.cursor_rules = true;
+    loaded
+        .fence
+        .targets
+        .set_enabled(FenceTarget::CursorRules, true);
     save_config(&loaded, &path).unwrap();
 
     let reloaded = load_config(&path).unwrap();
     assert!(
-        reloaded.fence.targets.cursor_rules,
+        reloaded.fence.targets.is_enabled(FenceTarget::CursorRules),
         "re-enabled state must persist"
     );
 }
@@ -237,13 +258,16 @@ fn test_fence_config_toggle_preserves_unrelated_sections() {
     save_config(&config, &path).unwrap();
 
     let mut loaded = load_config(&path).unwrap();
-    loaded.fence.targets.copilot = false;
+    loaded
+        .fence
+        .targets
+        .set_enabled(FenceTarget::Copilot, false);
     save_config(&loaded, &path).unwrap();
 
     let reloaded = load_config(&path).unwrap();
     assert_eq!(reloaded.general.default_shell, "fish");
     assert_eq!(reloaded.lifecycle.default_stale_threshold_days, 42);
-    assert!(!reloaded.fence.targets.copilot);
+    assert!(!reloaded.fence.targets.is_enabled(FenceTarget::Copilot));
 }
 
 // ─── FenceTarget enum sanity checks ────────────────────────────────────────
@@ -254,7 +278,7 @@ fn test_fence_target_as_str_unique_and_snake_case() {
     let strs: Vec<&str> = all.iter().map(|t| t.as_str()).collect();
     // All unique
     let set: std::collections::HashSet<_> = strs.iter().collect();
-    assert_eq!(set.len(), 5);
+    assert_eq!(set.len(), all.len());
     // All snake_case (no uppercase, no hyphens)
     for s in &strs {
         assert!(
@@ -355,7 +379,7 @@ fn test_cli_fence_disable_claude_code() {
     assert_eq!(target, FenceTarget::ClaudeCode);
 }
 
-/// All five canonical snake_case IDs must parse via --enable.
+/// All canonical snake_case IDs must parse via --enable.
 #[test]
 fn test_cli_fence_enable_all_five() {
     let cases = [
@@ -364,11 +388,40 @@ fn test_cli_fence_enable_all_five() {
         ("cursor_rules", FenceTarget::CursorRules),
         ("copilot", FenceTarget::Copilot),
         ("claude_code", FenceTarget::ClaudeCode),
+        ("windsurf", FenceTarget::Windsurf),
+        ("cline", FenceTarget::Cline),
+        ("aider", FenceTarget::Aider),
+        ("gemini", FenceTarget::Gemini),
     ];
     for (id, expected) in cases {
         let got = parse_fence_enable(id).unwrap_or_else(|e| panic!("{id} must parse: {e}"));
         assert_eq!(got, expected, "enable {id} mapped to wrong variant");
     }
+}
+
+/// New tool IDs must parse via --disable (Story 1.3).
+#[test]
+fn test_cli_fence_disable_windsurf() {
+    let target = parse_fence_disable("windsurf").expect("windsurf must parse");
+    assert_eq!(target, FenceTarget::Windsurf);
+}
+
+#[test]
+fn test_cli_fence_disable_cline() {
+    let target = parse_fence_disable("cline").expect("cline must parse");
+    assert_eq!(target, FenceTarget::Cline);
+}
+
+#[test]
+fn test_cli_fence_disable_aider() {
+    let target = parse_fence_disable("aider").expect("aider must parse");
+    assert_eq!(target, FenceTarget::Aider);
+}
+
+#[test]
+fn test_cli_fence_disable_gemini() {
+    let target = parse_fence_disable("gemini").expect("gemini must parse");
+    assert_eq!(target, FenceTarget::Gemini);
 }
 
 /// Kebab-case IDs must be REJECTED (would have been accepted before the fix).
@@ -412,7 +465,7 @@ fn test_cli_lsp_parity_disabled_target_identical_enabled_set() {
 
     // Build config with claude_code disabled
     let mut cfg = FenceConfig::default();
-    cfg.targets.claude_code = false;
+    cfg.targets.set_enabled(FenceTarget::ClaudeCode, false);
 
     // CLI path: create_fence_with respects the config
     let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
@@ -429,9 +482,18 @@ fn test_cli_lsp_parity_disabled_target_identical_enabled_set() {
     );
     // No other target path should be in skipped (only the disabled one)
     let created_and_updated = result.files_created.len() + result.files_updated.len();
+    // Total files across all targets minus claude_code's 1 file
+    let total_files: usize = envforge::ops::fence::registry::REGISTRY
+        .iter()
+        .map(|s| s.files.len())
+        .sum();
+    let claude_files = envforge::ops::fence::registry::spec_for(FenceTarget::ClaudeCode)
+        .files
+        .len();
     assert_eq!(
-        created_and_updated, 4,
-        "cli path must write exactly 4 enabled targets"
+        created_and_updated,
+        total_files - claude_files,
+        "cli path must write all files for enabled targets"
     );
 
     // LSP path: resolve_fence_targets returns the same enabled set
@@ -443,8 +505,8 @@ fn test_cli_lsp_parity_disabled_target_identical_enabled_set() {
         .collect();
     assert_eq!(
         enabled_targets.len(),
-        4,
-        "lsp path must resolve 4 enabled targets"
+        FenceTarget::all().len() - 1,
+        "lsp path must resolve all-but-one enabled targets"
     );
     assert!(
         !enabled_targets.contains(&FenceTarget::ClaudeCode),
@@ -461,20 +523,22 @@ fn test_cli_lsp_parity_disabled_target_identical_enabled_set() {
     );
 }
 
-/// Default config → CLI and LSP paths both write/report 5 targets (byte-identity path).
+/// Default config → CLI and LSP paths both write/report all targets (byte-identity path).
 #[test]
 fn test_cli_lsp_parity_default_config_five_targets() {
     use envforge::config::FenceConfig;
-    use envforge::ops::fence::{create_fence_with, resolve_fence_targets};
+    use envforge::ops::fence::registry;
+    use envforge::ops::fence::{create_fence_with, resolve_fence_targets, FenceTarget};
 
     let tmp = tempfile::TempDir::new().unwrap();
     let cfg = FenceConfig::default();
 
     let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+    let expected_files: usize = registry::REGISTRY.iter().map(|s| s.files.len()).sum();
     assert_eq!(
         result.files_created.len(),
-        5,
-        "cli path must create all 5 files on default config"
+        expected_files,
+        "cli path must create all registry files on default config"
     );
     assert!(
         result.files_skipped.is_empty(),
@@ -484,8 +548,9 @@ fn test_cli_lsp_parity_default_config_five_targets() {
     let resolved = resolve_fence_targets(&cfg);
     let enabled_count = resolved.iter().filter(|r| r.enabled).count();
     assert_eq!(
-        enabled_count, 5,
-        "lsp path must report 5 enabled targets on default config"
+        enabled_count,
+        FenceTarget::all().len(),
+        "lsp path must report all targets enabled on default config"
     );
 }
 
@@ -494,26 +559,37 @@ fn test_cli_lsp_parity_default_config_five_targets() {
 #[test]
 fn test_fence_target_summary_all_enabled() {
     use envforge::config::FenceConfig;
-    use envforge::ops::fence::{fence_target_summary, resolve_fence_targets};
+    use envforge::ops::fence::{fence_target_summary, resolve_fence_targets, FenceTarget};
 
     let cfg = FenceConfig::default();
     let resolved = resolve_fence_targets(&cfg);
     let s = fence_target_summary(&resolved);
-    assert!(s.contains("5/5"), "all-enabled must show (5/5): got '{s}'");
+    let total = FenceTarget::all().len();
+    let expected = format!("{total}/{total}");
+    assert!(
+        s.contains(&expected),
+        "all-enabled must show ({expected}): got '{s}'"
+    );
     assert!(!s.contains("none"), "all-enabled must not say none");
 }
 
 #[test]
 fn test_fence_target_summary_subset_enabled() {
     use envforge::config::FenceConfig;
-    use envforge::ops::fence::{fence_target_summary, resolve_fence_targets};
+    use envforge::ops::fence::{fence_target_summary, resolve_fence_targets, FenceTarget};
 
     let mut cfg = FenceConfig::default();
-    cfg.targets.copilot = false;
-    cfg.targets.claude_code = false;
+    cfg.targets.set_enabled(FenceTarget::Copilot, false);
+    cfg.targets.set_enabled(FenceTarget::ClaudeCode, false);
     let resolved = resolve_fence_targets(&cfg);
     let s = fence_target_summary(&resolved);
-    assert!(s.contains("3/5"), "two disabled → (3/5): got '{s}'");
+    let total = FenceTarget::all().len(); // 9
+    let enabled = total - 2; // 7
+    let expected = format!("{enabled}/{total}");
+    assert!(
+        s.contains(&expected),
+        "two disabled → ({expected}): got '{s}'"
+    );
     // Must list enabled target names
     assert!(
         s.contains("envforgeignore") || s.contains("cursor"),
@@ -524,19 +600,20 @@ fn test_fence_target_summary_subset_enabled() {
 #[test]
 fn test_fence_target_summary_none_enabled() {
     use envforge::config::{FenceConfig, FenceTargets};
-    use envforge::ops::fence::{fence_target_summary, resolve_fence_targets};
+    use envforge::ops::fence::{fence_target_summary, resolve_fence_targets, FenceTarget};
 
-    let cfg = FenceConfig {
-        targets: FenceTargets {
-            envforgeignore: false,
-            cursor_ignore: false,
-            cursor_rules: false,
-            copilot: false,
-            claude_code: false,
-        },
-    };
+    let mut targets = FenceTargets::default();
+    for t in FenceTarget::all() {
+        targets.set_enabled(t, false);
+    }
+    let cfg = FenceConfig { targets };
     let resolved = resolve_fence_targets(&cfg);
     let s = fence_target_summary(&resolved);
+    let total = FenceTarget::all().len();
+    let expected_none = format!("0/{total}");
     assert!(s.contains("none"), "all-disabled must say none: got '{s}'");
-    assert!(s.contains("0/5"), "all-disabled must show (0/5): got '{s}'");
+    assert!(
+        s.contains(&expected_none),
+        "all-disabled must show (0/{total}): got '{s}'"
+    );
 }

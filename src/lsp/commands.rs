@@ -60,6 +60,7 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
                         "files_created": result.files_created.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
                         "files_updated": result.files_updated.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
                         "files_skipped": result.files_skipped.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                        "files_failed": result.files_failed.iter().map(|(p, e)| json!({"path": p.display().to_string(), "error": e})).collect::<Vec<_>>(),
                     })),
                     Err(e) => err(format!("create_fence failed: {}", e)),
                 }

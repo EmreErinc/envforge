@@ -120,39 +120,48 @@ pub struct FenceConfig {
     pub targets: FenceTargets,
 }
 
-/// Individual on/off flags for each AI-tool fence target.
+/// Per-target enable flags, keyed by fence-target registry id.
 ///
-/// Every field defaults to `true`, so a missing key or missing `[fence]` section
-/// is byte-identical to enabling every target (NFR5 — backward compatibility).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Absent id => enabled (`true`) — so an empty map is byte-identical to
+/// enabling every target (NFR5 backward-compat). Only explicit overrides
+/// are stored/serialised.
+///
+/// Adding a new AI-tool target requires no new field here (NFR-M1): add
+/// an entry to `src/ops/fence/registry.rs` and the new id is automatically
+/// valid and defaults to enabled.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(transparent)]
 pub struct FenceTargets {
-    /// `.envforgeignore` — primary ignore file owned entirely by EnvForge.
-    #[serde(default = "default_true")]
-    pub envforgeignore: bool,
-    /// `.cursorignore` — Cursor AI ignore rules (appended, not owned).
-    #[serde(default = "default_true")]
-    pub cursor_ignore: bool,
-    /// `.cursorrules` — Cursor AI behavior rules (appended, not owned).
-    #[serde(default = "default_true")]
-    pub cursor_rules: bool,
-    /// `.github/copilot-instructions.md` — GitHub Copilot safety rules.
-    #[serde(default = "default_true")]
-    pub copilot: bool,
-    /// `.claude/settings.json` — Claude Code deny-list rules.
-    #[serde(default = "default_true")]
-    pub claude_code: bool,
+    overrides: std::collections::BTreeMap<String, bool>,
 }
 
-impl Default for FenceTargets {
-    fn default() -> Self {
-        Self {
-            envforgeignore: true,
-            cursor_ignore: true,
-            cursor_rules: true,
-            copilot: true,
-            claude_code: true,
+impl<'de> serde::Deserialize<'de> for FenceTargets {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let map = std::collections::BTreeMap::<String, bool>::deserialize(deserializer)?;
+        for key in map.keys() {
+            if !crate::ops::fence::registry::is_valid_id(key) {
+                return Err(serde::de::Error::custom(format!(
+                    "unknown fence target '{key}'"
+                )));
+            }
         }
+        Ok(Self { overrides: map })
+    }
+}
+
+impl FenceTargets {
+    /// Returns whether the given target is enabled according to this config.
+    ///
+    /// Absent key => `true` (NFR5 backward-compat / fail-safe default).
+    /// This is the single decision point for "is target X enabled?" (NFR10).
+    #[must_use]
+    pub fn is_enabled(&self, target: crate::ops::fence::FenceTarget) -> bool {
+        self.overrides.get(target.as_str()).copied().unwrap_or(true)
+    }
+
+    /// Sets the enabled state for a specific target.
+    pub fn set_enabled(&mut self, target: crate::ops::fence::FenceTarget, enabled: bool) {
+        self.overrides.insert(target.as_str().to_string(), enabled);
     }
 }
 

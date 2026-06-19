@@ -4021,6 +4021,11 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!("\x1b[90m- Skipped {} (already configured)\x1b[0m", display);
     }
 
+    for (path, err) in &result.files_failed {
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
+        eprintln!("\x1b[31m\u{2717}\x1b[0m Failed {}: {}", display, err);
+    }
+
     let total = result.files_created.len() + result.files_updated.len();
     if total > 0 {
         println!(
@@ -4039,6 +4044,16 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "\n\u{1f512} FD isolation: VERIFIED — 0 env vars exposed via /proc/self/fd. Secrets cannot leak to child processes."
     );
+
+    // NFR-R4: partial results were reported above; a failed target must not
+    // present as success — surface a non-zero exit.
+    if !result.files_failed.is_empty() {
+        return Err(format!(
+            "{} fence target(s) failed to write (see above)",
+            result.files_failed.len()
+        )
+        .into());
+    }
 
     Ok(())
 }
@@ -4172,33 +4187,39 @@ fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
             "version": 1,
             "all_fenced": status.all_fenced,
             "files": status.files,
+            "targets": status.targets,
         });
         println!("{}", serde_json::to_string_pretty(&obj)?);
     } else {
+        use crate::ops::fence::TargetCoverage;
         println!("AI Secret Fence Status\n");
-        for f in &status.files {
-            let icon = if f.fenced {
-                "\x1b[32m✓\x1b[0m"
-            } else if f.exists {
-                "\x1b[33m⚠\x1b[0m"
-            } else {
-                "\x1b[31m✗\x1b[0m"
+        for t in &status.targets {
+            let (icon, label) = match t.state {
+                TargetCoverage::Covered => ("\x1b[32m✓\x1b[0m", "covered"),
+                TargetCoverage::Fallback => (
+                    "\x1b[32m✓\x1b[0m",
+                    "fallback (rules/deny — no native ignore)",
+                ),
+                TargetCoverage::Unfenced => (
+                    "\x1b[31m✗\x1b[0m",
+                    "installed but UNFENCED — run `envforge fence`",
+                ),
+                TargetCoverage::NotInstalled => ("\x1b[90m-\x1b[0m", "not installed"),
             };
-            let label = if f.fenced {
-                "fenced"
-            } else if f.exists {
-                "exists (not fenced)"
-            } else {
-                "missing"
-            };
-            println!(" {} {} — {}", icon, f.path, label);
+            println!(" {} {} — {}", icon, t.tool, label);
         }
         println!();
         if status.all_fenced {
-            println!("\x1b[32mAll fence files configured.\x1b[0m");
+            println!("\x1b[32mAI BLOCKED — all fence targets covered.\x1b[0m");
         } else {
-            println!("\x1b[33mSome fence files missing or incomplete. Run `envforge fence` to set up.\x1b[0m");
+            println!("\x1b[33mSome targets unfenced. Run `envforge fence` to set up.\x1b[0m");
         }
+    }
+
+    // FR9: deterministic exit code for CI gating. 0 = protected, 2 = not.
+    // (Exit 1 is reserved for command errors.)
+    if !status.all_fenced {
+        std::process::exit(2);
     }
 
     Ok(())
