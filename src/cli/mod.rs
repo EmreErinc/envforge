@@ -857,6 +857,9 @@ pub enum McpAction {
         /// Server name
         name: String,
     },
+    /// Run the EnvForge MCP server over stdio (read-safe env metadata for AI agents)
+    #[cfg(feature = "mcp-server")]
+    Serve,
     /// Render annotated lockfile for PR review
     Explain {
         /// Render the lockfile (currently the only mode)

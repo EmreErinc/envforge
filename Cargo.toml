@@ -67,9 +67,13 @@ unicode-normalization = "0.1"
 
 # Masked password input for project wizard sensitive values
 rpassword = "7"
+rmcp = { version = "1.7.0", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
 
 [features]
 dangerous-execute-command = []
+# EnvForge MCP server (`envforge mcp`) — gated so core fence breadth builds
+# without rmcp. Story 2.1 / Architecture D6.
+mcp-server = ["dep:rmcp"]
 
 [profile.release]
 panic = "abort"

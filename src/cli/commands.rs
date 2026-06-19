@@ -1402,6 +1402,12 @@ fn cmd_mcp(
             lockfile,
             args,
         } => mcp_pin_cmd::cmd_launch(ide, args, lockfile.as_ref()),
+        #[cfg(feature = "mcp-server")]
+        McpAction::Serve => {
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| format!("failed to create tokio runtime: {e}"))?;
+            rt.block_on(crate::mcp::server::serve_stdio())
+        }
     }
 }
 
