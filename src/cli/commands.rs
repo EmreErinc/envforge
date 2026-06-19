@@ -1436,10 +1436,7 @@ fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
                 "findings": items,
             }))?
         );
-        return Ok(());
-    }
-
-    if findings.is_empty() {
+    } else if findings.is_empty() {
         println!("No plaintext secrets found in MCP configs.");
     } else {
         println!(
@@ -1449,6 +1446,12 @@ fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!("Run `envforge mcp harden` to fix them.");
     }
 
+    // FR24: deterministic exit code for CI gating — non-zero when hardcoded
+    // credentials are present so a CI job can fail the build. Clean = 0.
+    // (Exit 1 is reserved for command errors.)
+    if !findings.is_empty() {
+        process::exit(2);
+    }
     Ok(())
 }
 

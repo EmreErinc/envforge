@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - Unreleased — "Omnipresence"
+
+Broad expansion of AI-tool and editor coverage so EnvForge's secret-fencing,
+leak-linting, and exfil-detection are present wherever a developer's code and
+AI agent run. See `docs/integration-matrix.md`.
+
+### Added
+
+- **Data-driven fence target registry** (`src/ops/fence/registry.rs`) — adding an
+  AI tool is now a data entry, not new control flow. Config target-set is a
+  registry-keyed map.
+- **11 fence targets**: Cursor, GitHub Copilot, Claude Code, Windsurf/Codeium,
+  Cline, Aider, Gemini CLI, Amazon Q, the `AGENTS.md` cross-tool standard, and
+  `.envforgeignore`. Tools without a native ignore file are covered via
+  rules/deny + `AGENTS.md` (reported honestly as `fallback`).
+- **Honest per-tool fence status** (`fence --status`): `covered`/`fallback`/
+  `unfenced`/`not_installed`, installed-but-unfenced detection, JSON + CI exit
+  codes.
+- **EnvForge MCP server** (`envforge mcp serve`, behind the `mcp-server` Cargo
+  feature) — read-safe stdio server exposing `list_keys` + `describe_schema`
+  (redacted, audited, **no raw secret values**). Client config: `docs/mcp-server.md`.
+- **Wider MCP-config credential linting** (Windsurf, Cline, Claude Code, VS Code
+  paths) + an LSP quick-fix replacing hardcoded credentials with `${VAR}`.
+- **First-party Neovim plugin** (`editors/nvim`: statusline, exposure heatmap,
+  fence toggle) and **Zed extension** (`editors/zed`: LSP + read-safe MCP server).
+- **CI gating** (`docs/ci-gating.md`): `fence --status` and `mcp status` exit
+  non-zero when coverage is incomplete / a credential is hardcoded.
+
+### Changed
+
+- Shared redaction routine moved to `ops::redact` (LSP re-exports).
+- `mcp status` now exits `2` when hardcoded credentials are found (CI gating).
+
+### Fixed
+
+- `ops::dotenv::strip_quotes` panicked on a lone quote char (`value[1..0]`) —
+  found by the MCP no-secret property test, now guarded.
+
+### Removed
+
+- JetBrains Fleet support (Fleet was discontinued Dec 2025).
+
+### Tests
+
+- **2,545 tests passing** under the default build (up from 2,507; +38 across
+  fence registry/writers/status/detection, MCP server, dotenv, CI-gating, and
+  LSP quick-fix). The `mcp-server` feature adds 13 more (MCP handshake + tools +
+  256-case no-secret property test).
+
 ## [0.8.3] - 2026-06-18
 
 Security-hardening pass across all surfaces (TUI, CLI, providers/sync, plugins/LSP),
