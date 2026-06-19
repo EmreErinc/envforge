@@ -23,6 +23,10 @@ AI agent run. See `docs/integration-matrix.md`.
 - **Honest per-tool fence status** (`fence --status`): `covered`/`fallback`/
   `unfenced`/`not_installed`, installed-but-unfenced detection, JSON + CI exit
   codes.
+- **`project init` AI-tool fence selection**: init can fence AI tools after
+  scaffolding, choosing targets interactively (a stdin prompt — Enter=detected /
+  `all` / `none` / comma-separated ids) or via flags (`--fence`, `--no-fence`,
+  `--fence-targets`, `--non-interactive`). Default set = detected tools.
 - **EnvForge MCP server** (`envforge mcp serve`, behind the `mcp-server` Cargo
   feature) — read-safe stdio server exposing `list_keys` + `describe_schema`
   (redacted, audited, **no raw secret values**). Client config: `docs/mcp-server.md`.
@@ -49,8 +53,9 @@ AI agent run. See `docs/integration-matrix.md`.
 
 ### Tests
 
-- **2,545 tests passing** under the default build (up from 2,507; +38 across
-  fence registry/writers/status/detection, MCP server, dotenv, CI-gating, and
+- **2,554 tests passing** under the default build (up from 2,507; +47 across
+  fence registry/writers/status/detection, MCP server, dotenv, CI-gating,
+  per-project fence-target selection, and
   LSP quick-fix). The `mcp-server` feature adds 13 more (MCP handshake + tools +
   256-case no-secret property test).
 

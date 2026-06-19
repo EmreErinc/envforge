@@ -6322,6 +6322,85 @@ fn truncate_context(s: &str, max: usize) -> String {
     }
 }
 
+// ─── Project fence helpers ─────────────────────────────────
+
+/// Parse a comma-separated list of fence target ids into a `Vec<FenceTarget>`.
+/// Returns an error listing valid ids if any id is unknown.
+fn parse_fence_target_ids(
+    ids_str: &str,
+) -> Result<Vec<crate::ops::fence::FenceTarget>, Box<dyn std::error::Error>> {
+    use crate::ops::fence::registry;
+    use crate::ops::fence::FenceTarget;
+
+    let ids: Vec<&str> = ids_str
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let mut targets: Vec<FenceTarget> = Vec::new();
+    let mut unknown: Vec<&str> = Vec::new();
+    for id in &ids {
+        if registry::is_valid_id(id) {
+            let target = registry::REGISTRY
+                .iter()
+                .find(|s| s.id == *id)
+                .map(|s| s.target)
+                .expect("is_valid_id guarantees presence");
+            if !targets.contains(&target) {
+                targets.push(target);
+            }
+        } else {
+            unknown.push(id);
+        }
+    }
+
+    if !unknown.is_empty() {
+        let valid: Vec<&str> = registry::REGISTRY.iter().map(|s| s.id).collect();
+        return Err(format!(
+            "unknown fence target id(s): {}. Valid ids: {}",
+            unknown.join(", "),
+            valid.join(", ")
+        )
+        .into());
+    }
+
+    Ok(targets)
+}
+
+/// Apply fence for `chosen` targets. Delegates to
+/// [`crate::ops::fence::create_fence_for`] — single source of truth for
+/// "fence a specific subset of targets". Returns the chosen targets
+/// (passed through) so callers can report ids.
+fn apply_fence_for_targets(
+    project_dir: &std::path::Path,
+    chosen: &[crate::ops::fence::FenceTarget],
+) -> Result<Vec<crate::ops::fence::FenceTarget>, Box<dyn std::error::Error>> {
+    crate::ops::fence::create_fence_for(project_dir, chosen, false)?;
+    Ok(chosen.to_vec())
+}
+
+/// Interactive checkbox multi-select fence target prompt.
+/// Returns the chosen set (may be empty = skip).
+/// Delegates the multi-select UI to [`crate::ops::fence::select_targets_interactive`].
+fn prompt_fence_targets(
+    project_dir: &std::path::Path,
+) -> Result<Vec<crate::ops::fence::FenceTarget>, Box<dyn std::error::Error>> {
+    println!();
+    println!("AI fence — protect this project's secrets from AI tools.");
+
+    let chosen = crate::ops::fence::select_targets_interactive(project_dir)?;
+
+    if !chosen.is_empty() {
+        let names: Vec<&str> = chosen.iter().map(|t| t.as_str()).collect();
+        println!("Fencing: {}", names.join(", "));
+    } else {
+        println!("No tools selected — skipping fence.");
+    }
+
+    Ok(chosen)
+}
+
 // ─── Project Commands ──────────────────────────────────────
 
 fn cmd_project(
@@ -6341,7 +6420,13 @@ fn cmd_project(
             active,
             schema,
             env_file,
+            fence: fence_flag,
+            no_fence,
+            fence_targets: fence_targets_opt,
+            non_interactive,
         } => {
+            use crate::ops::fence::{self as fence_ops, detect_installed_targets, FenceTarget};
+
             let format = project::ConfigFormat::parse(format)?;
             let project_name = name
                 .clone()
@@ -6364,6 +6449,18 @@ fn cmd_project(
                     cwd.display(),
                     env_file_path.display()
                 );
+                // Report fence intent in dry-run
+                if !no_fence {
+                    let would_fence: Vec<FenceTarget> = if let Some(ids) = fence_targets_opt {
+                        parse_fence_target_ids(ids)?
+                    } else {
+                        detect_installed_targets(&cwd)
+                    };
+                    if !would_fence.is_empty() {
+                        let ids: Vec<&str> = would_fence.iter().map(|t| t.as_str()).collect();
+                        println!("Would fence: {}", ids.join(", "));
+                    }
+                }
                 return Ok(());
             }
 
@@ -6379,6 +6476,8 @@ fn cmd_project(
 
             let result = project::init_project(&opts)?;
 
+            let mut fenced_ids: Vec<String> = Vec::new();
+
             if json {
                 let out = serde_json::json!({
                     "config_path": result.config_path.display().to_string(),
@@ -6387,7 +6486,38 @@ fn cmd_project(
                     "environment": result.environment_name,
                     "format": format!("{:?}", result.format).to_lowercase(),
                 });
-                println!("{}", serde_json::to_string_pretty(&out)?);
+                // Fence step — non-interactive in JSON mode
+                if !no_fence {
+                    let chosen: Vec<FenceTarget> = if let Some(ids) = fence_targets_opt {
+                        parse_fence_target_ids(ids)?
+                    } else if *fence_flag || *non_interactive {
+                        detect_installed_targets(&cwd)
+                    } else {
+                        // JSON / script context with no fence flags → skip silently
+                        Vec::new()
+                    };
+                    if !chosen.is_empty() {
+                        let fence_result = apply_fence_for_targets(&cwd, &chosen)?;
+                        fenced_ids = fence_result
+                            .iter()
+                            .map(|t| t.as_str().to_string())
+                            .collect();
+                    }
+                }
+                let mut obj = out.as_object().cloned().unwrap_or_default();
+                obj.insert(
+                    "fenced".to_string(),
+                    serde_json::Value::Array(
+                        fenced_ids
+                            .iter()
+                            .map(|s| serde_json::Value::String(s.clone()))
+                            .collect(),
+                    ),
+                );
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::Value::Object(obj))?
+                );
             } else {
                 println!("Project initialized: {}", project_name);
                 println!("  Config: {}", result.config_path.display());
@@ -6400,6 +6530,58 @@ fn cmd_project(
                     Ok(true) => println!("  Added .env.* patterns to .gitignore"),
                     Ok(false) => println!("  .gitignore already has .env.* patterns"),
                     Err(e) => eprintln!("  Warning: could not update .gitignore: {}", e),
+                }
+
+                // ── Fence step ────────────────────────────────────────────
+                if !no_fence {
+                    let chosen: Vec<FenceTarget> = if let Some(ids) = fence_targets_opt {
+                        // Flag-provided ids — validate and map
+                        parse_fence_target_ids(ids)?
+                    } else {
+                        use std::io::IsTerminal as _;
+                        let is_tty = std::io::stdin().is_terminal();
+                        if is_tty && !non_interactive && !fence_flag {
+                            // Interactive prompt
+                            prompt_fence_targets(&cwd)?
+                        } else if *fence_flag || *non_interactive {
+                            // Non-interactive default: detected tools only
+                            detect_installed_targets(&cwd)
+                        } else {
+                            // Non-interactive, no fence flags → skip (don't surprise scripts)
+                            Vec::new()
+                        }
+                    };
+
+                    if !chosen.is_empty() {
+                        println!();
+                        println!("AI fence:");
+                        let fence_write = fence_ops::create_fence_for(&cwd, &chosen, false)?;
+
+                        for path in &fence_write.files_created {
+                            let d = path.strip_prefix(&cwd).unwrap_or(path).display();
+                            println!("  \x1b[32m\u{2713}\x1b[0m Created {}", d);
+                        }
+                        for path in &fence_write.files_updated {
+                            let d = path.strip_prefix(&cwd).unwrap_or(path).display();
+                            println!("  \x1b[32m\u{2713}\x1b[0m Updated {}", d);
+                        }
+                        for path in &fence_write.files_skipped {
+                            let d = path.strip_prefix(&cwd).unwrap_or(path).display();
+                            println!("  - Skipped {} (already configured)", d);
+                        }
+                        for (path, err) in &fence_write.files_failed {
+                            let d = path.strip_prefix(&cwd).unwrap_or(path).display();
+                            eprintln!("  \x1b[31m\u{2717}\x1b[0m Failed {}: {}", d, err);
+                        }
+
+                        if !fence_write.files_failed.is_empty() {
+                            return Err(format!(
+                                "{} fence target(s) failed to write",
+                                fence_write.files_failed.len()
+                            )
+                            .into());
+                        }
+                    }
                 }
             }
             Ok(())

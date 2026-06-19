@@ -933,16 +933,24 @@ Usage: envforge project init [OPTIONS]
 |------|-------------|
 | `--format <FORMAT>` | Config format: `toml`, `yaml`, `json` [default: toml] |
 | `--force` | Force reinitialize (overwrite existing config) |
+| `--fence` | Write AI-tool fence files after scaffolding (default set: detected tools) |
+| `--fence-targets <IDS>` | Comma-separated fence target ids to write (e.g. `cursor_ignore,copilot`); implies `--fence` |
+| `--no-fence` | Skip AI-tool fencing entirely (overrides the interactive prompt) |
+| `--non-interactive` | Skip the interactive fence prompt; use flags/detected defaults |
 
 **Examples:**
 
 ```bash
-envforge project init
+envforge project init                                   # scaffold + interactive fence prompt
 envforge project init --format yaml
-envforge project init --force
+envforge project init --fence-targets cursor_ignore,copilot,gemini  # fence only these
+envforge project init --fence --non-interactive         # fence detected tools, no prompt
+envforge project init --no-fence                        # scaffold only, no fencing
 ```
 
 Creates `.envforge.project.toml` (or `.yaml`/`.json`), a default `.env.development` file, and adds `.env.*` patterns to `.gitignore`.
+
+**AI-tool fencing:** in an interactive terminal, init prompts which AI tools to fence — `[Enter = detected · 'all' · 'none' · or comma-separated ids]`. Detected tools (via the fence registry's detection hints) are the default. Use the flags above for CI/scripts. See [`fence config`](#envforge-fence-config) for per-target management and `fence --status` for honest coverage.
 
 ---
 

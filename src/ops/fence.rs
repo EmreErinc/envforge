@@ -148,6 +148,36 @@ pub fn resolve_fence_targets(cfg: &FenceConfig) -> Vec<ResolvedTarget> {
         .collect()
 }
 
+/// Targets detected as present in `project_dir`.
+///
+/// A target is included when any of its detection hint paths exist under
+/// `project_dir`. Targets with empty detection hints (EnvForge-owned) are
+/// always included because they are applicable to every project.
+///
+/// This is the single authoritative implementation of detection logic; both
+/// [`check_fence_status_with`] and the `project init` fence decision use it.
+///
+/// # Examples
+///
+/// ```
+/// use envforge::ops::fence::detect_installed_targets;
+/// let tmp = tempfile::tempdir().unwrap();
+/// let detected = detect_installed_targets(tmp.path());
+/// // envforgeignore is always present (empty detection hints).
+/// use envforge::ops::fence::FenceTarget;
+/// assert!(detected.contains(&FenceTarget::Envforgeignore));
+/// ```
+#[must_use]
+pub fn detect_installed_targets(project_dir: &std::path::Path) -> Vec<FenceTarget> {
+    registry::REGISTRY
+        .iter()
+        .filter(|spec| {
+            spec.detection.is_empty() || spec.detection.iter().any(|h| project_dir.join(h).exists())
+        })
+        .map(|s| s.target)
+        .collect()
+}
+
 /// Load the fence config with a fail-safe fallback.
 ///
 /// On any `ConfigError` (IO or parse), emits a monitor warning and returns
@@ -914,6 +944,11 @@ pub fn check_fence_status_with(
     project_dir: &Path,
     cfg: &FenceConfig,
 ) -> Result<FenceStatus, OpError> {
+    // Compute detected list once; individual target checks use membership lookup
+    // to avoid re-scanning the filesystem per-target (DRY / single source).
+    // FenceTarget is Copy+Eq so a Vec membership check is fine for 11 targets.
+    let detected_list: Vec<FenceTarget> = detect_installed_targets(project_dir);
+
     // Build per-target coverage for enabled targets only. A target is fenced
     // iff ALL of its files are fenced (multi-file targets need every file).
     // `covered` vs `fallback` distinguishes a real ignore mechanism from a
@@ -935,11 +970,8 @@ pub fn check_fence_status_with(
         // applicable. An installed-but-unfenced tool is the dangerous case
         // (FR8); an absent tool is `not_installed` and does NOT break the
         // aggregate (FR11).
-        let installed = spec.detection.is_empty()
-            || spec
-                .detection
-                .iter()
-                .any(|hint| project_dir.join(hint).exists());
+        // Detection logic is centralised in `detect_installed_targets` (DRY).
+        let installed = detected_list.contains(&spec.target);
         let state = if target_fenced {
             if spec.has_real_ignore {
                 TargetCoverage::Covered
@@ -996,6 +1028,80 @@ pub const KNOWN_TOOLS: &[(&str, &str)] = &[
     ("windsurf", ".windsurfrules"),
     ("continue", ".continueignore"),
 ];
+
+/// Fence exactly the given targets: builds a `FenceConfig` enabling only
+/// `targets` then delegates to [`create_fence_with`].
+///
+/// This is the shared implementation used by both the `project init` CLI flag
+/// path and the `project wizard` interactive hardening step. It is the single
+/// source of truth for "fence a specific subset of targets" (DRY / NFR10).
+///
+/// # Errors
+///
+/// Returns an [`OpError`] if any fence file write fails (per-file errors are
+/// aggregated in `FenceResult::files_failed`; the first fatal error from
+/// `create_fence_with` is returned directly).
+pub fn create_fence_for(
+    project_dir: &std::path::Path,
+    targets: &[FenceTarget],
+    dry_run: bool,
+) -> Result<FenceResult, OpError> {
+    let mut cfg = crate::config::FenceConfig::default();
+    for t in FenceTarget::all() {
+        cfg.targets.set_enabled(t, targets.contains(&t));
+    }
+    create_fence_with(project_dir, dry_run, &cfg)
+}
+
+/// Interactive checkbox multi-select of fence targets (dialoguer `MultiSelect`).
+///
+/// Pre-checks tools detected in `project_dir`. Returns the chosen targets,
+/// or an empty `Vec` when the user presses Esc to skip. Requires a TTY —
+/// callers must gate on interactivity before calling this function.
+///
+/// # Errors
+///
+/// Returns `std::io::Error` if the terminal interaction fails (e.g. no TTY
+/// attached, signal interruption).
+pub fn select_targets_interactive(
+    project_dir: &std::path::Path,
+) -> std::io::Result<Vec<FenceTarget>> {
+    use dialoguer::{theme::ColorfulTheme, MultiSelect};
+
+    let detected = detect_installed_targets(project_dir);
+    let items: Vec<String> = registry::REGISTRY
+        .iter()
+        .map(|s| {
+            let mark = if detected.contains(&s.target) {
+                " \u{2014} detected"
+            } else {
+                ""
+            };
+            format!("{} [{}]{}", s.tool, s.id, mark)
+        })
+        .collect();
+    let defaults: Vec<bool> = registry::REGISTRY
+        .iter()
+        .map(|s| detected.contains(&s.target))
+        .collect();
+
+    let selection = MultiSelect::with_theme(&ColorfulTheme::default())
+        .with_prompt(
+            "Select AI tools to fence  (\u{2191}/\u{2193} move \u{00b7} space toggle \u{00b7} enter confirm \u{00b7} esc skip)",
+        )
+        .items(&items)
+        .defaults(&defaults)
+        .interact_opt()
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    Ok(match selection {
+        Some(idxs) => idxs
+            .into_iter()
+            .map(|i| registry::REGISTRY[i].target)
+            .collect(),
+        None => Vec::new(),
+    })
+}
 
 /// Propagate fence rules from `.envforgeignore` to a specific tool's
 /// ignore file.  Uses symlinks on Unix (auto-updates when the source
