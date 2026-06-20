@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781953061065,
+  "lastUpdate": 1781969212157,
   "repoUrl": "https://github.com/EmreErinc/envforge",
   "entries": {
     "Benchmark": [
@@ -278,6 +278,54 @@ window.BENCHMARK_DATA = {
           {
             "name": "security/redact_secrets_in_message",
             "value": 365,
+            "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "emre_erinc@hotmail.com",
+            "name": "Emre Erinç",
+            "username": "EmreErinc"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b6987312dfc96209aa7bbac180ba6888b7ad391a",
+          "message": "Merge pull request #16 from EmreErinc/feature/0.8.3\n\nupdate landing page. fixed missing plugin gaps",
+          "timestamp": "2026-06-20T18:21:49+03:00",
+          "tree_id": "587d7ec20d3f0191a57594a2e7093c98a65cb89d",
+          "url": "https://github.com/EmreErinc/envforge/commit/b6987312dfc96209aa7bbac180ba6888b7ad391a"
+        },
+        "date": 1781969211151,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parser/roundtrip_small",
+            "value": 2017,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parser/roundtrip_large_500_exports",
+            "value": 780038,
+            "range": "± 2651",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sync/compute_diff_small",
+            "value": 370,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "security/redact_secrets_in_message",
+            "value": 374,
             "range": "± 1",
             "unit": "ns/iter"
           }
