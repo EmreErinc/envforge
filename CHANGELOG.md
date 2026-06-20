@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.3] - 2026-06-20
+
+Broad expansion of AI-tool and editor coverage so EnvForge's secret-fencing,
+leak-linting, and exfil-detection are present wherever a developer's code and
+AI agent run. See `docs/integration-matrix.md`.
 
 ### Security
 
@@ -63,12 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (forged ticket rejected / genuine accepted), `tests/backup_perms_tests.rs`
   (backup created `0600`). **2,569 tests passing** (up from 2,554).
 
-## [0.8.3] - 2026-06-19 — "Omnipresence"
-
-Broad expansion of AI-tool and editor coverage so EnvForge's secret-fencing,
-leak-linting, and exfil-detection are present wherever a developer's code and
-AI agent run. See `docs/integration-matrix.md`.
-
 ### Added
 
 - **Data-driven fence target registry** (`src/ops/fence/registry.rs`) — adding an
@@ -117,7 +115,7 @@ AI agent run. See `docs/integration-matrix.md`.
   LSP quick-fix). The `mcp-server` feature adds 13 more (MCP handshake + tools +
   256-case no-secret property test).
 
-### Security hardening (earlier 0.8.3 work)
+### Security hardening
 
 Security-hardening pass across all surfaces (TUI, CLI, providers/sync, plugins/LSP),
 grounded in a 2026 best-practice audit + code re-validation (`docs/security-audit-findings.md`).
@@ -189,7 +187,7 @@ grounded in a 2026 best-practice audit + code re-validation (`docs/security-audi
 - **`get` emits a reveal audit event only on actual cleartext disclosure (L11).** A masked
   default read no longer fires a (now `Warn`) reveal event.
 
-### Added — Configurable fence targets (Epic 3)
+### Added — Configurable fence targets
 
 - **Per-target fence configuration.** Each of the five AI-tool fence targets
   (`envforgeignore`, `cursor_ignore`, `cursor_rules`, `copilot`, `claude_code`) can now be
@@ -257,13 +255,13 @@ grounded in a 2026 best-practice audit + code re-validation (`docs/security-audi
 ### Fixed
 
 - **IDE Plugin Alignment:**
-    - Consolidated VS Code `Fence` toggle logic to use the LSP and refresh all UI components (Status Bar, Decorations, and Security View).
-    - Refactored IntelliJ `Toggle Guard` to support tool-specific hook management (Claude Code, Cursor, etc.).
-    - Unified command naming and behavior across both plugins to match the IDE Behavior Contract.
+  - Consolidated VS Code `Fence` toggle logic to use the LSP and refresh all UI components (Status Bar, Decorations, and Security View).
+  - Refactored IntelliJ `Toggle Guard` to support tool-specific hook management (Claude Code, Cursor, etc.).
+  - Unified command naming and behavior across both plugins to match the IDE Behavior Contract.
 - **CI Pipeline Hardening:**
-    - Fixed `Resource not accessible` error in security audit by adding `checks: write` permissions.
-    - Added `audit.toml` to explicitly ignore unmaintained dependency warnings for `proc-macro-error2`.
-    - Resolved `cargo-deny` license failure by adding `Elastic-2.0` to the allowed list.
+  - Fixed `Resource not accessible` error in security audit by adding `checks: write` permissions.
+  - Added `audit.toml` to explicitly ignore unmaintained dependency warnings for `proc-macro-error2`.
+  - Resolved `cargo-deny` license failure by adding `Elastic-2.0` to the allowed list.
 - **Documentation Sync:** Synchronized `cli-reference.md`, `api-reference.md`, and `ide-behavior-contract.md` with the latest v0.8.1 subcommands and features.
 - **Encryption test environment contamination:** Added `serial_test` to isolate tests that manipulate global environment variables.
 - **LSP security:** Implemented JSONL audit logging for the Language Server to track secret access attempts (hover/completion).
@@ -534,7 +532,7 @@ All pure-Rust; ~3 MB combined binary-size increase. Verified clean against `carg
 - The bundled reputation feed is shipped unsigned and refreshed via binary release; an externally-signed update channel is planned for a future release.
 - Detection is deterministic (pattern-based), not ML-classifier-based; novel evasion techniques may bypass the v1 pattern set until patterns are updated.
 
-### Added — AI Safety 
+### Added — AI Safety
 
 All four address concrete CVE-class threats from agentic coding workflows (Claude Code, Cursor, Cline) and the broader CI supply-chain story. **133 new tests** (1740 → 1873)
 
