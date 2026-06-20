@@ -50,7 +50,7 @@ tower-lsp = "0.20"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "process", "time", "io-util"] }
 dashmap = "6.2"
 uuid = { version = "1", features = ["v4", "serde"] }
-cron = "0.16"
+cron = "0.17"
 zeroize = "1"
 libc = "0.2"
 
