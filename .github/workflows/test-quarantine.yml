@@ -24,7 +24,7 @@ jobs:
       ENVFORGE_TEST_CANARY: 'super_secret_test_value_xyzzy'
       MY_API_KEY: 'sk_live_canary_should_be_scrubbed_or_preserved'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Build local action binary
         run: cargo build --release --locked --bin envforge
       - name: Put binary on PATH
@@ -49,7 +49,7 @@ jobs:
       ENVFORGE_TEST_CANARY: 'super_secret_test_value_xyzzy'
       MY_API_KEY: 'sk_live_should_be_scrubbed'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - run: cargo build --release --locked --bin envforge
       - run: echo "${PWD}/target/release" >> "$GITHUB_PATH"
       - name: Simulate fork PR event payload
@@ -96,7 +96,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.simulate == 'external-comment'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - run: cargo build --release --locked --bin envforge
       - run: echo "${PWD}/target/release" >> "$GITHUB_PATH"
       - name: Simulate external-comment event

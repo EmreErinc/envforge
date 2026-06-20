@@ -10,7 +10,7 @@ jobs:
     name: CLI Version Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install CLI binaries
         run: |
@@ -76,7 +76,7 @@ jobs:
     name: Known CLI CVEs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Check for known CLI vulnerabilities
         run: |
