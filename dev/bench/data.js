@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781953038308,
+  "lastUpdate": 1781953061065,
   "repoUrl": "https://github.com/EmreErinc/envforge",
   "entries": {
     "Benchmark": [
@@ -231,6 +231,54 @@ window.BENCHMARK_DATA = {
             "name": "security/redact_secrets_in_message",
             "value": 406,
             "range": "± 2",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "emre_erinc@hotmail.com",
+            "name": "Emre Erinç",
+            "username": "EmreErinc"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1ebdcf671ebf9167e2c7999a0cb11a07c437b987",
+          "message": "Merge pull request #18 from EmreErinc/dependabot/cargo/dependencies-f891373809\n\nBump the dependencies group with 3 updates",
+          "timestamp": "2026-06-20T13:52:55+03:00",
+          "tree_id": "f1596d6e8f5d316aa4717d6d92a68287b9336b9c",
+          "url": "https://github.com/EmreErinc/envforge/commit/1ebdcf671ebf9167e2c7999a0cb11a07c437b987"
+        },
+        "date": 1781953060359,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parser/roundtrip_small",
+            "value": 1985,
+            "range": "± 34",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parser/roundtrip_large_500_exports",
+            "value": 779101,
+            "range": "± 8527",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sync/compute_diff_small",
+            "value": 375,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "security/redact_secrets_in_message",
+            "value": 365,
+            "range": "± 1",
             "unit": "ns/iter"
           }
         ]
