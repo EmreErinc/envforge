@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Fence no longer clobbers an unparseable `.claude/settings.json`**
+  (`src/ops/fence.rs`). A hand-edited settings file with a trailing comma or
+  comment (common, but not strict JSON) was silently replaced with `{}` plus
+  the deny rules, destroying every other setting. The write path now refuses
+  to overwrite an existing-but-unparseable file and reports a per-file failure
+  (matching `strip_deny_rule`), so the rest of the toolchain still fences.
+- **Lease names are validated against path traversal** (`src/ops/lease.rs`).
+  `create`/`revoke`/`renew` fed the name straight into `<name>.toml`, so
+  `--name ../../tmp/evil` could write, read, or delete a lease file outside the
+  leases directory. Names are now restricted to `[A-Za-z0-9._-]` (no `..`),
+  rejected before any filesystem access. (JIT leases were already safe — UUID
+  names.)
+- **JIT lease redemption now requires a secret ticket** (`src/ops/lease.rs`).
+  `jit_redeem` gated only on the lease name, which is emitted in audit metadata
+  and returned in the handle — so anyone who learned the name could redeem the
+  secret and the single-redeem guarantee was bypassable. `jit_grant` now mints
+  a separate random UUID ticket, stored on the lease and required (constant-time
+  compared) at redeem.
+- **Secret backups are created `0600` at creation time** (`src/ops/mcp_scan.rs`,
+  `src/config/backup.rs`). Both used `std::fs::copy` then `chmod`, leaving a
+  window where the plaintext-secret backup was world-readable (and `mcp_scan`
+  discarded the chmod error entirely, so a failure left it `0644` permanently).
+  Backups are now opened `O_CREAT|O_EXCL` with mode `0600` and all IO errors
+  propagated.
+
+### Fixed
+
+- **CRUD value quoting now escapes the closing quote** (`src/ops/crud.rs`).
+  `add`/`edit`/`rename` built the on-disk line without escaping, so a value
+  containing the quote character (e.g. `a"b`) broke out of its quotes —
+  re-parsing to a truncated, different value and allowing shell-syntax
+  injection into the rc file, violating the byte-for-byte round-trip
+  invariant. Quoting is now centralized in a parser-correct `quote_value`
+  helper (single-quoted values containing `'` fall back to double quotes,
+  which EnvForge's parser can round-trip).
+- **`secrets provider` lookup no longer panics on a non-ASCII name**
+  (`src/ops/secrets/provider.rs`). The "did you mean" suggestion byte-sliced
+  the user-supplied name (`name[..2]`), panicking when the first character was
+  multi-byte (e.g. `ñx`). Now compared by character.
+- **Parser round-trip is now byte-identical for trailing newlines**
+  (`src/parser/parse.rs`, `src/model/shell_file.rs`). The serializer
+  unconditionally appended `\n`, so a file without a trailing newline gained
+  one on every managed write; `ShellFile` now records the original
+  trailing-newline state and both serialize paths reproduce it exactly.
+
+### Tests
+
+- **+15 regression tests** pinning all the bugs above:
+  `tests/hardening_regression_tests.rs` (quote-escaping round-trip + fixpoint,
+  fence non-clobber + valid-merge, non-ASCII provider lookup, lease-name
+  traversal, trailing-newline round-trip), `tests/jit_redeem_ticket_tests.rs`
+  (forged ticket rejected / genuine accepted), `tests/backup_perms_tests.rs`
+  (backup created `0600`). **2,569 tests passing** (up from 2,554).
+
 ## [0.8.3] - 2026-06-19 — "Omnipresence"
 
 Broad expansion of AI-tool and editor coverage so EnvForge's secret-fencing,

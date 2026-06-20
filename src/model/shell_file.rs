@@ -162,16 +162,26 @@ pub struct ShellFile {
     pub path: PathBuf,
     pub lines: Vec<LineNode>,
     pub hash: [u8; 32],
+    /// Whether the original file ended with a trailing newline. Preserved so
+    /// serialize is byte-for-byte: a file without a trailing `\n` must not gain
+    /// one on write, and one with a trailing `\n` must keep exactly one.
+    pub ends_with_newline: bool,
 }
 
 impl ShellFile {
-    /// Serialize all lines back to a string
+    /// Serialize all lines back to a string, reproducing the original
+    /// trailing-newline state (byte-for-byte round-trip).
     pub fn serialize(&self) -> String {
-        self.lines
+        let mut out = self
+            .lines
             .iter()
             .map(|node| node.serialize(false))
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n");
+        if self.ends_with_newline && !self.lines.is_empty() {
+            out.push('\n');
+        }
+        out
     }
 }
 
@@ -315,6 +325,7 @@ mod tests {
                 },
             ],
             hash: [0u8; 32],
+            ends_with_newline: false,
         };
         let result = sf.serialize();
         assert_eq!(result, "# line1\n\nalias x=y");

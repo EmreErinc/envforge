@@ -421,10 +421,14 @@ impl ProviderRegistry {
         self.providers
             .keys()
             .filter(|k| {
-                // Simple heuristic: shared prefix >= 2 chars or contains
-                k.contains(name)
-                    || name.contains(k.as_str())
-                    || (k.len() >= 2 && name.len() >= 2 && k[..2] == name[..2])
+                // Simple heuristic: shared prefix >= 2 chars or contains.
+                // Compare by chars, not bytes: `name` is user-supplied CLI
+                // input, so a multi-byte first char (e.g. "ñx") would make a
+                // `name[..2]` byte slice panic on a non-char-boundary index.
+                let shared_prefix = k.chars().take(2).count() == 2
+                    && name.chars().take(2).count() == 2
+                    && k.chars().take(2).eq(name.chars().take(2));
+                k.contains(name) || name.contains(k.as_str()) || shared_prefix
             })
             .min_by_key(|k| {
                 // Prefer shorter edit distance (approximate with length diff)

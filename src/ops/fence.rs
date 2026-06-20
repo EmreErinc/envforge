@@ -509,8 +509,20 @@ fn write_deny_rule(
 
     if path.exists() {
         let content = std::fs::read_to_string(&path)?;
-        let mut json: serde_json::Value =
-            serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}));
+        // Never clobber an existing-but-unparseable settings file. Hand-edited
+        // Claude/agent settings commonly contain trailing commas or comments
+        // that strict JSON rejects; silently replacing the parse error with
+        // `{}` would atomically overwrite the user's entire file with just our
+        // deny rules, destroying every other setting. Surface a per-file
+        // failure instead (collected into `files_failed`, other targets
+        // proceed) — mirroring `strip_deny_rule`, which also leaves unparseable
+        // files untouched.
+        let mut json: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+            OpError::Other(format!(
+                "{} is not valid JSON ({e}); refusing to overwrite — fix or remove it, then re-run",
+                path.display()
+            ))
+        })?;
 
         // Check which deny rules are already present
         let existing_deny = json

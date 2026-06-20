@@ -28,6 +28,39 @@ pub enum OpsError {
     Other(String),
 }
 
+/// Quote and escape a value for serialization into a shell rc file.
+///
+/// Mirrors `LineNode::serialize` escaping semantics so a value containing the
+/// closing quote character cannot break out of its quotes and corrupt the
+/// line — which would break the byte-for-byte round-trip invariant and allow
+/// shell-syntax injection into the rc file. The on-disk writer always emits
+/// `original_text` (`serialize_shell_file` calls `serialize(false)`), so this
+/// escaping MUST happen here, at the point `original_text` is constructed.
+fn quote_value(value: &str, quote_style: QuoteStyle) -> String {
+    // Escape `\` first, then `"`, so the closing quote cannot be forged. This
+    // matches what EnvForge's parser reads back: inside double quotes it
+    // preserves `\x` escape pairs verbatim, so the line re-parses as a single
+    // intact value instead of breaking out at an unescaped `"`.
+    let double = |v: &str| format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""));
+    match quote_style {
+        QuoteStyle::Double => double(value),
+        QuoteStyle::Single => {
+            // EnvForge's parser treats single quotes as fully literal with NO
+            // escape mechanism — the first `'` always closes the run. The
+            // POSIX `'\''` close-escape-reopen trick therefore does NOT round
+            // trip here (it would truncate the value at the first `'`). When
+            // the value contains a `'`, fall back to double quotes, which
+            // represent a literal apostrophe cleanly and round-trip.
+            if value.contains('\'') {
+                double(value)
+            } else {
+                format!("'{}'", value)
+            }
+        }
+        QuoteStyle::None => value.to_string(),
+    }
+}
+
 /// Edit an existing ENV entry's value in the ShellFile.
 ///
 /// Finds the EnvExport node by key and updates its value.
@@ -66,11 +99,7 @@ pub fn edit_entry(shell_file: &mut ShellFile, key: &str, new_value: &str) -> Res
                     ExportStyle::Export => "export ",
                     ExportStyle::Bare => "",
                 };
-                let quoted = match quote_style {
-                    QuoteStyle::Double => format!("\"{}\"", new_value),
-                    QuoteStyle::Single => format!("'{}'", new_value),
-                    QuoteStyle::None => new_value.to_string(),
-                };
+                let quoted = quote_value(new_value, *quote_style);
                 let comment_suffix = match inline_comment {
                     Some(c) => c.clone(),
                     None => String::new(),
@@ -261,11 +290,7 @@ pub fn add_entry(
         ExportStyle::Export => "export ",
         ExportStyle::Bare => "",
     };
-    let quoted_value = match quote_style {
-        QuoteStyle::Double => format!("\"{}\"", value),
-        QuoteStyle::Single => format!("'{}'", value),
-        QuoteStyle::None => value.to_string(),
-    };
+    let quoted_value = quote_value(value, quote_style);
     let text = format!("{}{}={}", prefix, key, quoted_value);
 
     let new_node = LineNode::EnvExport {
@@ -307,11 +332,7 @@ pub fn rename_entry_at(
             ExportStyle::Export => "export ",
             ExportStyle::Bare => "",
         };
-        let quoted = match quote_style {
-            QuoteStyle::Double => format!("\"{}\"", value),
-            QuoteStyle::Single => format!("'{}'", value),
-            QuoteStyle::None => value.clone(),
-        };
+        let quoted = quote_value(value, *quote_style);
         let comment_suffix = match inline_comment {
             Some(c) => c.clone(),
             None => String::new(),
@@ -350,11 +371,7 @@ pub fn rename_entry(
             ExportStyle::Export => "export ",
             ExportStyle::Bare => "",
         };
-        let quoted = match quote_style {
-            QuoteStyle::Double => format!("\"{}\"", value),
-            QuoteStyle::Single => format!("'{}'", value),
-            QuoteStyle::None => value.clone(),
-        };
+        let quoted = quote_value(value, *quote_style);
         let comment_suffix = match inline_comment {
             Some(c) => c.clone(),
             None => String::new(),

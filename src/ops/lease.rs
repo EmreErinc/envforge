@@ -44,6 +44,12 @@ pub struct Lease {
     pub redeemed: bool,
     #[serde(default)]
     pub tool_name: Option<String>,
+    /// Secret one-time-redemption ticket for JIT leases. Returned (once) in the
+    /// `JitHandle` at grant time and required to match on redeem, so the
+    /// single-redeem capability cannot be exercised by anyone who merely learns
+    /// the (audit-logged, predictable) lease name. `None` for manual leases.
+    #[serde(default)]
+    pub uuid: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +85,7 @@ pub fn create_lease(
     ttl_seconds: i64,
     keys: Option<Vec<String>>,
 ) -> Result<Lease, OpError> {
+    validate_lease_name(name)?;
     let _guard = acquire_lease_lock();
     let now = Utc::now();
     let expires = now + chrono::Duration::seconds(ttl_seconds);
@@ -159,6 +166,7 @@ fn list_leases_in(dir: &std::path::Path) -> Vec<LeaseStatus> {
 
 /// Revoke a specific lease.
 pub fn revoke_lease(name: &str) -> Result<bool, OpError> {
+    validate_lease_name(name)?;
     let _guard = acquire_lease_lock();
     let dir = leases_dir()?;
     revoke_lease_in(&dir, name)
@@ -169,6 +177,7 @@ pub fn revoke_lease(name: &str) -> Result<bool, OpError> {
 /// Errors if the lease has already been revoked or has already expired
 /// (callers should create a new lease in that case).
 pub fn renew_lease(name: &str, ttl_seconds: i64) -> Result<Option<Lease>, OpError> {
+    validate_lease_name(name)?;
     let _guard = acquire_lease_lock();
     let dir = leases_dir()?;
     let path = dir.join(format!("{}.toml", name));
@@ -412,8 +421,23 @@ pub enum LeaseError {
     InvalidTtl(String),
     #[error("invalid key name: {0}")]
     InvalidKey(String),
+    #[error("invalid redemption ticket for lease: {0}")]
+    InvalidTicket(String),
     #[error("op error: {0}")]
     OpError(#[from] OpError),
+}
+
+/// Constant-time byte-slice equality. Avoids leaking, via early-return timing,
+/// how many leading bytes of a redemption ticket were guessed correctly.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 /// Process-wide registry of active watcher tasks. One per JIT lease.
@@ -440,6 +464,29 @@ fn validate_pid(pid: u32) -> Result<(), LeaseError> {
 fn validate_key_name(key: &str) -> Result<(), LeaseError> {
     if key.is_empty() {
         return Err(LeaseError::InvalidKey(key.to_string()));
+    }
+    Ok(())
+}
+
+/// Reject lease names that could escape the leases directory.
+///
+/// A lease name becomes a filename (`<name>.toml`) joined onto the leases
+/// dir. Without validation, a name like `../../tmp/evil` would write, read, or
+/// delete a file *outside* `~/.config/envforge/leases` — violating the "never
+/// write outside protected zones" principle, and such a traversed lease also
+/// escapes `revoke_all_leases` cleanup. Allow only `[A-Za-z0-9._-]` and forbid
+/// `..`. (JIT leases are unaffected: they mint UUID names internally.)
+fn validate_lease_name(name: &str) -> Result<(), OpError> {
+    if name.is_empty() {
+        return Err(OpError::from("lease name must not be empty".to_string()));
+    }
+    let charset_ok = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+    if !charset_ok || name.contains("..") {
+        return Err(OpError::from(format!(
+            "invalid lease name '{name}': only [A-Za-z0-9._-] allowed, and '..' is forbidden"
+        )));
     }
     Ok(())
 }
@@ -594,6 +641,8 @@ pub fn jit_grant(req: GrantRequest) -> Result<JitHandle, LeaseError> {
 
     // Generate lease name. UUID prefix avoids collisions with manual leases.
     let lease_name = format!("jit-{}", uuid::Uuid::new_v4());
+    // Secret redemption ticket — distinct from the (audit-logged) lease name.
+    let ticket = uuid::Uuid::new_v4().to_string();
 
     // Acquire lock once around create + extension + persist.
     let _guard = acquire_lease_lock();
@@ -612,6 +661,7 @@ pub fn jit_grant(req: GrantRequest) -> Result<JitHandle, LeaseError> {
         single_redeem: req.single_redeem,
         redeemed: false,
         tool_name: Some(req.tool_name.clone()),
+        uuid: Some(ticket.clone()),
     };
     persist_lease(&lease)?;
 
@@ -622,7 +672,7 @@ pub fn jit_grant(req: GrantRequest) -> Result<JitHandle, LeaseError> {
 
     audit_emit_lease_granted(&lease, &req);
     Ok(JitHandle {
-        uuid: uuid::Uuid::new_v4().to_string(),
+        uuid: ticket,
         lease_name,
     })
 }
@@ -638,6 +688,15 @@ pub fn jit_redeem(handle: &JitHandle) -> Result<Zeroizing<String>, LeaseError> {
     let _guard = acquire_lease_lock();
     let mut lease = load_lease(&handle.lease_name)?
         .ok_or_else(|| LeaseError::NotFound(handle.lease_name.clone()))?;
+
+    // Verify the one-time ticket before doing anything else. Redemption must
+    // require the secret UUID handed back at grant time — gating on the lease
+    // name alone (which is emitted in audit metadata and returned in the
+    // handle) would let anyone who learns the name redeem the secret.
+    match &lease.uuid {
+        Some(stored) if ct_eq(stored.as_bytes(), handle.uuid.as_bytes()) => {}
+        _ => return Err(LeaseError::InvalidTicket(handle.lease_name.clone())),
+    }
 
     if lease.revoked {
         return Err(LeaseError::AlreadyRevoked(handle.lease_name.clone()));
