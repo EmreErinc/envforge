@@ -2483,7 +2483,7 @@ fn test_command_dispatch_fence_config_requires_workspace_root() {
     );
 }
 
-/// fence.config returns ok:true with a result array of 5 target entries (AC1).
+/// fence.config returns ok:true with one result entry per registry target (AC1).
 #[cfg(feature = "dangerous-execute-command")]
 #[test]
 fn test_command_dispatch_fence_config_returns_target_array() {
@@ -2498,7 +2498,12 @@ fn test_command_dispatch_fence_config_returns_target_array() {
     let arr = result["result"]
         .as_array()
         .expect("result must be an array of target entries");
-    assert_eq!(arr.len(), 5, "must have exactly 5 target entries");
+    let expected = envforge::ops::fence::FenceTarget::all().len();
+    assert_eq!(
+        arr.len(),
+        expected,
+        "must have one entry per registry target"
+    );
     // Each entry must have target, enabled, source fields
     for entry in arr {
         assert!(entry.get("target").is_some(), "entry missing 'target'");
@@ -2507,7 +2512,7 @@ fn test_command_dispatch_fence_config_returns_target_array() {
     }
 }
 
-/// fence.config default config → all five targets enabled (AC1 / NFR10).
+/// fence.config default config → all targets enabled (AC1 / NFR10).
 #[cfg(feature = "dangerous-execute-command")]
 #[test]
 fn test_command_dispatch_fence_config_default_all_enabled() {
@@ -2538,8 +2543,8 @@ fn test_command_dispatch_fence_status_includes_resolved_targets() {
         .expect("fence.status result must include resolved_targets array");
     assert_eq!(
         resolved.len(),
-        5,
-        "resolved_targets must list all 5 targets"
+        envforge::ops::fence::FenceTarget::all().len(),
+        "resolved_targets must list every registry target"
     );
     // Each item must carry target + enabled + source
     for entry in resolved {
