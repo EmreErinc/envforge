@@ -1,21 +1,22 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
-    <name>EnvForge</name>
-    <version>0.1.7</version>
+    <name>EnvForge - AI-Safe Environment Manager</name>
+    <version>0.1.8</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[
-<p>Environment variable management with schema validation, secret scanning, and multi-profile support.</p>
+<p><b>EnvForge — AI-Safe Environment Manager.</b> Manage environment variables with schema
+validation, secret scanning, and multi-profile support — built to protect your secrets from
+AI coding agents.</p>
 <ul>
 <li><b>Diagnostics</b> — Missing required vars, type errors, secret leak warnings</li>
-<li><b>Hover</b> — Schema info: type, description, default, example</li>
-<li><b>Completions</b> — Key names from .env.schema</li>
-<li><b>Go-to-definition</b> — Jump from .env key to .env.schema section</li>
-<li><b>Commands</b> — Validate, scan, export, sync, profile switch</li>
-<li><b>Security Dashboard</b> — Fence, Guard, MCP Scan, Canary Tokens</li>
-<li><b>AI Safety</b> — Fence blocks AI from reading env vars; Guard detects prompt injection</li>
+<li><b>Hover &amp; Completions</b> — Schema info (type, description, default, example) and key-name completion</li>
+<li><b>Go-to-definition</b> — Jump from a .env key to its .env.schema entry, and from source code that reads env vars</li>
+<li><b>AI Safety</b> — Fence blocks AI agents from reading env files; Guard detects prompt injection; canary tripwires; audit-logged value reveal; volatile (short-lived) sessions</li>
+<li><b>Security Dashboard</b> — Fence, Guard, MCP config scan, canary tokens, lifecycle &amp; audit trail</li>
+<li><b>Workflow</b> — Validate, scan, export (8 formats), sync, profile switch, health check</li>
 </ul>
-<p>Requires <code>envforge</code> CLI installed. Get it: <code>cargo install env-forge-tui</code></p>
+<p>Activates only in a trusted project. Requires the <code>envforge</code> CLI: <code>cargo install env-forge-tui</code>.</p>
   ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -66,6 +67,10 @@
         <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".mcp.json"/>
         <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="claude_desktop_config.json"/>
         <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="settings.json"/>
+        <!-- Story 3.1 (FR18): widened AI-tool/agent MCP config coverage. -->
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".claude.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="mcp_config.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="cline_mcp_settings.json"/>
     </extensions>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -145,12 +150,12 @@
 
         <action id="EnvForge.ToggleFence"
                 class="com.envforge.intellij.actions.ToggleFenceAction"
-                text="Toggle Fence"
+                text="Toggle AI Fence"
                 description="Toggle EnvForge Fence on/off"/>
 
         <action id="EnvForge.ToggleGuard"
                 class="com.envforge.intellij.actions.ToggleGuardAction"
-                text="Toggle Guard"
+                text="Toggle AI Guard"
                 description="Toggle EnvForge AI-guard on/off"/>
 
         <action id="EnvForge.RunMcpScan"
@@ -214,7 +219,7 @@
 
         <action id="EnvForge.Doctor"
                 class="com.envforge.intellij.actions.DoctorAction"
-                text="Health Check"
+                text="Run Health Check"
                 description="Run envforge health check"/>
 
         <action id="EnvForge.Check"
@@ -244,7 +249,7 @@
 
         <action id="EnvForge.SchemaGenerate"
                 class="com.envforge.intellij.actions.SchemaGenerateAction"
-                text="Generate Schema"
+                text="Generate Schema from .env"
                 description="Generate .env.schema from current variables"/>
 
         <separator/>

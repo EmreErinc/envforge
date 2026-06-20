@@ -89,6 +89,19 @@ class EnvForgeStatusWidget(private val project: Project) :
             }
             null -> {}
         }
+        if (fenceState != null) {
+            // Append the active fence-target list. Best-effort: skip the
+            // line on a failed/unparseable config call (graceful).
+            // Wording mirrors the VS Code plugin byte-for-byte (NFR9).
+            val configOut = runCli(listOf("fence", "config", "--list", "--json"))
+            if (configOut != null) {
+                val parsed = parseEnabledTargets(configOut)
+                if (parsed != null) {
+                    val (enabled, total) = parsed
+                    tooltipLines += "Active targets: ${enabled.joinToString(", ")} (${enabled.size}/$total)"
+                }
+            }
+        }
         if (volatileLease != null) {
             pieces += "volatile: ${formatDuration(volatileLease.remainingSeconds)}"
             val keyDesc = volatileLease.keyCount
@@ -174,6 +187,26 @@ class EnvForgeStatusWidget(private val project: Project) :
     private fun parseFenceStatus(json: String): Boolean? = try {
         val obj = com.google.gson.JsonParser.parseString(json).asJsonObject
         obj.get("all_fenced")?.asBoolean
+    } catch (_: Exception) {
+        null
+    }
+
+    /// Parse `fence config --list --json` (an array of
+    /// `{target, enabled, source}`) into the list of enabled target names
+    /// plus the total target count. `null` on parse failure so the caller
+    /// can skip the tooltip line rather than guess. Mirrors the VS Code
+    /// `appendFenceTargets` parsing byte-for-byte (NFR9).
+    private fun parseEnabledTargets(json: String): Pair<List<String>, Int>? = try {
+        val arr = com.google.gson.JsonParser.parseString(json).asJsonArray
+        val enabled = mutableListOf<String>()
+        for (i in 0 until arr.size()) {
+            val e = arr[i].asJsonObject
+            val target = e.get("target")?.asString ?: continue
+            if (e.get("enabled")?.asBoolean == true) {
+                enabled += target
+            }
+        }
+        Pair(enabled, arr.size())
     } catch (_: Exception) {
         null
     }

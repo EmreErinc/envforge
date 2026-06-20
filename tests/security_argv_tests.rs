@@ -394,30 +394,49 @@ fn test_provider_subprocess_essential_vars_are_forwarded() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// is_likely_secret — test-local implementation
+// is_likely_secret — now backed by the canonical library function
 // ═══════════════════════════════════════════════════════════════
 //
-// Re-implemented here because the library copy is private in
-// src/cli/secrets_cmd.rs and src/cli/commands.rs (duplicated).
-// Tests verify the detection contract independently.
-// Length threshold: >16 chars. Known prefixes: case-insensitive.
+// Previously re-implemented here because the CLI copies were private.
+// The detection now lives in `ops::sanitize::value_looks_like_secret`
+// (deduped from `commands.rs` + `secrets_cmd.rs`), so the tests exercise
+// the real function directly.
 
 fn is_likely_secret(value: &str) -> bool {
-    if value.len() > 16 {
-        return true;
-    }
-    if value.contains("://") {
-        return true;
-    }
-    let lower = value.to_lowercase();
-    for prefix in &[
-        "sk-", "ak-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "xoxb-", "xoxp-", "xapp-", "glpat-",
-        "gldt-", "glft-", "glsoat-", "key-", "pk.", "sk.", "whsec_", "eyJ", "AKIA", "ssh-",
-        "BEGIN ", "s3cr3t", "passw", "token", "api_key", "secret",
+    envforge::ops::sanitize::value_looks_like_secret(value)
+}
+
+// ─── M1: entropy path for short, prefix-less secrets ───────────
+
+#[test]
+fn test_is_likely_secret_short_high_entropy_random_value_should_flag() {
+    // 12-char contiguous alphanumeric, mixed letters+digits, high entropy —
+    // a generated password/API key the old length(>16)+prefix checks missed.
+    assert!(
+        is_likely_secret("x7Kp9mQ2nL4w"),
+        "short high-entropy mixed alnum value must flag (M1)"
+    );
+    assert!(
+        is_likely_secret("Tr0ub4dor3xK9"),
+        "short mixed-class password must flag (M1)"
+    );
+}
+
+#[test]
+fn test_is_likely_secret_entropy_path_avoids_identifier_false_positives() {
+    // Hyphenated/dotted identifiers and single-class words must NOT flag.
+    for v in [
+        "this-is-16-chars",
+        "us-east-1",
+        "v1.2.3",
+        "2024-01-01",
+        "production",
+        "staging-env",
+        "my-service-name",
     ] {
-        if lower.starts_with(prefix) {
-            return true;
-        }
+        assert!(
+            !is_likely_secret(v),
+            "'{v}' must not be flagged (M1 FP guard)"
+        );
     }
-    false
 }

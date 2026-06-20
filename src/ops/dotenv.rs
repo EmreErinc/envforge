@@ -278,9 +278,15 @@ fn needs_quoting(value: &str) -> bool {
 }
 
 /// Strip surrounding quotes from a value.
+///
+/// Requires length ≥ 2 so a lone quote char (`"`) is not treated as both
+/// the opening and closing quote — that previously panicked on the
+/// `value[1..len-1]` slice (`1..0`). The quote chars are single-byte ASCII,
+/// so the slice stays on char boundaries.
 fn strip_quotes(value: &str) -> String {
-    if (value.starts_with('"') && value.ends_with('"'))
-        || (value.starts_with('\'') && value.ends_with('\''))
+    if value.len() >= 2
+        && ((value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\'')))
     {
         value[1..value.len() - 1].to_string()
     } else {
@@ -296,6 +302,19 @@ mod tests {
 
     fn make_shell_file(content: &str) -> ShellFile {
         parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
+    }
+
+    /// Regression (Story 2.4): a lone quote char as a value must not panic
+    /// `strip_quotes` (`value[1..0]`). Found by the MCP no-secret property test.
+    #[test]
+    fn test_strip_quotes_lone_quote_no_panic() {
+        assert_eq!(strip_quotes("\""), "\"");
+        assert_eq!(strip_quotes("'"), "'");
+        assert_eq!(strip_quotes(""), "");
+        assert_eq!(strip_quotes("\"x\""), "x");
+        // parse_dotenv must not panic on a value that is a single quote.
+        let entries = parse_dotenv_content("KEY=\"");
+        assert_eq!(entries.len(), 1);
     }
 
     // ─── parse_dotenv_content ─────────────────────────────────

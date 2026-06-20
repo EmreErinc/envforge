@@ -1002,17 +1002,23 @@ fn step_hardening(
         false
     } else {
         is_yes(&prompt_with_default(
-            "Install AI fence (.aiignore / .cursorignore)? [y/N]",
+            "Install AI fence (choose tools)? [y/N]",
             "n",
         )?)
     };
     if want_fence {
-        match crate::ops::fence::create_fence(root, false) {
-            Ok(_) => {
-                r.fence_installed = true;
-                println!("  Fence installed.");
+        let chosen = crate::ops::fence::select_targets_interactive(root).unwrap_or_default();
+        if chosen.is_empty() {
+            println!("  No tools selected — fence skipped.");
+        } else {
+            match crate::ops::fence::create_fence_for(root, &chosen, false) {
+                Ok(_) => {
+                    r.fence_installed = true;
+                    let names: Vec<&str> = chosen.iter().map(|t| t.as_str()).collect();
+                    println!("  Fence installed: {}", names.join(", "));
+                }
+                Err(e) => println!("  Fence install skipped: {}", e),
             }
-            Err(e) => println!("  Fence install skipped: {}", e),
         }
     }
 

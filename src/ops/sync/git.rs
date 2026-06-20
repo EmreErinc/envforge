@@ -29,8 +29,11 @@ fn sanitized_git_command() -> Command {
 /// Uses `--no-checkout` to skip the initial checkout (which would execute
 /// smudge filters and hooks). After cloning, scrubs the repo-local config
 /// to remove any filter driver definitions, then performs a safe checkout.
-pub fn git_safe_clone(url: &str, target: &Path) -> Result<(), SyncError> {
-    validate_remote_url(url)?;
+pub fn git_safe_clone(url: &str, target: &Path, enforce_ssh: bool) -> Result<(), SyncError> {
+    // M2: honor the caller's SSH-only policy. Previously this always called
+    // `validate_remote_url` (enforce_ssh=false), so `sync.enforce_ssh=true`
+    // was a dead control and an http(s) remote was accepted at clone time.
+    validate_remote_url_enforce_ssh(url, enforce_ssh)?;
 
     // Step 1: Clone without checkout — no hooks, no filter drivers
     let target_str = target.to_string_lossy().to_string();
@@ -108,7 +111,7 @@ pub fn git_safe_clone(url: &str, target: &Path) -> Result<(), SyncError> {
 pub trait GitOps {
     fn check_available(&self) -> Result<GitVersion, SyncError>;
     fn init(&self, branch: &str) -> Result<(), SyncError>;
-    fn clone_repo(url: &str, target: &Path) -> Result<(), SyncError>
+    fn clone_repo(url: &str, target: &Path, enforce_ssh: bool) -> Result<(), SyncError>
     where
         Self: Sized;
     fn add(&self, files: &[&str]) -> Result<(), SyncError>;
@@ -248,8 +251,8 @@ impl GitOps for GitCommandRunner {
         Ok(())
     }
 
-    fn clone_repo(url: &str, target: &Path) -> Result<(), SyncError> {
-        git_safe_clone(url, target)
+    fn clone_repo(url: &str, target: &Path, enforce_ssh: bool) -> Result<(), SyncError> {
+        git_safe_clone(url, target, enforce_ssh)
     }
 
     fn add(&self, files: &[&str]) -> Result<(), SyncError> {

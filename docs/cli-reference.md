@@ -1,6 +1,6 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.8.1
+> Generated for EnvForge v0.8.3
 
 ## Quick Recipes
 
@@ -42,10 +42,10 @@ Every command accepts these flags:
 
 ### envforge fence
 
-Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code).
+Create AI-tool ignore/rules files for all detected AI tools (11 targets incl. Cursor, Copilot, Claude Code, Windsurf, Cline, Aider, Gemini CLI, Amazon Q, the `AGENTS.md` standard). Per-target configurable — see `fence config`. `fence --status` reports honest per-tool coverage.
 
 ```
-Usage: envforge fence [OPTIONS]
+Usage: envforge fence [OPTIONS] [COMMAND]
 ```
 
 | Flag | Description |
@@ -53,10 +53,14 @@ Usage: envforge fence [OPTIONS]
 | `--status` | Check fence status instead of creating |
 | `--disable` | Remove envforge-owned fence content |
 
+| Command | Description |
+|---------|-------------|
+| `config` | List or change which fence targets are written (see below) |
+
 **Examples:**
 
 ```bash
-# Enable fence (writes .cursorignore, etc.)
+# Enable fence (writes only the enabled targets)
 envforge fence
 
 # Check status
@@ -64,6 +68,10 @@ envforge fence --status
 
 # Disable fence
 envforge fence --disable
+
+# Manage which targets fence writes
+envforge fence config --list
+envforge fence config --disable copilot
 ```
 
 ---
@@ -186,10 +194,17 @@ Usage: envforge get [OPTIONS] <KEY>
 |----------|-------------|
 | `<KEY>` | Variable name |
 
+| Option | Description |
+|--------|-------------|
+| `--reveal` | Show the full value. Sensitive values (SECRET/TOKEN/PASSWORD/KEY/…) are **masked by default**; pass `--reveal` for cleartext. Applies to text and `--json` output. |
+| `--json` | JSON output (includes a `redacted` flag) |
+
 **Examples:**
 
 ```bash
-envforge get DATABASE_URL
+envforge get DATABASE_URL                # non-sensitive value shown as-is
+envforge get API_KEY                     # sensitive → masked (e.g. sk-***xyz)
+envforge get API_KEY --reveal            # cleartext (audit-logged)
 envforge get API_KEY --json
 ```
 
@@ -207,12 +222,19 @@ Usage: envforge set [OPTIONS] <ASSIGNMENT>
 |----------|-------------|
 | `<ASSIGNMENT>` | KEY=VALUE pair |
 
+| Option | Description |
+|--------|-------------|
+| `--stdin` | Read the value from stdin (keeps secrets off argv / `ps` / `/proc` / shell history) |
+| `--dry-run` | Preview the diff without writing. Sensitive values are redacted in the diff. |
+
+> Secrets are detected on the command line (length, known prefixes, and entropy) and refused with a hint to use `--stdin`. On success, `set` prints only `Set <KEY>` — never the value or its length.
+
 **Examples:**
 
 ```bash
-envforge set DATABASE_URL=postgres://localhost/mydb
-envforge set API_KEY=sk-abc123 --dry-run
-envforge set NODE_ENV=production --json
+envforge set NODE_ENV=production
+echo "$SECRET" | envforge set API_KEY --stdin   # safe path for secrets
+envforge set API_KEY --stdin --dry-run           # preview (value redacted)
 ```
 
 ---
@@ -450,11 +472,14 @@ Usage: envforge export [OPTIONS] [PATH]
 |------|-------------|
 | `--exclude-sensitive` | Exclude sensitive keys (SECRET, TOKEN, PASSWORD, etc.) |
 | `--safe` | Redact sensitive values as [REDACTED] (safe for AI tools) |
+| `--reveal` | For `--format` export: emit sensitive values in **cleartext**. By default `--format` output redacts sensitive values as `[REDACTED]` (prints a note to stderr). |
 | `--env-example` | Generate .env.example from schema with placeholder values |
 | `--filter <FILTER>` | Only export entries matching this query |
-| `--format <FORMAT>` | Output format: `dotenv`, `json`, `yaml`, `toml`, `docker`, `k8s`, `tfvars` |
+| `--format <FORMAT>` | Output format: `dotenv`, `json`, `yaml`, `toml`, `docker`, `docker-secrets`, `k8s`, `tfvars` (8 formats) |
 | `--k8s-name <K8S_NAME>` | Kubernetes Secret name (for k8s format, default: envforge-secrets) |
 | `--k8s-namespace <K8S_NAMESPACE>` | Kubernetes namespace (for k8s format, default: default) |
+
+> **Redaction default:** `export --format …` masks sensitive values by default so a stray export can't leak secrets to stdout/scrollback or a committed file. Pass `--reveal` to emit real values (e.g. when generating a deployable secret manifest).
 
 **Examples:**
 
@@ -908,16 +933,24 @@ Usage: envforge project init [OPTIONS]
 |------|-------------|
 | `--format <FORMAT>` | Config format: `toml`, `yaml`, `json` [default: toml] |
 | `--force` | Force reinitialize (overwrite existing config) |
+| `--fence` | Write AI-tool fence files after scaffolding (default set: detected tools) |
+| `--fence-targets <IDS>` | Comma-separated fence target ids to write (e.g. `cursor_ignore,copilot`); implies `--fence` |
+| `--no-fence` | Skip AI-tool fencing entirely (overrides the interactive prompt) |
+| `--non-interactive` | Skip the interactive fence prompt; use flags/detected defaults |
 
 **Examples:**
 
 ```bash
-envforge project init
+envforge project init                                   # scaffold + interactive fence prompt
 envforge project init --format yaml
-envforge project init --force
+envforge project init --fence-targets cursor_ignore,copilot,gemini  # fence only these
+envforge project init --fence --non-interactive         # fence detected tools, no prompt
+envforge project init --no-fence                        # scaffold only, no fencing
 ```
 
 Creates `.envforge.project.toml` (or `.yaml`/`.json`), a default `.env.development` file, and adds `.env.*` patterns to `.gitignore`.
+
+**AI-tool fencing:** in an interactive terminal, init prompts which AI tools to fence — `[Enter = detected · 'all' · 'none' · or comma-separated ids]`. Detected tools (via the fence registry's detection hints) are the default. Use the flags above for CI/scripts. See [`fence config`](#envforge-fence-config) for per-target management and `fence --status` for honest coverage.
 
 ---
 
@@ -1552,12 +1585,14 @@ Usage: envforge sync init [OPTIONS]
 | `--remote <REMOTE>` | Remote git URL to clone from |
 | `--machine-id <MACHINE_ID>` | Custom machine ID |
 | `--force` | Force reinitialize (backup existing) |
+| `--enforce-ssh` | Reject non-SSH (http/https) remotes at clone time; persisted to the sync config so later operations stay SSH-only |
 
 **Examples:**
 
 ```bash
 envforge sync init
 envforge sync init --remote git@github.com:myorg/env-sync.git
+envforge sync init --remote git@github.com:myorg/env-sync.git --enforce-ssh
 envforge sync init --force --machine-id macbook-work
 ```
 
@@ -2245,6 +2280,28 @@ envforge mcp status
 envforge mcp status --json
 ```
 
+Exits non-zero (2) when a hardcoded credential is found, so it can gate CI (see [`ci-gating.md`](ci-gating.md)).
+
+---
+
+### envforge mcp serve
+
+Run the EnvForge **MCP server** over stdio: a read-safe Model Context Protocol
+server that exposes env-var key names and schema metadata (redacted, audited —
+**never raw secret values**) to AI agents. Requires a build with the
+`mcp-server` feature. Tools: `list_keys`, `describe_schema`. Client config
+snippets: [`mcp-server.md`](mcp-server.md).
+
+```
+Usage: envforge mcp serve
+```
+
+**Example (Claude Code `.mcp.json`):**
+
+```json
+{ "mcpServers": { "envforge": { "command": "envforge", "args": ["mcp", "serve"] } } }
+```
+
 ---
 
 ### envforge mcp harden
@@ -2268,16 +2325,16 @@ envforge mcp harden --dry-run
 
 ### envforge fence
 
-Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), check status, or remove the envforge-owned fence content while preserving user content.
+Create AI tool ignore rules for all supported tools (Cursor, Copilot, Claude Code), check status, or remove the envforge-owned fence content while preserving user content. By default all five targets are written; use `fence config` to enable/disable individual targets. Configuration is read from the global config (`~/.config/envforge/config.toml`, `[fence.targets]`); when no config is present every target is enabled (identical to prior behavior).
 
 ```
-Usage: envforge fence [OPTIONS]
+Usage: envforge fence [OPTIONS] [COMMAND]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--status` | Check if all ignore rules are correctly installed (mutually exclusive with `--disable`) |
-| `--disable` | Strip envforge-owned fence content from `.envforgeignore`, `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json`. User content is preserved; `.envforgeignore` (fully envforge-owned) is deleted outright. |
+| `--status` | Check if all *enabled* ignore rules are correctly installed (mutually exclusive with `--disable`). `all_fenced` is computed over the enabled target set. |
+| `--disable` | Strip envforge-owned fence content from `.envforgeignore`, `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json` (all known targets, regardless of config). User content is preserved; `.envforgeignore` (fully envforge-owned) is deleted outright. |
 
 **Examples:**
 
@@ -2287,6 +2344,30 @@ envforge fence --status
 envforge fence --status --json
 envforge fence --disable
 envforge fence --dry-run
+```
+
+### envforge fence config
+
+Inspect or change which fence targets are written. Targets: `envforgeignore`, `cursor_ignore`, `cursor_rules`, `copilot`, `claude_code`. Changes persist to the global config (atomic write). Disabled targets are skipped by `fence` activation across every surface (CLI, TUI, LSP, IDE plugins); `fence --disable` still cleans up all known targets.
+
+```
+Usage: envforge fence config [--list] [--enable <TARGET>] [--disable <TARGET>] [--json]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--list` | Show each target with its effective state and source (`default` / `global`) |
+| `--enable <TARGET>` | Enable a target, persisting the choice |
+| `--disable <TARGET>` | Disable a target, persisting the choice |
+| `--json` | Emit the target list as JSON (`[{"target","enabled","source"}]`) for scripts/plugins |
+
+**Examples:**
+
+```bash
+envforge fence config --list
+envforge fence config --list --json
+envforge fence config --disable copilot
+envforge fence config --enable copilot
 ```
 
 ### envforge fence apply

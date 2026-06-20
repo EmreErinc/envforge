@@ -26,6 +26,8 @@ pub struct AppConfig {
     pub lifecycle: LifecycleConfig,
     #[serde(default)]
     pub analytics: AnalyticsConfig,
+    #[serde(default)]
+    pub fence: FenceConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +106,63 @@ fn default_true() -> bool {
 }
 fn default_snapshot_retention() -> u32 {
     30
+}
+
+/// Configuration for the AI tool fence.
+///
+/// Controls which fence files are written when `envforge fence` runs.
+/// All targets default to enabled — absent config is identical to writing all five files.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct FenceConfig {
+    /// Per-target enable/disable flags.
+    #[serde(default)]
+    pub targets: FenceTargets,
+}
+
+/// Per-target enable flags, keyed by fence-target registry id.
+///
+/// Absent id => enabled (`true`) — so an empty map is byte-identical to
+/// enabling every target (NFR5 backward-compat). Only explicit overrides
+/// are stored/serialised.
+///
+/// Adding a new AI-tool target requires no new field here (NFR-M1): add
+/// an entry to `src/ops/fence/registry.rs` and the new id is automatically
+/// valid and defaults to enabled.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(transparent)]
+pub struct FenceTargets {
+    overrides: std::collections::BTreeMap<String, bool>,
+}
+
+impl<'de> serde::Deserialize<'de> for FenceTargets {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let map = std::collections::BTreeMap::<String, bool>::deserialize(deserializer)?;
+        for key in map.keys() {
+            if !crate::ops::fence::registry::is_valid_id(key) {
+                return Err(serde::de::Error::custom(format!(
+                    "unknown fence target '{key}'"
+                )));
+            }
+        }
+        Ok(Self { overrides: map })
+    }
+}
+
+impl FenceTargets {
+    /// Returns whether the given target is enabled according to this config.
+    ///
+    /// Absent key => `true` (NFR5 backward-compat / fail-safe default).
+    /// This is the single decision point for "is target X enabled?" (NFR10).
+    #[must_use]
+    pub fn is_enabled(&self, target: crate::ops::fence::FenceTarget) -> bool {
+        self.overrides.get(target.as_str()).copied().unwrap_or(true)
+    }
+
+    /// Sets the enabled state for a specific target.
+    pub fn set_enabled(&mut self, target: crate::ops::fence::FenceTarget, enabled: bool) {
+        self.overrides.insert(target.as_str().to_string(), enabled);
+    }
 }
 
 impl Default for LifecycleConfig {
@@ -194,6 +253,7 @@ impl Default for AppConfig {
             clipboard: ClipboardConfig::default(),
             lifecycle: LifecycleConfig::default(),
             analytics: AnalyticsConfig::default(),
+            fence: FenceConfig::default(),
         }
     }
 }

@@ -5,6 +5,216 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Fence no longer clobbers an unparseable `.claude/settings.json`**
+  (`src/ops/fence.rs`). A hand-edited settings file with a trailing comma or
+  comment (common, but not strict JSON) was silently replaced with `{}` plus
+  the deny rules, destroying every other setting. The write path now refuses
+  to overwrite an existing-but-unparseable file and reports a per-file failure
+  (matching `strip_deny_rule`), so the rest of the toolchain still fences.
+- **Lease names are validated against path traversal** (`src/ops/lease.rs`).
+  `create`/`revoke`/`renew` fed the name straight into `<name>.toml`, so
+  `--name ../../tmp/evil` could write, read, or delete a lease file outside the
+  leases directory. Names are now restricted to `[A-Za-z0-9._-]` (no `..`),
+  rejected before any filesystem access. (JIT leases were already safe — UUID
+  names.)
+- **JIT lease redemption now requires a secret ticket** (`src/ops/lease.rs`).
+  `jit_redeem` gated only on the lease name, which is emitted in audit metadata
+  and returned in the handle — so anyone who learned the name could redeem the
+  secret and the single-redeem guarantee was bypassable. `jit_grant` now mints
+  a separate random UUID ticket, stored on the lease and required (constant-time
+  compared) at redeem.
+- **Secret backups are created `0600` at creation time** (`src/ops/mcp_scan.rs`,
+  `src/config/backup.rs`). Both used `std::fs::copy` then `chmod`, leaving a
+  window where the plaintext-secret backup was world-readable (and `mcp_scan`
+  discarded the chmod error entirely, so a failure left it `0644` permanently).
+  Backups are now opened `O_CREAT|O_EXCL` with mode `0600` and all IO errors
+  propagated.
+
+### Fixed
+
+- **CRUD value quoting now escapes the closing quote** (`src/ops/crud.rs`).
+  `add`/`edit`/`rename` built the on-disk line without escaping, so a value
+  containing the quote character (e.g. `a"b`) broke out of its quotes —
+  re-parsing to a truncated, different value and allowing shell-syntax
+  injection into the rc file, violating the byte-for-byte round-trip
+  invariant. Quoting is now centralized in a parser-correct `quote_value`
+  helper (single-quoted values containing `'` fall back to double quotes,
+  which EnvForge's parser can round-trip).
+- **`secrets provider` lookup no longer panics on a non-ASCII name**
+  (`src/ops/secrets/provider.rs`). The "did you mean" suggestion byte-sliced
+  the user-supplied name (`name[..2]`), panicking when the first character was
+  multi-byte (e.g. `ñx`). Now compared by character.
+- **Parser round-trip is now byte-identical for trailing newlines**
+  (`src/parser/parse.rs`, `src/model/shell_file.rs`). The serializer
+  unconditionally appended `\n`, so a file without a trailing newline gained
+  one on every managed write; `ShellFile` now records the original
+  trailing-newline state and both serialize paths reproduce it exactly.
+
+### Tests
+
+- **+15 regression tests** pinning all the bugs above:
+  `tests/hardening_regression_tests.rs` (quote-escaping round-trip + fixpoint,
+  fence non-clobber + valid-merge, non-ASCII provider lookup, lease-name
+  traversal, trailing-newline round-trip), `tests/jit_redeem_ticket_tests.rs`
+  (forged ticket rejected / genuine accepted), `tests/backup_perms_tests.rs`
+  (backup created `0600`). **2,569 tests passing** (up from 2,554).
+
+## [0.8.3] - 2026-06-19 — "Omnipresence"
+
+Broad expansion of AI-tool and editor coverage so EnvForge's secret-fencing,
+leak-linting, and exfil-detection are present wherever a developer's code and
+AI agent run. See `docs/integration-matrix.md`.
+
+### Added
+
+- **Data-driven fence target registry** (`src/ops/fence/registry.rs`) — adding an
+  AI tool is now a data entry, not new control flow. Config target-set is a
+  registry-keyed map.
+- **11 fence targets**: Cursor, GitHub Copilot, Claude Code, Windsurf/Codeium,
+  Cline, Aider, Gemini CLI, Amazon Q, the `AGENTS.md` cross-tool standard, and
+  `.envforgeignore`. Tools without a native ignore file are covered via
+  rules/deny + `AGENTS.md` (reported honestly as `fallback`).
+- **Honest per-tool fence status** (`fence --status`): `covered`/`fallback`/
+  `unfenced`/`not_installed`, installed-but-unfenced detection, JSON + CI exit
+  codes.
+- **`project init` AI-tool fence selection**: init can fence AI tools after
+  scaffolding, choosing targets interactively (a stdin prompt — Enter=detected /
+  `all` / `none` / comma-separated ids) or via flags (`--fence`, `--no-fence`,
+  `--fence-targets`, `--non-interactive`). Default set = detected tools.
+- **EnvForge MCP server** (`envforge mcp serve`, behind the `mcp-server` Cargo
+  feature) — read-safe stdio server exposing `list_keys` + `describe_schema`
+  (redacted, audited, **no raw secret values**). Client config: `docs/mcp-server.md`.
+- **Wider MCP-config credential linting** (Windsurf, Cline, Claude Code, VS Code
+  paths) + an LSP quick-fix replacing hardcoded credentials with `${VAR}`.
+- **First-party Neovim plugin** (`editors/nvim`: statusline, exposure heatmap,
+  fence toggle) and **Zed extension** (`editors/zed`: LSP + read-safe MCP server).
+- **CI gating** (`docs/ci-gating.md`): `fence --status` and `mcp status` exit
+  non-zero when coverage is incomplete / a credential is hardcoded.
+
+### Changed
+
+- Shared redaction routine moved to `ops::redact` (LSP re-exports).
+- `mcp status` now exits `2` when hardcoded credentials are found (CI gating).
+
+### Fixed
+
+- `ops::dotenv::strip_quotes` panicked on a lone quote char (`value[1..0]`) —
+  found by the MCP no-secret property test, now guarded.
+
+### Removed
+
+- JetBrains Fleet support (Fleet was discontinued Dec 2025).
+
+### Tests
+
+- **2,554 tests passing** under the default build (up from 2,507; +47 across
+  fence registry/writers/status/detection, MCP server, dotenv, CI-gating,
+  per-project fence-target selection, and
+  LSP quick-fix). The `mcp-server` feature adds 13 more (MCP handshake + tools +
+  256-case no-secret property test).
+
+### Security hardening (earlier 0.8.3 work)
+
+Security-hardening pass across all surfaces (TUI, CLI, providers/sync, plugins/LSP),
+grounded in a 2026 best-practice audit + code re-validation (`docs/security-audit-findings.md`).
+
+### Security
+
+- **Secret cache now encrypted at rest (H1).** The provider secret cache
+  (`~/.config/envforge/secrets-cache/*.cache`) is age-encrypted like credentials/sync
+  instead of stored as cleartext. Legacy plaintext caches are treated as a miss and
+  removed (graceful migration); caching is best-effort and never fails a resolve.
+- **TUI diff preview no longer leaks secrets (H2).** Sensitive values are redacted and
+  all diff lines are stripped of control/escape sequences before rendering.
+- **TUI restores the terminal on panic (H3).** A panic hook + RAII guard guarantee raw/alt
+  screen teardown, so a revealed secret can't be stranded on screen.
+- **`get` masks sensitive values by default (H6).** Use `get --reveal` for cleartext;
+  applies to text and `--json` output.
+- **Workspace/project trust gating (H5).** VS Code declares `untrustedWorkspaces: limited`
+  and starts the language server/binary only once trusted; IntelliJ gates the LSP launch on
+  project trust.
+- **VS Code security commands work again (H4).** Fence/reveal/canary/volatile commands were
+  wired to a permanently-disabled `executeCommand` and silently failed; they now use
+  constrained, named LSP requests (`envforge/fenceStatus`, `envforge/revealValue`, …). The
+  generic `executeCommand` remains disabled.
+- **IntelliJ binary resolution no longer falls back to PATH (M4).** Refuses to search PATH;
+  requires an absolute path or `ENVFORGE_PATH`.
+- **Concurrent age-key generation is now race-safe (M10).** First-run key generation is
+  serialized so parallel callers converge on a single key.
+- **`sync.enforce_ssh` now enforced on clone (M2).** `sync init --enforce-ssh` rejects
+  non-SSH (http/https) remotes at clone time and persists the policy to the sync config;
+  previously the setting was a dead control on the clone path.
+- **Legacy plaintext-sync bypass closed (M3).** A legacy `require_encryption = false`
+  no longer maps to a year-2099 (effectively permanent) plaintext window — it now fails
+  safe to mandatory encryption. Use `migration-until <RFC3339 date>` for a bounded window.
+- **Argv secret detection now entropy-aware (M1).** The guard that blocks secrets passed
+  as command-line arguments (visible in `ps`/`/proc`/history) now also catches short,
+  prefix-less, high-entropy values (e.g. a generated 12–16 char password/API key) that the
+  length+prefix checks missed. Detection deduped into `ops::sanitize::value_looks_like_secret`.
+- **Conjur appliance URL validated (L7).** Rejects non-http(s) schemes, missing host, and
+  control characters before the URL reaches `CONJUR_APPLIANCE_URL` / `conjur init -u` (SSRF guard).
+- **`secrets config --set` zeroizes the credential after storing (L3).** Parity with `set`.
+- **LSP bounds per-document entry count (L10).** `parse_env_document` caps at 50k lines so a
+  malformed/hostile document can't exhaust memory.
+- **Stale-cache fallback warning no longer interpolates the provider error (L8).**
+- **VS Code reveal minimizes value residency (M6).** The revealed value is shown once in an
+  ephemeral modal and never logged; clipboard copy is opt-in, explicitly warns that clipboard
+  managers/sync may retain it, and the auto-clear window is shortened to 15 s.
+
+### Changed
+
+- `set` no longer prints the secret's length (L1); `set --dry-run` redacts sensitive
+  values on both diff sides (L2). Cleartext stays available via explicit `--reveal`.
+- **`export --format` redacts sensitive values by default (M7).** Previously the
+  multi-format export emitted every value in cleartext to stdout/file. Pass `--reveal`
+  for cleartext (consistent with `get`).
+- **`backup restore` is confined to the backups directory (L4).** A user-supplied path is
+  now canonicalized, rejected if outside `~/.config/envforge/backups`, and read with
+  `O_NOFOLLOW` (symlink/traversal hardening).
+- Single canonical sensitivity decision shared across TUI mask, CLI redaction, and exports
+  (L6/L12).
+
+### Fixed
+
+- **Crash on short rc file (M9).** `set`/`add` panicked (`insertion index > len`) when the
+  primary shell file had fewer lines than the protected-header offset.
+- **UTF-8 truncation panics (M5/M8).** TUI value truncation and CLI `mask_value` byte-sliced
+  UTF-8 and could panic on multibyte values; all now use a shared char-boundary-safe helper.
+- **TUI reveal tracked by key, not row index (L9).** Revealing a value then scrolling/
+  sorting/regrouping could unmask the wrong secret when a row index was reused.
+- **`get` emits a reveal audit event only on actual cleartext disclosure (L11).** A masked
+  default read no longer fires a (now `Warn`) reveal event.
+
+### Added — Configurable fence targets (Epic 3)
+
+- **Per-target fence configuration.** Each of the five AI-tool fence targets
+  (`envforgeignore`, `cursor_ignore`, `cursor_rules`, `copilot`, `claude_code`) can now be
+  individually enabled or disabled via `[fence.targets]` in the global config. Absent keys
+  default to `true` (fail-safe); an unknown key is rejected at parse time (deny_unknown_fields).
+- **`envforge fence config` CLI subcommand.** `--list` shows resolved state with source
+  (`default` / `global`); `--enable TARGET` / `--disable TARGET` persist changes; `--json`
+  for machine-readable output. All five canonical snake_case target IDs accepted.
+- **Aggregate-fenced-state semantic change (behavior change for status consumers).**
+  `check_fence_status` / `all_fenced` are now relative to the *enabled* target set only.
+  A disabled target's stale file on disk does not make the fence `Partial`. Plugin status
+  bars and any tooling that reads `all_fenced` from `envforge fence --status --json` should
+  note this change: previously any missing file triggered `false`; now only missing *enabled*
+  targets do.
+- **LSP `envforge.fence.config` named command.** Returns `[{target, enabled, source}]` for
+  the resolved config. `envforge.fence.status` response now includes `resolved_targets`
+  alongside the existing `files`, `all_fenced`, and `completeness` fields. Both commands
+  follow the stable `{ok, result|error}` contract; `envforge.fence.config` requires
+  `workspace_root` and returns an error if absent.
+- **TUI read-only target summary.** When the fence is on, the footer now shows a compact
+  summary next to `[fence:on]`, e.g. `fence: cursor_ignore,copilot (2/5)`, derived from
+  the resolved config. No new popup or key handler; the `F` key is unchanged.
+- **2,507 tests passing** (up from 2,501; +6 new tests across fence_config_tests.rs and
+  lsp_phase1_tests.rs).
+
 ## [0.8.2] - 2026-06-16
 
 ### Fixed

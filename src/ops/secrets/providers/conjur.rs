@@ -62,6 +62,7 @@ impl SecretProvider for ConjurProvider {
         self.validate_config(credentials)?;
         self.check_binary()?;
 
+        Self::validate_appliance_url(credentials)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -152,6 +153,7 @@ impl SecretProvider for ConjurProvider {
         if !path.is_empty() {
             validate_provider_arg(path, "conjur path")?;
         }
+        Self::validate_appliance_url(credentials)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -200,6 +202,7 @@ impl SecretProvider for ConjurProvider {
         _path: &str,
         secrets: &[(String, String)],
     ) -> Result<usize, SecretsError> {
+        Self::validate_appliance_url(credentials)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -228,6 +231,7 @@ impl SecretProvider for ConjurProvider {
         key: &str,
     ) -> Result<String, SecretsError> {
         validate_secret_name(key)?;
+        Self::validate_appliance_url(credentials)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -250,6 +254,7 @@ impl SecretProvider for ConjurProvider {
         if !path.is_empty() {
             validate_provider_arg(path, "conjur path")?;
         }
+        Self::validate_appliance_url(credentials)?;
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
@@ -270,6 +275,37 @@ impl SecretProvider for ConjurProvider {
             .collect();
         keys.sort();
         Ok(keys)
+    }
+}
+
+impl ConjurProvider {
+    /// Validate the Conjur appliance URL (if present): must be http(s), have a
+    /// host, and carry no control characters. Conservative SSRF/scheme guard
+    /// (L7) — the URL flows into `CONJUR_APPLIANCE_URL` and `conjur init -u`.
+    fn validate_appliance_url(credentials: &HashMap<String, String>) -> Result<(), SecretsError> {
+        let Some(url) = credentials.get("url") else {
+            return Ok(());
+        };
+        let trimmed = url.trim();
+        let rest = trimmed
+            .strip_prefix("https://")
+            .or_else(|| trimmed.strip_prefix("http://"))
+            .ok_or_else(|| {
+                SecretsError::CredentialError(
+                    "conjur: 'url' must start with https:// or http://".to_string(),
+                )
+            })?;
+        if rest.split('/').next().unwrap_or("").is_empty() {
+            return Err(SecretsError::CredentialError(
+                "conjur: 'url' has no host".to_string(),
+            ));
+        }
+        if trimmed.chars().any(|c| c.is_control()) {
+            return Err(SecretsError::CredentialError(
+                "conjur: 'url' contains control characters".to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 

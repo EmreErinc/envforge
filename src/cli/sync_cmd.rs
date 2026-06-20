@@ -21,6 +21,10 @@ pub enum SyncAction {
         /// Force reinitialize (backup existing)
         #[arg(long)]
         force: bool,
+
+        /// Reject non-SSH remotes (http/https) when cloning; persisted to sync config
+        #[arg(long)]
+        enforce_ssh: bool,
     },
 
     /// Push local changes to sync repository
@@ -112,7 +116,14 @@ pub fn execute_sync(
             remote,
             machine_id,
             force,
-        } => cmd_sync_init(remote.as_deref(), machine_id.as_deref(), *force, json),
+            enforce_ssh,
+        } => cmd_sync_init(
+            remote.as_deref(),
+            machine_id.as_deref(),
+            *force,
+            *enforce_ssh,
+            json,
+        ),
         SyncAction::Push { message } => cmd_sync_push(message.as_deref(), dry_run, json),
         SyncAction::Pull => cmd_sync_pull(dry_run, json),
         SyncAction::Status => cmd_sync_status(json),
@@ -197,6 +208,7 @@ fn cmd_sync_init(
     remote: Option<&str>,
     custom_machine_id: Option<&str>,
     force: bool,
+    enforce_ssh: bool,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let sync_path = sync_dir()?;
@@ -215,7 +227,7 @@ fn cmd_sync_init(
     }
 
     if let Some(url) = remote {
-        let has_snapshot = init_from_remote(&sync_path, url, &machine_id)?;
+        let has_snapshot = init_from_remote(&sync_path, url, &machine_id, enforce_ssh)?;
         if json {
             println!(
                 "{}",

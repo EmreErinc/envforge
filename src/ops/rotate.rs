@@ -43,8 +43,8 @@ pub fn mask_value(value: &str) -> String {
     if value.len() < 6 {
         return "****".to_string();
     }
-    let first2 = &value[..2];
-    let last2 = &value[value.len() - 2..];
+    let first2 = crate::ops::sanitize::char_prefix(value, 2);
+    let last2 = crate::ops::sanitize::char_suffix(value, 2);
     format!("{}****{}", first2, last2)
 }
 

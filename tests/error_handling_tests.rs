@@ -425,6 +425,7 @@ fn test_serialize_with_unicode_values() {
             inline_comment: None,
         }],
         hash: [0; 32],
+        ends_with_newline: true,
     };
 
     let serialized = shell_file.serialize();
@@ -445,6 +446,7 @@ fn test_serialize_with_special_chars() {
             inline_comment: None,
         }],
         hash: [0; 32],
+        ends_with_newline: true,
     };
 
     let serialized = shell_file.serialize();
@@ -502,6 +504,7 @@ fn test_ambiguous_keys() {
             },
         ],
         hash: [0; 32],
+        ends_with_newline: true,
     };
 
     let mut shell_file = shell_file;
@@ -634,6 +637,7 @@ fn test_export_style_preservation() {
             inline_comment: None,
         }],
         hash: [0; 32],
+        ends_with_newline: true,
     };
 
     let serialized = shell_file.serialize();
@@ -654,6 +658,7 @@ fn test_quote_style_preservation() {
             inline_comment: None,
         }],
         hash: [0; 32],
+        ends_with_newline: true,
     };
 
     let serialized = shell_file.serialize();

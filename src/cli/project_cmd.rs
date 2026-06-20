@@ -22,6 +22,18 @@ pub enum ProjectAction {
         /// Env file path (default: `.env.{active}`)
         #[arg(long)]
         env_file: Option<String>,
+        /// Write AI-tool fence files after scaffolding
+        #[arg(long)]
+        fence: bool,
+        /// Skip AI-tool fencing entirely (overrides interactive prompt)
+        #[arg(long)]
+        no_fence: bool,
+        /// Comma-separated fence target ids to write (e.g. cursor_ignore,copilot); implies --fence
+        #[arg(long, value_name = "IDS")]
+        fence_targets: Option<String>,
+        /// Non-interactive mode: skip the interactive fence prompt; use flags/detected defaults
+        #[arg(long)]
+        non_interactive: bool,
     },
     /// Interactive guided project setup (identity → envs → schema → values → hardening)
     Wizard {

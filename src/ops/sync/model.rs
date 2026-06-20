@@ -59,10 +59,21 @@ impl<'de> Deserialize<'de> for SyncEncryptionPolicy {
                 if v {
                     Ok(SyncEncryptionPolicy::Mandatory)
                 } else {
-                    // false → MigrationUntil with a far-future date (effectively never expires)
-                    Ok(SyncEncryptionPolicy::MigrationUntil(
-                        "2099-01-01T00:00:00Z".into(),
-                    ))
+                    // M3: legacy `require_encryption = false` previously mapped to a
+                    // year-2099 window — an effectively permanent plaintext bypass that
+                    // fails *open*, and which a relative window can't safely bound (no
+                    // date anchor exists in the legacy bool). Treat the legacy opt-out
+                    // as Mandatory (fail-safe, NFR4). Operators needing a real, bounded
+                    // migration window must declare it explicitly as
+                    // `migration-until <RFC3339 date>`; the `--force-migration` flag
+                    // remains for audited, explicit bypass.
+                    log::warn!(
+                        "sync: legacy 'require_encryption = false' is ignored and treated as \
+                         mandatory encryption. Use encryption_policy = \
+                         \"migration-until <RFC3339 date>\" for an explicit, bounded \
+                         plaintext window."
+                    );
+                    Ok(SyncEncryptionPolicy::Mandatory)
                 }
             }
 

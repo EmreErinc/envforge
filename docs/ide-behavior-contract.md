@@ -4,7 +4,9 @@ Every IDE feature is implemented once in `envforge lsp` and rendered identically
 
 This file is the single source of truth for triggers, wording, icons, and keybindings. Plugins MUST match. Tests in `tests/lsp_phase1_tests.rs` (and successor parity files) enforce the LSP response body.
 
-**Third-party LSP clients** (Neovim, Helix, Emacs, Sublime Text, Zed, Kakoune, JetBrains Fleet, Lapce, …) consume the same `textDocument/*` capabilities, `workspace/executeCommand` commands, and the `envforge/exposureMap` custom request — they just don't get the native status-bar / gutter-heatmap UI without a dedicated plugin. See [`lsp-clients.md`](lsp-clients.md) for per-editor setup snippets.
+**Third-party LSP clients** (Helix, Emacs, Sublime Text, Kakoune, Lapce, … — Neovim and Zed now have first-party integrations under `editors/`) consume the same `textDocument/*` capabilities plus the named `envforge/*` custom requests (`envforge/exposureMap`, `envforge/fenceStatus`, `envforge/revealValue`, …) — they just don't get the native status-bar / gutter-heatmap UI without a dedicated plugin. The generic `workspace/executeCommand` provider is **disabled**; security operations go through the named requests instead. See [`lsp-clients.md`](lsp-clients.md) for per-editor setup snippets.
+
+> **Note (v0.8.3):** Sections below that describe security commands via `workspace/executeCommand` reflect the prior wiring. The operations are unchanged, but they are now invoked as named `envforge/*` JSON-RPC requests (same `{ok, result|error}` payloads); the generic `executeCommand` endpoint returns `MethodNotFound`.
 
 ## Conventions
 
@@ -98,15 +100,16 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | Field | Value |
 |---|---|
 | LSP method | `textDocument/publishDiagnostics` (push on `did_open` + `did_change`) |
-| Trigger | Open or edit one of: `**/mcp.json`, `**/.mcp.json`, `**/.cursor/mcp.json`, `**/.claude/settings.json`, `**/claude_desktop_config.json` |
+| Trigger | Open or edit one of: `**/mcp.json` (covers `.cursor/`, `.vscode/`), `**/.mcp.json`, `**/.claude/settings.json`, `**/claude_desktop_config.json`, `**/.claude.json` (Claude Code), `**/mcp_config.json` (Windsurf), `**/cline_mcp_settings.json` (Cline) — widened in Story 3.1 (FR18) |
 | Severity | `Warning` |
 | Source tag | `envforge-mcp` (distinct from `envforge` on `.env` diagnostics so clients can filter independently) |
 | Detection rules | Reuses `ops::mcp_scan` heuristics: known-prefix tokens (AWS, GitHub, Stripe, Slack, SendGrid, JWT, …), connection strings with embedded credentials, sensitive-key-name + secret-looking value combinations |
 | Message format | `Hardcoded credential in MCP config: <pattern> at \`<json.path>\` (value \`<masked>\`). Replace with \`${ENV_VAR}\` and load via envforge.` |
 | Range | First occurrence of the offending JSON value's string contents in the source line; falls back to (0,0)–(0,0) if not locatable. |
 | Ignored | Values starting with `${` or `$`, values shorter than 4 chars, valid JSON parse failures (file silently skipped). |
-| VS Code wiring | `documentSelector` extended with 5 MCP config glob patterns. |
-| IntelliJ wiring | 4 `languageMapping` entries with `fileNamePattern` for JSON-typed MCP/Claude config filenames. |
+| Quick-fix (Story 3.2 / FR19) | `textDocument/codeAction` on an `envforge-mcp` diagnostic offers `Replace hardcoded credential with ${VAR}` (QUICKFIX, `is_preferred`): replaces the value range with `${VAR}` where `VAR` is the camelCase-aware SCREAMING_SNAKE of the JSON key. CLI batch equivalent: `envforge mcp harden`. |
+| VS Code wiring | `documentSelector` extended with 8 MCP config glob patterns (Story 3.1). |
+| IntelliJ wiring | 7 `languageMapping` entries with `fileNamePattern` for JSON-typed MCP/agent config filenames (Story 3.1). |
 | Test IDs | `test_mcp_diagnostic_flags_aws_access_key`, `test_mcp_diagnostic_flags_github_pat_with_range`, `test_mcp_diagnostic_ignores_env_var_references`, `test_mcp_diagnostic_flags_postgres_connection_string`, `test_mcp_diagnostic_skips_invalid_json`, `test_mcp_diagnostic_flags_multiple_findings` |
 
 ### L13 — Save-time AI-guard diagnostics
@@ -180,31 +183,34 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | IntelliJ render | Tints via lsp4ij semantic highlighting bridge to JetBrains color scheme |
 | Test IDs | `test_semantic_tokens_emits_key_value_comment`, `test_semantic_tokens_marks_sensitive_keys_readonly`, `test_semantic_tokens_delta_encoding_first_token_absolute`, `test_semantic_tokens_delta_encoding_subsequent_token_same_line`, `test_semantic_tokens_delta_encoding_new_line_resets_start`, `test_semantic_tokens_uses_schema_sensitive_flag`, `test_semantic_tokens_skip_blank_and_other_lines` |
 
-### C3 — Workspace executeCommand (fence enable / status)
+### C3 — Workspace executeCommand (fence enable / status / config)
 
 | Field | Value |
 |---|---|
 | LSP method | `workspace/executeCommand` |
 | Capability | `execute_command_provider` advertises `SUPPORTED_COMMANDS` legend in `initialize` |
-| Command set | `envforge.fence.enable` (calls `ops::fence::create_fence`), `envforge.fence.disable` (calls `ops::fence::remove_fence` — strips envforge-owned content, preserves user content), `envforge.fence.toggle` (probes status, flips direction; returns `{"action": "enabled"\|"disabled"}`), `envforge.fence.status` (calls `ops::fence::check_fence_status`) |
+| Command set | `envforge.fence.enable` (calls `ops::fence::create_fence`), `envforge.fence.disable` (calls `ops::fence::remove_fence` — strips envforge-owned content, preserves user content), `envforge.fence.toggle` (probes status, flips direction; returns `{"action": "enabled"\|"disabled"}`), `envforge.fence.status` (calls `ops::fence::check_fence_status`), `envforge.fence.config` (returns resolved per-target config as `[{target, enabled, source}]`) |
 | Return shape | `{ "ok": true, "result": <payload> }` on success, `{ "ok": false, "error": "<msg>" }` on failure. Stable JSON contract so plugins don't depend on internal Rust types. |
+| `envforge.fence.config` result | Array of 5 objects: `[{ "target": "<snake_case_id>", "enabled": <bool>, "source": "default"\|"global" }]`. Ordered by `FenceTarget::all()` canonical order. `workspace_root` required; returns error if absent. |
+| `envforge.fence.status` result (v0.8.3+) | Includes `resolved_targets` field alongside existing `files`, `all_fenced`, `completeness` — same shape as `fence.config` result. `all_fenced` is now relative to the *enabled* target set only (behavior change from v0.8.2 and earlier). |
 | Workspace root | Derived from `Backend.workspace_root` (set in `initialize`); commands that touch the filesystem fail with `"workspace root not available"` if absent. |
 | Unknown command | Returns `{ "ok": false, "error": "unknown command: <id>" }` rather than throwing — keeps clients robust. |
-| Test IDs | `test_command_dispatch_unknown_command_returns_error`, `test_command_dispatch_fence_enable_requires_workspace_root`, `test_command_dispatch_fence_status_requires_workspace_root`, `test_command_dispatch_fence_enable_writes_fence_files`, `test_command_dispatch_fence_status_reflects_freshly_enabled_state`, `test_command_dispatch_fence_status_clean_dir_not_all_fenced` |
+| Test IDs | `test_command_dispatch_unknown_command_returns_error`, `test_command_dispatch_fence_enable_requires_workspace_root`, `test_command_dispatch_fence_status_requires_workspace_root`, `test_command_dispatch_fence_enable_writes_fence_files`, `test_command_dispatch_fence_status_reflects_freshly_enabled_state`, `test_command_dispatch_fence_status_clean_dir_not_all_fenced`, `test_command_dispatch_fence_config_requires_workspace_root`, `test_command_dispatch_fence_config_returns_target_array`, `test_command_dispatch_fence_config_default_all_enabled`, `test_command_dispatch_fence_status_includes_resolved_targets`, `test_command_dispatch_fence_config_parity_with_fence_status`, `test_command_dispatch_unknown_fence_variant_still_rejected` |
 
 ### P1+P2 — Status bar fence indicator + toggle
 
 | Field | Value |
 |---|---|
 | Trigger | Always-on status bar item; click fires `envforge.fence.toggle` (VS Code) or "Tools > EnvForge > Toggle Fence" (IntelliJ) |
-| Data source | Both plugins shell out to `envforge fence --status --json` and read `all_fenced` boolean. Plugins cache + refresh every 30 s. |
+| Data source | Both plugins shell out to `envforge fence --status --json` and read `all_fenced` boolean. Plugins cache + refresh every 30 s. `all_fenced` is relative to the *enabled* target set (v0.8.3+): a disabled target's stale file does not flip `all_fenced` to `false`. |
+| Tooltip (v0.8.3+) | Tooltip now lists the active fence targets from `resolved_targets` in the `fence.status` response (e.g. "cursor_ignore, copilot (2/5)"). Plugins should read `result.resolved_targets` from `envforge.fence.status` or call `envforge.fence.config` to populate the tooltip. |
 | Render — fenced | `$(shield) AI BLOCKED` (VS Code) / `… · AI BLOCKED` (IntelliJ widget text). VS Code uses warning-tinted background. |
 | Render — unfenced | `$(shield) AI ALLOWED` (VS Code) / `… · AI ALLOWED` (IntelliJ). Plain background. |
 | Render — unknown | Hidden (don't misrepresent fence state) |
 | VS Code wiring | New `envforge.fence.toggle` VSCode command in `commands.ts`: confirms via modal, sends `workspace/executeCommand` with `envforge.fence.enable`, refreshes status bar. Registered in `package.json` `contributes.commands`. |
 | IntelliJ wiring | `EnvForgeStatusWidget` extended to compose `<N> vars · AI BLOCKED/ALLOWED`. Refresh moved off the UI thread (`executeOnPooledThread`). Existing `ToggleFenceAction` in Tools menu serves as the toggle action surface. |
-| Toggle behavior | Click probes `envforge.fence.status`; calls `envforge.fence.toggle` which flips direction. User content in `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json` is preserved when fence is disabled; envforge-owned blocks are stripped surgically. `.envforgeignore` is fully envforge-owned and deleted on disable. |
-| CLI parity | `envforge fence` enables; `envforge fence --disable` disables; `envforge fence --status [--json]` reads state. |
+| Toggle behavior | Click probes `envforge.fence.status`; calls `envforge.fence.toggle` which flips direction. User content in `.cursorignore`, `.cursorrules`, `.github/copilot-instructions.md`, `.claude/settings.json` is preserved when fence is disabled; envforge-owned blocks are stripped surgically. `.envforgeignore` is fully envforge-owned and deleted on disable. Only *enabled* targets are written on enable. |
+| CLI parity | `envforge fence` enables; `envforge fence --disable` disables; `envforge fence --status [--json]` reads state; `envforge fence config [--list\|--enable\|--disable TARGET\|--json]` manages per-target config. |
 | VS Code tests | Manual smoke in both IDEs. LSP-side coverage via the C3 test IDs above. |
 
 ### L6 — Code actions (expanded quick-fix set)
@@ -304,7 +310,7 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | cwd | Workspace root from `initialize`. Sync subcommands fail with `"workspace root not available"` when absent. |
 | Success shape | `{ "ok": true, "result": <JSON the CLI emitted> }`. The CLI's existing `--json` schemas pass through unchanged so any client that already understands the CLI output understands the LSP response. |
 | Failure shape | `{ "ok": false, "error": "sync <action> failed", "detail": { "exit_code": <int>, "stdout": <JSON or string>, "stderr": "<string>" } }`. Lets clients render the same error UX whether the user invoked sync via terminal or via plugin. |
-| Plugin parity | VS Code (`envforge.syncPush`, `envforge.syncPull`, `envforge.syncStatus`) and IntelliJ (`SyncPushAction`, `SyncPullAction`) already shell out to the CLI directly. The new LSP routes are additive — third-party LSP clients (Neovim, Emacs, JetBrains Fleet via lsp4ij) can now drive sync without spawning subprocesses themselves. |
+| Plugin parity | VS Code (`envforge.syncPush`, `envforge.syncPull`, `envforge.syncStatus`) and IntelliJ (`SyncPushAction`, `SyncPullAction`) already shell out to the CLI directly. The new LSP routes are additive — third-party LSP clients (Neovim, Emacs, and other LSP clients) can now drive sync without spawning subprocesses themselves. |
 | Test IDs | `test_command_dispatch_sync_push_requires_workspace_root`, `test_command_dispatch_sync_pull_requires_workspace_root`, `test_command_dispatch_sync_status_requires_workspace_root`, `test_command_dispatch_sync_push_in_non_sync_dir_reports_error` |
 
 ### P6 — Actionable CodeLens on secret values

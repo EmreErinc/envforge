@@ -160,7 +160,11 @@ fn mask_value(value: &str) -> String {
     if value.len() < 6 {
         return "****".to_string();
     }
-    format!("{}****{}", &value[..2], &value[value.len() - 2..])
+    format!(
+        "{}****{}",
+        crate::ops::sanitize::char_prefix(value, 2),
+        crate::ops::sanitize::char_suffix(value, 2)
+    )
 }
 
 fn write_atomic_snapshot(path: &std::path::Path, content: &str) -> Result<(), OpError> {

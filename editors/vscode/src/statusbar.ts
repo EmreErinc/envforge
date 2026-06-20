@@ -92,6 +92,7 @@ export class StatusBar implements vscode.Disposable {
                 try {
                     const status = JSON.parse(stdout);
                     const allFenced = !!status.all_fenced;
+                    let baseTooltip: string;
                     if (allFenced) {
                         this.fenceItem.text = '$(shield) AI BLOCKED';
                         this.fenceItem.color = new vscode.ThemeColor(
@@ -100,18 +101,49 @@ export class StatusBar implements vscode.Disposable {
                         this.fenceItem.backgroundColor = new vscode.ThemeColor(
                             'statusBarItem.warningBackground',
                         );
-                        this.fenceItem.tooltip =
+                        baseTooltip =
                             'EnvForge: AI BLOCKED — all fence files present. Click to re-run fence enable.';
                     } else {
                         this.fenceItem.text = '$(shield) AI ALLOWED';
                         this.fenceItem.color = undefined;
                         this.fenceItem.backgroundColor = undefined;
-                        this.fenceItem.tooltip =
+                        baseTooltip =
                             'EnvForge: AI ALLOWED — fence not active. Click to enable fence.';
                     }
+                    this.fenceItem.tooltip = baseTooltip;
                     this.fenceItem.show();
+                    // Append the active fence-target list to the tooltip.
+                    // Best-effort: if the config call fails we keep the base
+                    // tooltip unchanged (graceful degradation).
+                    this.appendFenceTargets(cwd, baseTooltip);
                 } catch {
                     this.fenceItem.hide();
+                }
+            },
+        );
+    }
+
+    private appendFenceTargets(cwd: string, baseTooltip: string) {
+        cp.execFile(
+            getEnvforgePath(),
+            ['fence', 'config', '--list', '--json'],
+            { cwd, timeout: 5000 },
+            (err, stdout) => {
+                if (err || !stdout) {
+                    return;
+                }
+                try {
+                    const targets = JSON.parse(stdout);
+                    if (!Array.isArray(targets)) {
+                        return;
+                    }
+                    const total = targets.length;
+                    const enabled = targets
+                        .filter(t => t && t.enabled)
+                        .map(t => t.target);
+                    this.fenceItem.tooltip = `${baseTooltip}\nActive targets: ${enabled.join(', ')} (${enabled.length}/${total})`;
+                } catch {
+                    // Keep the existing tooltip on parse failure.
                 }
             },
         );

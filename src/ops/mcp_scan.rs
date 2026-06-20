@@ -521,15 +521,32 @@ pub fn harden_mcp_config(
         return Ok((modified, replaced_keys, None));
     }
 
-    // Backup original
+    // Backup original. The backup contains plaintext secrets, so create it
+    // 0600 *at creation time* rather than copy-then-chmod — `std::fs::copy`
+    // lands the file at umask perms (e.g. 0644), leaving a window in which any
+    // same-uid process (incl. an AI agent) could read it. Errors are
+    // propagated, not discarded: a chmod/IO failure must not silently leave an
+    // over-permissioned secret on disk.
     let backup = file_path.with_extension("json.bak");
-    std::fs::copy(file_path, &backup)?;
-
-    // Set restrictive permissions on backup (0600 on Unix) — it contains plaintext secrets
+    if backup.exists() {
+        std::fs::remove_file(&backup)?;
+    }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o600));
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let original = std::fs::read(file_path)?;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&backup)?;
+        f.write_all(&original)?;
+        f.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::copy(file_path, &backup)?;
     }
 
     // Write hardened config

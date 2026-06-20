@@ -37,6 +37,7 @@ pub mod profile;
 pub mod profile_diff;
 pub mod project;
 pub mod proxy;
+pub mod redact;
 mod reference;
 pub mod rotate;
 pub mod run;

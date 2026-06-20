@@ -619,6 +619,14 @@ fn cmd_secrets_config(
 
         credentials::store_credential_with_ttl(provider, key, &value, ttl)?;
 
+        // L3: wipe the plaintext credential from memory after storing, matching
+        // `cmd_set`'s zeroize-on-finish behavior (was asymmetric before).
+        {
+            use zeroize::Zeroize;
+            let mut secret = value;
+            secret.zeroize();
+        }
+
         if json_output {
             let mut result = json!({"stored": true, "provider": provider, "key": key});
             if let Some(ttl_str) = ttl {
@@ -1304,21 +1312,6 @@ fn is_unsafe_argv_allowed(provider: &str) -> bool {
 }
 
 fn is_likely_secret(value: &str) -> bool {
-    if value.len() > 16 {
-        return true;
-    }
-    if value.contains("://") {
-        return true;
-    }
-    let lower = value.to_lowercase();
-    for prefix in &[
-        "sk-", "ak-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "xoxb-", "xoxp-", "xapp-", "glpat-",
-        "gldt-", "glft-", "glsoat-", "key-", "pk.", "sk.", "whsec_", "eyJ", "AKIA", "ssh-",
-        "BEGIN ", "s3cr3t", "passw", "token", "api_key",
-    ] {
-        if lower.starts_with(prefix) {
-            return true;
-        }
-    }
-    false
+    // Canonical detection (incl. M1 entropy path) lives in ops::sanitize.
+    crate::ops::sanitize::value_looks_like_secret(value)
 }

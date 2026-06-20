@@ -23,7 +23,7 @@ use super::folding_range::compute_folding_ranges;
 use super::format::format_text_edits;
 use super::hover::hover_info;
 use super::inlay::compute_inlay_hints;
-use super::mcp_diagnostics::compute_mcp_diagnostics;
+use super::mcp_diagnostics::{compute_mcp_diagnostics, mcp_config_code_actions};
 use super::rate_limit::RateLimiters;
 use super::references::find_references;
 use super::rename::build_rename_edit;
@@ -129,15 +129,22 @@ impl Backend {
     fn is_mcp_config_file(uri: &Url) -> bool {
         let path = uri.path();
         let fname = path.rsplit('/').next().unwrap_or("");
-        if fname == "mcp.json" || fname == ".mcp.json" {
+        // Cross-tool MCP/agent config filenames (matches `mcp.json` in any
+        // dir, so `.vscode/mcp.json` and `.cursor/mcp.json` are covered).
+        // Story 3.1 (FR18) widens coverage to Windsurf, Cline, Claude Code.
+        if matches!(
+            fname,
+            "mcp.json"
+                | ".mcp.json"
+                | "claude_desktop_config.json"
+                | ".claude.json"          // Claude Code user config
+                | "mcp_config.json"       // Windsurf (Cascade)
+                | "cline_mcp_settings.json" // Cline
+        ) {
             return true;
         }
-        if fname == "claude_desktop_config.json" {
-            return true;
-        }
-        // .cursor/mcp.json or .claude/settings.json under any parent
-        path.contains("/.cursor/") && fname == "mcp.json"
-            || path.contains("/.claude/") && fname == "settings.json"
+        // .claude/settings.json under any parent (Claude Code deny rules etc.)
+        path.contains("/.claude/") && fname == "settings.json"
     }
 
     fn publish_mcp_diagnostics(&self, uri: &Url, content: &str, version: i32) {
@@ -987,6 +994,22 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
+        // MCP config files: offer quick-fixes that replace hardcoded credentials
+        // with `${ENV_VAR}` references (FR19 / Story 3.2). Skip the env/schema
+        // code-action path for these files — it does not apply to JSON configs.
+        if Self::is_mcp_config_file(uri) {
+            let actions = mcp_config_code_actions(uri, &doc.content, &params.context.diagnostics);
+            if !actions.is_empty() {
+                return Ok(Some(
+                    actions
+                        .into_iter()
+                        .map(CodeActionOrCommand::CodeAction)
+                        .collect(),
+                ));
+            }
+            return Ok(None);
+        }
+
         let schema = self.schema.read().ok().and_then(|r| r.clone());
         let schema_uri = self.schema_uri.read().ok().and_then(|r| r.clone());
         let schema_line_count = self.schema_line_count.read().ok().and_then(|r| *r);
@@ -1386,6 +1409,69 @@ impl Backend {
         })
     }
 
+    // ── EnvForge custom LSP requests (H4) ──────────────────────────────
+    // Constrained, *named* security operations. The generic
+    // `workspace/executeCommand` is permanently disabled (arbitrary-command
+    // surface); each method below instead maps to exactly ONE fixed command
+    // id, so a client can only invoke this vetted allowlist. All share the
+    // stable `{ ok, result|error }` JSON shape from `dispatch_command`.
+    fn ef_workspace_root(&self) -> Option<std::path::PathBuf> {
+        self.workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|u| u.to_file_path().ok())
+    }
+
+    fn ef_dispatch(&self, id: &str, arg: serde_json::Value) -> Result<serde_json::Value> {
+        let root = self.ef_workspace_root();
+        Ok(super::commands::dispatch_command(
+            id,
+            &[arg],
+            root.as_deref(),
+        ))
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn fence_status(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.fence.status", serde_json::Value::Null)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn fence_toggle(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.fence.toggle", serde_json::Value::Null)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn canary_scan(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.canary.scan", params)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn canary_check(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.canary.check", serde_json::Value::Null)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn reveal_value(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.reveal.value", params)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn run_volatile(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.run.volatile", params)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn volatile_status(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.volatile.status", serde_json::Value::Null)
+    }
+
+    #[allow(clippy::unused_async)]
+    pub async fn volatile_extend(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        self.ef_dispatch("envforge.volatile.extend", params)
+    }
+
     fn extract_keys_from_hover_position(&self, params: &HoverParams) -> Vec<String> {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
@@ -1429,6 +1515,50 @@ pub async fn serve() {
 
     let (service, socket) = LspService::build(Backend::new)
         .custom_method("envforge/exposureMap", Backend::exposure_map)
+        // H4: constrained, named security requests (NOT generic executeCommand).
+        .custom_method("envforge/fenceStatus", Backend::fence_status)
+        .custom_method("envforge/fenceToggle", Backend::fence_toggle)
+        .custom_method("envforge/canaryScan", Backend::canary_scan)
+        .custom_method("envforge/canaryCheck", Backend::canary_check)
+        .custom_method("envforge/revealValue", Backend::reveal_value)
+        .custom_method("envforge/runVolatile", Backend::run_volatile)
+        .custom_method("envforge/volatileStatus", Backend::volatile_status)
+        .custom_method("envforge/volatileExtend", Backend::volatile_extend)
         .finish();
     Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+#[cfg(test)]
+mod mcp_config_match_tests {
+    use super::*;
+
+    fn is_cfg(p: &str) -> bool {
+        Backend::is_mcp_config_file(&Url::parse(&format!("file://{p}")).unwrap())
+    }
+
+    /// Story 3.1 (FR18): the widened MCP/agent config filename set is recognized.
+    #[test]
+    fn test_mcp_config_recognized_paths() {
+        // Pre-existing coverage.
+        assert!(is_cfg("/proj/mcp.json"));
+        assert!(is_cfg("/proj/.mcp.json"));
+        assert!(is_cfg("/proj/.cursor/mcp.json"));
+        assert!(is_cfg("/proj/.claude/settings.json"));
+        assert!(is_cfg("/proj/claude_desktop_config.json"));
+        // New in 3.1.
+        assert!(is_cfg("/proj/.vscode/mcp.json"), "VS Code mcp.json");
+        assert!(is_cfg("/home/u/.claude.json"), "Claude Code user config");
+        assert!(
+            is_cfg("/home/u/.codeium/windsurf/mcp_config.json"),
+            "Windsurf"
+        );
+        assert!(is_cfg("/proj/cline_mcp_settings.json"), "Cline");
+    }
+
+    #[test]
+    fn test_non_mcp_files_not_matched() {
+        assert!(!is_cfg("/proj/package.json"));
+        assert!(!is_cfg("/proj/src/main.rs"));
+        assert!(!is_cfg("/proj/.env"));
+    }
 }

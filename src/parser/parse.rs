@@ -110,6 +110,7 @@ pub fn parse_shell_content(content: &str, path: &Path) -> Result<ShellFile, Pars
         path: path.to_path_buf(),
         lines,
         hash,
+        ends_with_newline: content.ends_with('\n'),
     })
 }
 
@@ -370,7 +371,10 @@ pub fn serialize_shell_file(shell_file: &ShellFile) -> String {
         .collect();
 
     let mut result = lines.join("\n");
-    // Add trailing newline to match typical file convention
-    result.push('\n');
+    // Reproduce the original trailing-newline state exactly — do not force one
+    // on a file that lacked it (that would break byte-for-byte round-trip).
+    if shell_file.ends_with_newline {
+        result.push('\n');
+    }
     result
 }

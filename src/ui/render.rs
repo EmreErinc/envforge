@@ -163,7 +163,7 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 
     let mut spans = vec![];
 
-    // Fence status
+    // Fence status + read-only target summary (Story 3.2 / FR16)
     if app.fence_enabled {
         spans.push(Span::styled(
             " [fence:on] ",
@@ -171,6 +171,14 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                 .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
         ));
+        // Show which targets are active, e.g. "fence: cursor_ignore,copilot (2/5)"
+        if !app.fence_resolved_targets.is_empty() {
+            let summary = crate::ops::fence::fence_target_summary(&app.fence_resolved_targets);
+            spans.push(Span::styled(
+                format!(" {summary} "),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
     }
 
     // Unsaved changes indicator

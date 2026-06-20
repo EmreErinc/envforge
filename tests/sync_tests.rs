@@ -613,3 +613,24 @@ fn test_git_push_no_remote() {
     let result = git.push().unwrap();
     assert_eq!(result, PushResult::NoRemote);
 }
+
+#[test]
+fn test_git_safe_clone_enforce_ssh_rejects_http_remote() {
+    // M2: with enforce_ssh=true, an http(s) remote must be rejected at the
+    // clone path. Validation runs before any git spawn, so this returns Err
+    // without touching the network. Previously enforce_ssh was ignored here.
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("clone");
+    let rejected = git_safe_clone("https://example.com/repo.git", &target, true);
+    assert!(
+        rejected.is_err(),
+        "https remote must be rejected when enforce_ssh=true"
+    );
+    // An ssh:// remote passes URL validation under enforce_ssh (the clone may
+    // still fail later for network reasons, but it must not be a policy reject).
+    let ssh_validation = validate_remote_url_enforce_ssh("ssh://git@example.com/repo.git", true);
+    assert!(
+        ssh_validation.is_ok(),
+        "ssh remote must pass under enforce_ssh"
+    );
+}

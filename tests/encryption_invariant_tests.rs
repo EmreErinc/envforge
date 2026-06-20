@@ -116,8 +116,10 @@ fn test_sync_encryption_policy_serde_bool_true() {
 }
 
 #[test]
-fn test_sync_encryption_policy_serde_bool_false() {
-    // Old config: require_encryption = false
+fn test_sync_encryption_policy_serde_bool_false_fails_safe() {
+    // M3: legacy `require_encryption = false` no longer maps to a far-future
+    // (2099) plaintext bypass. It is treated as Mandatory (fail-safe, NFR4) —
+    // a real bounded window must be declared explicitly as `migration-until`.
     let toml = "encryption_policy = false\n";
     #[derive(serde::Deserialize)]
     struct Config {
@@ -125,11 +127,12 @@ fn test_sync_encryption_policy_serde_bool_false() {
     }
     let config: Config = toml::from_str(toml).unwrap();
     assert!(
-        matches!(
-            config.encryption_policy,
-            SyncEncryptionPolicy::MigrationUntil(_)
-        ),
-        "Old 'false' must deserialize to MigrationUntil"
+        matches!(config.encryption_policy, SyncEncryptionPolicy::Mandatory),
+        "legacy 'false' must fail safe to Mandatory, not a permanent bypass"
+    );
+    assert!(
+        config.encryption_policy.is_required(),
+        "encryption must be required after legacy-false fail-safe"
     );
 }
 

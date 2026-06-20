@@ -68,6 +68,8 @@
 pub mod cli;
 pub mod config;
 pub mod lsp;
+#[cfg(feature = "mcp-server")]
+pub mod mcp;
 pub mod model;
 pub mod ops;
 pub mod parser;

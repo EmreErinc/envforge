@@ -6,22 +6,27 @@ with `Content-Length` headers). Any LSP-speaking editor can connect.
 EnvForge ships first-party plugins for **VS Code** and **IntelliJ** that
 add native UI on top of the LSP (status bar, gutter heatmap, file
 decorations). Other editors get the textDocument capabilities by
-default and the custom `executeCommand` / `envforge/exposureMap`
-surface available on demand.
+default, plus the named `envforge/*` custom requests
+(`envforge/exposureMap`, `envforge/fenceStatus`, `envforge/revealValue`,
+`envforge/canaryScan`, `envforge/canaryCheck`, `envforge/volatileStatus`,
+`envforge/volatileExtend`, `envforge/runVolatile`) on demand. The generic
+`workspace/executeCommand` provider is **disabled** (returns
+`MethodNotFound`) — security operations use the named requests instead.
 
 | Editor | First-party plugin? | Setup |
 |---|---|---|
-| VS Code | ✓ `envforge-env-manager` 0.1.7 | Install via Marketplace or the bundled `.vsix` |
+| VS Code | ✓ `envforge-env-manager` 0.1.8 | Install via Marketplace or the bundled `.vsix` |
 | IntelliJ Platform (Idea, GoLand, PyCharm, RustRover, …) | ✓ `envforge-intellij` 0.1.6 | Settings → Plugins → Install Plugin from Disk |
-| Neovim (`nvim-lspconfig`) | LSP only | [config below](#neovim) |
+| Neovim | ✓ first-party plugin (`editors/nvim`) | statusline + exposure heatmap + fence toggle — see [`editors/nvim/README.md`](../editors/nvim/README.md) |
+| Zed | LSP + MCP (first-party extension `editors/zed`) | LSP + read-safe MCP context server; no custom UI (Zed API limit) — see [`editors/zed/README.md`](../editors/zed/README.md) |
 | Helix | LSP only | [config below](#helix) |
 | Emacs (`eglot` / `lsp-mode`) | LSP only | [config below](#emacs) |
 | Sublime Text (LSP package) | LSP only | [config below](#sublime-text) |
-| Zed | LSP only (custom ext) | [config below](#zed) |
 | Kakoune (`kak-lsp`) | LSP only | [config below](#kakoune) |
-| JetBrains Fleet | LSP-native, no plugin | [config below](#jetbrains-fleet) |
 | Lapce | LSP only | [config below](#lapce) |
 | Any other LSP client | LSP only | [generic notes](#generic-lsp-client-notes) |
+
+> **JetBrains Fleet** was dropped as a target — Fleet was discontinued (Dec 2025, succeeded by "Air"). The IntelliJ Platform plugin is unaffected.
 
 ## What works in every LSP client (no plugin needed)
 
@@ -46,8 +51,10 @@ All `textDocument/*` capabilities advertised by `envforge lsp`:
   on sensitive keys
 - `documentSymbol`, `workspace/symbol`, `foldingRange`
 
-The 15 `workspace/executeCommand` commands are also reachable from any
-client — see `docs/ide-behavior-contract.md` for argument schemas.
+The named `envforge/*` security requests are also reachable from any
+client (the generic `workspace/executeCommand` is disabled) — see
+`docs/api-reference.md` for the request list and `docs/ide-behavior-contract.md`
+for argument schemas.
 
 ## What requires a plugin
 
@@ -194,17 +201,6 @@ command = "envforge"
 args = ["lsp"]
 ```
 
-## JetBrains Fleet
-
-Fleet speaks LSP natively. Settings → Languages → register server:
-
-- **Command:** `envforge`
-- **Arguments:** `lsp`
-- **File types:** `.env`, `.env.*`, `*.env`
-
-No plugin needed. Status bar / gutter heatmap unavailable until a
-dedicated Fleet plugin lands.
-
 ## Lapce
 
 Settings → Plugins → Install Custom LSP:
@@ -221,8 +217,9 @@ file-types = ["env", "dotenv"]
 - **Transport:** stdio. The server reads JSON-RPC messages framed with
   `Content-Length: <N>\r\n\r\n<body>` headers.
 - **Initialize:** standard. Capabilities cover all 13 textDocument
-  methods listed above, an `executeCommandProvider` with 15 commands,
-  and a custom `envforge/exposureMap` request.
+  methods listed above plus the named `envforge/*` custom requests
+  (`exposureMap` + the security operations). The generic
+  `executeCommandProvider` is **not** advertised (disabled).
 - **Trigger characters:** `=`, `$`, `{`. After typing any of these,
   the server returns context-appropriate completions (key, value, or
   `${REF}` insertion).
@@ -236,8 +233,9 @@ file-types = ["env", "dotenv"]
   inside the workspace root.
 - **Custom request `envforge/exposureMap`:** see
   `docs/api-reference.md` for the wire format.
-- **`workspace/executeCommand` commands:** see
-  `docs/ide-behavior-contract.md` for per-command argument schemas.
+- **Named `envforge/*` security requests:** see `docs/api-reference.md`
+  for the list and `docs/ide-behavior-contract.md` for per-request
+  argument schemas. (`workspace/executeCommand` is disabled.)
 
 ## Verifying a new client
 

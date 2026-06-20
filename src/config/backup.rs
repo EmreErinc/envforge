@@ -37,25 +37,37 @@ pub fn create_backup(file_path: &Path) -> Result<PathBuf, ConfigError> {
         backup_path
     };
 
-    std::fs::copy(file_path, &final_path).map_err(|e| ConfigError::IoError {
-        path: file_path.to_path_buf(),
-        source: e,
-    })?;
-
-    // `std::fs::copy` follows the source mode but applies the umask to
-    // the destination, so a 0600 source can land at 0644 on the backup.
-    // Backups of `~/.envforge/config.toml` may carry secrets / API
-    // keys; force 0600 so the copy is not world-readable. Mirrors the
-    // pattern used elsewhere (P2 snapshot, P3 changelog).
+    // Backups of `~/.config/envforge/config.toml` may carry secrets / API
+    // keys. `std::fs::copy` follows the source mode but applies the umask to
+    // the destination, so a 0600 source can land at 0644 — and even a
+    // copy-then-chmod leaves a window in which the secret backup is
+    // world-readable. On Unix, create the destination 0600 *at creation time*
+    // (`final_path` is guaranteed not to exist by the collision loop above) and
+    // stream the bytes in, so the backup is never momentarily over-permissioned.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&final_path, std::fs::Permissions::from_mode(0o600)).map_err(
-            |e| ConfigError::IoError {
-                path: final_path.clone(),
-                source: e,
-            },
-        )?;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let io_err = |e: std::io::Error, path: &Path| ConfigError::IoError {
+            path: path.to_path_buf(),
+            source: e,
+        };
+        let bytes = std::fs::read(file_path).map_err(|e| io_err(e, file_path))?;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&final_path)
+            .map_err(|e| io_err(e, &final_path))?;
+        f.write_all(&bytes).map_err(|e| io_err(e, &final_path))?;
+        f.sync_all().map_err(|e| io_err(e, &final_path))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::copy(file_path, &final_path).map_err(|e| ConfigError::IoError {
+            path: file_path.to_path_buf(),
+            source: e,
+        })?;
     }
 
     Ok(final_path)

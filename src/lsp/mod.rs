@@ -1,7 +1,9 @@
 pub mod ai_guard_diagnostics;
 pub mod code_action;
 pub mod code_lens;
-#[cfg(feature = "dangerous-execute-command")]
+// `dispatch_command` is reused by the constrained, *named* custom LSP requests
+// in `server.rs` (H4). It is NOT wired to the generic `workspace/executeCommand`
+// handler, which remains permanently disabled — see `Backend::execute_command`.
 pub mod commands;
 pub mod completion;
 pub mod definition;

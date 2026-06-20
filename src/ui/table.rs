@@ -83,7 +83,7 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
                 let is_active = entry.location != crate::ops::EntryLocation::Commented;
                 let status_icon = if is_active { "■" } else { "□" };
 
-                let value_display = if app.is_masked(i, &entry.key) {
+                let value_display = if app.is_masked(&entry.key) {
                     MASK.to_string()
                 } else {
                     truncate_value(&super::sanitize::sanitize_for_display(&entry.value), 50)
@@ -185,8 +185,10 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
 }
 
 fn truncate_value(value: &str, max_len: usize) -> String {
-    if value.len() > max_len {
-        format!("{}…", &value[..max_len])
+    // Char-boundary safe (M5/M8/FR9): byte-slicing `&value[..max_len]` panics
+    // when a multibyte codepoint straddles the cut. Count/cut by chars.
+    if value.chars().count() > max_len {
+        format!("{}…", crate::ops::sanitize::char_prefix(value, max_len))
     } else {
         value.to_string()
     }

@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 
 use crate::ops::canary::scanner::{scan_reader, scan_text};
 use crate::ops::canary::{check_canaries, create_canary, list_canaries, place_canary_in_file};
-use crate::ops::fence::{check_fence_status, create_fence, remove_fence};
+use crate::ops::fence::{check_fence_status, create_fence, remove_fence, resolve_fence_targets};
 use crate::ops::lease::{list_leases, renew_lease};
 use crate::ops::session::parse_ttl;
 
@@ -18,6 +18,7 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "envforge.fence.disable",
     "envforge.fence.toggle",
     "envforge.fence.status",
+    "envforge.fence.config",
     "envforge.canary.plant",
     "envforge.canary.list",
     "envforge.canary.scan",
@@ -59,6 +60,7 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
                         "files_created": result.files_created.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
                         "files_updated": result.files_updated.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
                         "files_skipped": result.files_skipped.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                        "files_failed": result.files_failed.iter().map(|(p, e)| json!({"path": p.display().to_string(), "error": e})).collect::<Vec<_>>(),
                     })),
                     Err(e) => err(format!("create_fence failed: {}", e)),
                 }
@@ -106,9 +108,53 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
         "envforge.fence.status" => match workspace_root {
             None => err("workspace root not available"),
             Some(root) => match check_fence_status(root) {
-                Ok(status) => ok(serde_json::to_value(&status).unwrap_or(Value::Null)),
+                Ok(status) => {
+                    // Extend with per-target resolved state so plugins can show
+                    // the enabled-set without a separate fence.config call (FR17).
+                    let resolved = {
+                        let fence_cfg = crate::config::load_or_create_default()
+                            .map(|c| c.fence)
+                            .unwrap_or_default();
+                        resolve_fence_targets(&fence_cfg)
+                    };
+                    let targets: Vec<Value> = resolved
+                        .iter()
+                        .map(|r| {
+                            json!({
+                                "target": r.target.as_str(),
+                                "enabled": r.enabled,
+                                "source": format!("{:?}", r.source).to_lowercase(),
+                            })
+                        })
+                        .collect();
+                    let mut payload = serde_json::to_value(&status).unwrap_or(Value::Null);
+                    if let Some(obj) = payload.as_object_mut() {
+                        obj.insert("resolved_targets".to_string(), Value::Array(targets));
+                    }
+                    ok(payload)
+                }
                 Err(e) => err(format!("check_fence_status failed: {}", e)),
             },
+        },
+        "envforge.fence.config" => match workspace_root {
+            None => err("workspace root not available"),
+            Some(_root) => {
+                let fence_cfg = crate::config::load_or_create_default()
+                    .map(|c| c.fence)
+                    .unwrap_or_default();
+                let resolved = resolve_fence_targets(&fence_cfg);
+                let targets: Vec<Value> = resolved
+                    .iter()
+                    .map(|r| {
+                        json!({
+                            "target": r.target.as_str(),
+                            "enabled": r.enabled,
+                            "source": format!("{:?}", r.source).to_lowercase(),
+                        })
+                    })
+                    .collect();
+                ok(Value::Array(targets))
+            }
         },
         "envforge.canary.plant" => {
             // Argument shape:

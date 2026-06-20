@@ -1,12 +1,216 @@
 use std::path::{Path, PathBuf};
 
 use super::OpError;
+use crate::config::FenceConfig;
+
+pub mod registry;
+
+// ─── Canonical Target Enum ───────────────────────────────────────────────────
+
+/// The AI-tool fence targets EnvForge can manage.
+///
+/// This enum is the single source of truth for the target set (NFR10).
+/// No other module may define or enumerate these targets independently.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize,
+)]
+#[clap(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum FenceTarget {
+    /// `.envforgeignore` — fully-owned by EnvForge.
+    Envforgeignore,
+    /// `.cursorignore` — Cursor AI ignore rules.
+    CursorIgnore,
+    /// `.cursorrules` — Cursor AI behavior rules.
+    CursorRules,
+    /// `.github/copilot-instructions.md` — GitHub Copilot safety rules.
+    Copilot,
+    /// `.claude/settings.json` — Claude Code deny-list rules.
+    ClaudeCode,
+    /// `.codeiumignore` + `.windsurf/rules/envforge.md` — Windsurf / Codeium rules.
+    Windsurf,
+    /// `.clineignore` + `.clinerules` — Cline rules.
+    Cline,
+    /// `.aiderignore` — Aider ignore rules.
+    Aider,
+    /// `.geminiignore` + `GEMINI.md` — Gemini CLI rules.
+    Gemini,
+    /// `AGENTS.md` — cross-tool rules standard (Codex, Zed, and any
+    /// AGENTS.md-honoring tool). Rules-only, no ignore mechanism.
+    AgentsMd,
+    /// `.amazonq/rules/envforge.md` — Amazon Q Developer (no ignore file).
+    AmazonQ,
+}
+
+impl FenceTarget {
+    /// Returns the canonical snake_case identifier string for this target.
+    /// Used in JSON output, config keys, and CLI display.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        registry::spec_for(self).id
+    }
+
+    /// Returns all targets in canonical order (derived from the registry).
+    #[must_use]
+    pub fn all() -> Vec<FenceTarget> {
+        registry::REGISTRY.iter().map(|s| s.target).collect()
+    }
+}
+
+// ─── Config Resolution ───────────────────────────────────────────────────────
+
+/// Where a target's enabled state originates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfigSource {
+    /// No explicit config — using the compiled-in default (`true`).
+    Default,
+    /// Explicitly set in the user's global config file.
+    Global,
+}
+
+/// Resolved state for a single fence target: effective value + where it came from.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ResolvedTarget {
+    pub target: FenceTarget,
+    pub enabled: bool,
+    pub source: ConfigSource,
+}
+
+/// Format the resolved enabled fence targets as a compact read-only summary string.
+///
+/// Returns a string suitable for status bars and footers:
+/// - All targets enabled → `"fence: (9/9)"`
+/// - Subset enabled → `"fence: cursor_ignore,copilot (2/9)"`
+/// - None enabled → `"fence: none (0/9)"`
+///
+/// This is a pure function with no I/O so it is directly unit-testable (FR16 / NFR10).
+///
+/// # Examples
+///
+/// ```
+/// use envforge::ops::fence::{fence_target_summary, resolve_fence_targets};
+/// use envforge::config::FenceConfig;
+///
+/// let cfg = FenceConfig::default();
+/// let resolved = resolve_fence_targets(&cfg);
+/// let s = fence_target_summary(&resolved);
+/// let total = envforge::ops::fence::FenceTarget::all().len();
+/// assert!(s.contains(&format!("{total}/{total}")), "all-enabled summary: {s}");
+/// ```
+#[must_use]
+pub fn fence_target_summary(resolved: &[ResolvedTarget]) -> String {
+    let enabled_names: Vec<&str> = resolved
+        .iter()
+        .filter(|r| r.enabled)
+        .map(|r| r.target.as_str())
+        .collect();
+    let total = resolved.len();
+    let count = enabled_names.len();
+
+    if count == 0 {
+        format!("fence: none ({count}/{total})")
+    } else if count == total {
+        format!("fence: ({count}/{total})")
+    } else {
+        format!("fence: {} ({count}/{total})", enabled_names.join(","))
+    }
+}
+
+/// Resolve the effective fence target set from config.
+///
+/// For MVP, layering is: Global config overrides Default (all-true).
+/// If a field matches the default (`true`), source is `Default`; otherwise `Global`.
+/// The Growth per-project layer would add a third `ConfigSource::Project` here.
+///
+/// Reads config once per call (NFR4).
+#[must_use]
+pub fn resolve_fence_targets(cfg: &FenceConfig) -> Vec<ResolvedTarget> {
+    registry::REGISTRY
+        .iter()
+        .map(|spec| {
+            let target = spec.target;
+            let enabled = cfg.targets.is_enabled(target);
+            // If the value is false, it was explicitly set in global config.
+            // If true, it could be default or global-set-to-true; we treat
+            // explicit false as the only unambiguous Global indicator at MVP.
+            let source = if enabled {
+                ConfigSource::Default
+            } else {
+                ConfigSource::Global
+            };
+            ResolvedTarget {
+                target,
+                enabled,
+                source,
+            }
+        })
+        .collect()
+}
+
+/// Targets detected as present in `project_dir`.
+///
+/// A target is included when any of its detection hint paths exist under
+/// `project_dir`. Targets with empty detection hints (EnvForge-owned) are
+/// always included because they are applicable to every project.
+///
+/// This is the single authoritative implementation of detection logic; both
+/// [`check_fence_status_with`] and the `project init` fence decision use it.
+///
+/// # Examples
+///
+/// ```
+/// use envforge::ops::fence::detect_installed_targets;
+/// let tmp = tempfile::tempdir().unwrap();
+/// let detected = detect_installed_targets(tmp.path());
+/// // envforgeignore is always present (empty detection hints).
+/// use envforge::ops::fence::FenceTarget;
+/// assert!(detected.contains(&FenceTarget::Envforgeignore));
+/// ```
+#[must_use]
+pub fn detect_installed_targets(project_dir: &std::path::Path) -> Vec<FenceTarget> {
+    registry::REGISTRY
+        .iter()
+        .filter(|spec| {
+            spec.detection.is_empty() || spec.detection.iter().any(|h| project_dir.join(h).exists())
+        })
+        .map(|s| s.target)
+        .collect()
+}
+
+/// Load the fence config with a fail-safe fallback.
+///
+/// On any `ConfigError` (IO or parse), emits a monitor warning and returns
+/// `FenceConfig::default()` (all targets enabled). This ensures fence activation
+/// fails-safe: a broken config file never blocks protection (FR19, NFR2).
+fn load_fence_config_or_safe_default() -> FenceConfig {
+    match crate::config::load_or_create_default() {
+        Ok(cfg) => cfg.fence,
+        Err(e) => {
+            crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+                source: crate::ops::monitor::EventSource::Fence,
+                key: None,
+                message: format!(
+                    "Failed to load fence config (fail-safe: all targets enabled): {}",
+                    e
+                ),
+                timestamp: chrono::Utc::now(),
+                severity: crate::ops::monitor::SecuritySeverity::Warn,
+            });
+            FenceConfig::default()
+        }
+    }
+}
 
 /// Result of creating AI tool fence files.
 pub struct FenceResult {
     pub files_created: Vec<PathBuf>,
     pub files_updated: Vec<PathBuf>,
     pub files_skipped: Vec<PathBuf>,
+    /// Per-file failures `(path, error)`. One target failing does not abort
+    /// the others — failures are collected here so callers can report partial
+    /// results and set a non-zero exit code (NFR-R4 / FR1).
+    pub files_failed: Vec<(PathBuf, String)>,
 }
 
 /// Status of a single fence file.
@@ -32,15 +236,47 @@ pub enum FenceCompleteness {
     Partial(Vec<FenceFileStatus>),
 }
 
+/// Per-target coverage state (Story 1.6 / FR7, FR11).
+///
+/// `covered` = a tool with a real ignore mechanism, fully fenced.
+/// `fallback` = a tool with NO ignore file (rules/deny only), protection
+///   applied via its available mechanism — honest about being weaker than a
+///   hard ignore (FR2b).
+/// `unfenced` = expected but not (fully) fenced.
+/// `not_installed` = detected as absent (populated by detection, Story 1.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetCoverage {
+    Covered,
+    Fallback,
+    Unfenced,
+    NotInstalled,
+}
+
+/// Per-target coverage entry — the honest, named view (Story 1.6/1.7).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TargetStatus {
+    pub id: String,
+    pub tool: String,
+    pub state: TargetCoverage,
+    /// Whether the tool was detected as present in the workspace (Story 1.7).
+    /// EnvForge-owned targets (empty detection hints) are always `true`.
+    pub installed: bool,
+    pub files: Vec<FenceFileStatus>,
+}
+
 /// Overall fence status.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FenceStatus {
     pub files: Vec<FenceFileStatus>,
-    /// Derived convenience field — `true` when the fence is complete.
-    /// Kept for backward compatibility with existing callers.
+    /// Derived convenience field — `true` when every enabled target is
+    /// `covered` or `fallback` (no target left `unfenced`). This is the
+    /// honest aggregate behind the "AI BLOCKED" indicator (FR11).
     pub all_fenced: bool,
     /// Structured completeness assessment.
     pub completeness: FenceCompleteness,
+    /// Per-target coverage states (FR7) — the named view plugins/CLI render.
+    pub targets: Vec<TargetStatus>,
 }
 
 const ENVFORGEIGNORE_CONTENT: &str = ".env
@@ -85,10 +321,39 @@ Never read .env files directly. Use .env.schema or .env.ai.md for variable conte
 Never hardcode secrets, API keys, tokens, or passwords.
 ";
 
-const FENCE_MARKER: &str = "# EnvForge secret fence";
+/// Markdown block written to `AGENTS.md` (and other cross-tool/no-ignore
+/// rules files). Starts with a `## ` heading so it round-trips as a
+/// markdown section (strip excises heading → next `## ` / EOF), preserving
+/// any user-authored content around it.
+pub(super) const AGENTS_MD_BLOCK: &str = "\
+## EnvForge Secret Safety
+- Never read or output the contents of .env files or other secret files.
+- Never hardcode API keys, tokens, passwords, or credentials.
+- Use .env.schema for variable names and types; load values via environment variables.
+";
 
 /// Generate and write AI tool ignore rules for all supported tools.
+///
+/// Loads the fence config with a fail-safe fallback (all targets enabled if
+/// config is missing or malformed) then delegates to [`create_fence_with`].
+/// All four existing callers (CLI, TUI, LSP, plugins-via-CLI) use this
+/// signature unchanged (NFR8).
 pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, OpError> {
+    let cfg = load_fence_config_or_safe_default();
+    create_fence_with(project_dir, dry_run, &cfg)
+}
+
+/// Generate and write AI tool ignore rules gated by `cfg`.
+///
+/// Targets that are disabled in `cfg` are not written; their paths are
+/// pushed to `files_skipped` so callers can report what was omitted.
+/// Use this variant in tests to supply explicit configs without touching
+/// the global config file.
+pub fn create_fence_with(
+    project_dir: &Path,
+    dry_run: bool,
+    cfg: &FenceConfig,
+) -> Result<FenceResult, OpError> {
     // Emit monitor event
     crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
         source: crate::ops::monitor::EventSource::Fence,
@@ -105,143 +370,161 @@ pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, Op
         files_created: Vec::new(),
         files_updated: Vec::new(),
         files_skipped: Vec::new(),
+        files_failed: Vec::new(),
     };
 
-    // 1. .envforgeignore
-    write_envforgeignore(project_dir, dry_run, &mut result)?;
-
-    // 2. .cursorignore
-    write_cursorignore(project_dir, dry_run, &mut result)?;
-
-    // 3. .cursorrules
-    write_cursorrules(project_dir, dry_run, &mut result)?;
-
-    // 4. .github/copilot-instructions.md
-    write_copilot_instructions(project_dir, dry_run, &mut result)?;
-
-    // 5. .claude/settings.json
-    write_claude_settings(project_dir, dry_run, &mut result)?;
+    // Iterate the registry in canonical order. Enabled targets are written;
+    // disabled targets push each file path to files_skipped. Writers are
+    // dispatched by FileKind/Ownership (Story 1.2). A single file's failure is
+    // captured in files_failed and does NOT abort the remaining targets
+    // (NFR-R4) — fencing the rest of the toolchain still proceeds.
+    for spec in registry::REGISTRY {
+        let target = spec.target;
+        if cfg.targets.is_enabled(target) {
+            for file in spec.files {
+                if let Err(e) = write_file(project_dir, file, dry_run, &mut result) {
+                    result
+                        .files_failed
+                        .push((project_dir.join(file.path), e.to_string()));
+                }
+            }
+        } else {
+            for file in spec.files {
+                result.files_skipped.push(project_dir.join(file.path));
+            }
+        }
+    }
 
     Ok(result)
 }
 
-fn write_envforgeignore(
+// ─── Atomic write helper ─────────────────────────────────────────────────────
+
+/// Write `content` to `path` atomically using a temp-file + rename.
+/// Creates parent directories as needed. Does NOT force 0o600 permissions.
+fn atomic_write_fence(path: &std::path::Path, content: &str) -> Result<(), OpError> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    tmp.write_all(content.as_bytes())?;
+    tmp.flush()?;
+    tmp.persist(path).map_err(|e| OpError::Io(e.error))?;
+    Ok(())
+}
+
+/// Return the first line of a block (the idempotency/detection marker).
+fn first_line(block: &str) -> &str {
+    block.lines().next().unwrap_or("")
+}
+
+// ─── FileKind-dispatched writers ─────────────────────────────────────────────
+
+/// Dispatch a `TargetFile` to the correct writer based on `FileKind`/`Ownership`.
+fn write_file(
     dir: &Path,
+    file: &registry::TargetFile,
     dry_run: bool,
     result: &mut FenceResult,
 ) -> Result<(), OpError> {
-    let path = dir.join(".envforgeignore");
+    match file.kind {
+        registry::FileKind::DenyRule => write_deny_rule(dir, file, dry_run, result),
+        _ => match file.ownership {
+            registry::Ownership::FullyOwned => write_owned_file(dir, file, dry_run, result),
+            registry::Ownership::Shared => write_shared_block(dir, file, dry_run, result),
+        },
+    }
+}
+
+/// Write a fully-owned file (e.g. `.envforgeignore`).
+/// Skip if it already exists; create fresh otherwise.
+fn write_owned_file(
+    dir: &Path,
+    file: &registry::TargetFile,
+    dry_run: bool,
+    result: &mut FenceResult,
+) -> Result<(), OpError> {
+    let path = dir.join(file.path);
     if path.exists() {
         result.files_skipped.push(path);
         return Ok(());
     }
     if !dry_run {
-        std::fs::write(&path, ENVFORGEIGNORE_CONTENT)?;
+        atomic_write_fence(&path, file.block)?;
     }
     result.files_created.push(path);
     Ok(())
 }
 
-fn write_cursorignore(dir: &Path, dry_run: bool, result: &mut FenceResult) -> Result<(), OpError> {
-    let path = dir.join(".cursorignore");
-    if path.exists() {
-        let content = std::fs::read_to_string(&path)?;
-        if content.contains(FENCE_MARKER) {
-            result.files_skipped.push(path);
-            return Ok(());
-        }
-        // Append
-        if !dry_run {
-            let new_content = if content.ends_with('\n') {
-                format!("{}\n{}", content, CURSORIGNORE_BLOCK)
-            } else {
-                format!("{}\n\n{}", content, CURSORIGNORE_BLOCK)
-            };
-            std::fs::write(&path, new_content)?;
-        }
-        result.files_updated.push(path);
-    } else {
-        if !dry_run {
-            std::fs::write(&path, CURSORIGNORE_BLOCK)?;
-        }
-        result.files_created.push(path);
-    }
-    Ok(())
-}
-
-fn write_cursorrules(dir: &Path, dry_run: bool, result: &mut FenceResult) -> Result<(), OpError> {
-    let path = dir.join(".cursorrules");
-    if path.exists() {
-        let content = std::fs::read_to_string(&path)?;
-        if content.contains("Never read .env files directly") {
-            result.files_skipped.push(path);
-            return Ok(());
-        }
-        if !dry_run {
-            let new_content = if content.ends_with('\n') {
-                format!("{}\n{}", content, CURSORRULES_BLOCK)
-            } else {
-                format!("{}\n\n{}", content, CURSORRULES_BLOCK)
-            };
-            std::fs::write(&path, new_content)?;
-        }
-        result.files_updated.push(path);
-    } else {
-        if !dry_run {
-            std::fs::write(&path, CURSORRULES_BLOCK)?;
-        }
-        result.files_created.push(path);
-    }
-    Ok(())
-}
-
-fn write_copilot_instructions(
+/// Append an EnvForge block to a shared file (e.g. `.cursorignore`, `.cursorrules`,
+/// `.github/copilot-instructions.md`). Idempotent: skips if the marker is already
+/// present. Creates the file (and parent dirs) if it does not exist.
+fn write_shared_block(
     dir: &Path,
+    file: &registry::TargetFile,
     dry_run: bool,
     result: &mut FenceResult,
 ) -> Result<(), OpError> {
-    let github_dir = dir.join(".github");
-    let path = github_dir.join("copilot-instructions.md");
-
+    let path = dir.join(file.path);
+    let marker = first_line(file.block);
     if path.exists() {
         let content = std::fs::read_to_string(&path)?;
-        if content.contains("## Secret Safety Rules") {
+        if content.contains(marker) {
             result.files_skipped.push(path);
             return Ok(());
         }
         if !dry_run {
             let new_content = if content.ends_with('\n') {
-                format!("{}\n{}", content, COPILOT_INSTRUCTIONS)
+                format!("{content}\n{}", file.block)
             } else {
-                format!("{}\n\n{}", content, COPILOT_INSTRUCTIONS)
+                format!("{content}\n\n{}", file.block)
             };
-            std::fs::write(&path, new_content)?;
+            atomic_write_fence(&path, &new_content)?;
         }
         result.files_updated.push(path);
     } else {
         if !dry_run {
-            std::fs::create_dir_all(&github_dir)?;
-            std::fs::write(&path, COPILOT_INSTRUCTIONS)?;
+            // atomic_write_fence creates parent dirs (e.g. .github)
+            atomic_write_fence(&path, file.block)?;
         }
         result.files_created.push(path);
     }
     Ok(())
 }
 
-fn write_claude_settings(
+/// Merge deny rules into a JSON settings file (e.g. `.claude/settings.json`).
+/// Idempotent: only adds rules not already present. Creates the file if absent.
+fn write_deny_rule(
     dir: &Path,
+    file: &registry::TargetFile,
     dry_run: bool,
     result: &mut FenceResult,
 ) -> Result<(), OpError> {
-    let claude_dir = dir.join(".claude");
-    let path = claude_dir.join("settings.json");
+    let path = dir.join(file.path);
 
     if path.exists() {
         let content = std::fs::read_to_string(&path)?;
-        let mut json: serde_json::Value =
-            serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}));
+        // Never clobber an existing-but-unparseable settings file. Hand-edited
+        // Claude/agent settings commonly contain trailing commas or comments
+        // that strict JSON rejects; silently replacing the parse error with
+        // `{}` would atomically overwrite the user's entire file with just our
+        // deny rules, destroying every other setting. Surface a per-file
+        // failure instead (collected into `files_failed`, other targets
+        // proceed) — mirroring `strip_deny_rule`, which also leaves unparseable
+        // files untouched.
+        let mut json: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+            OpError::Other(format!(
+                "{} is not valid JSON ({e}); refusing to overwrite — fix or remove it, then re-run",
+                path.display()
+            ))
+        })?;
 
-        // Check if all deny rules already present
+        // Check which deny rules are already present
         let existing_deny = json
             .pointer("/permissions/deny")
             .and_then(|v| v.as_array())
@@ -253,7 +536,8 @@ fn write_claude_settings(
             .filter_map(|v| v.as_str().map(String::from))
             .collect();
 
-        let new_rules: Vec<&str> = CLAUDE_DENY_RULES
+        let new_rules: Vec<&str> = file
+            .deny_rules
             .iter()
             .filter(|r| !existing_strs.contains(&(**r).to_string()))
             .copied()
@@ -265,7 +549,7 @@ fn write_claude_settings(
         }
 
         if !dry_run {
-            // Merge deny rules
+            // Merge deny rules into existing JSON
             let permissions = json
                 .as_object_mut()
                 .ok_or_else(|| OpError::Other("settings.json is not a JSON object".into()))?
@@ -286,19 +570,19 @@ fn write_claude_settings(
             }
 
             let output = serde_json::to_string_pretty(&json)?;
-            std::fs::write(&path, format!("{}\n", output))?;
+            atomic_write_fence(&path, &format!("{output}\n"))?;
         }
         result.files_updated.push(path);
     } else {
         if !dry_run {
-            std::fs::create_dir_all(&claude_dir)?;
+            // atomic_write_fence creates parent dirs (e.g. .claude)
             let json = serde_json::json!({
                 "permissions": {
-                    "deny": CLAUDE_DENY_RULES
+                    "deny": file.deny_rules
                 }
             });
             let output = serde_json::to_string_pretty(&json)?;
-            std::fs::write(&path, format!("{}\n", output))?;
+            atomic_write_fence(&path, &format!("{output}\n"))?;
         }
         result.files_created.push(path);
     }
@@ -313,21 +597,28 @@ fn check_file_status(project_dir: &Path, rel_path: &str) -> FenceFileStatus {
     } else {
         String::new()
     };
-    let fenced = match rel_path {
-        ".envforgeignore" => content.contains(".env"),
-        ".cursorignore" => content.contains(FENCE_MARKER),
-        ".cursorrules" => content.contains("Never read .env files directly"),
-        ".github/copilot-instructions.md" => content.contains("## Secret Safety Rules"),
-        ".claude/settings.json" => serde_json::from_str::<serde_json::Value>(&content)
-            .ok()
-            .and_then(|v| {
-                v.pointer("/permissions/deny")
-                    .and_then(|d| d.as_array())
-                    .map(|a| !a.is_empty())
-            })
-            .unwrap_or(false),
-        _ => false,
-    };
+    // Look up the file in the registry to determine the correct fenced check.
+    let fenced = registry::REGISTRY
+        .iter()
+        .flat_map(|spec| spec.files.iter())
+        .find(|f| f.path == rel_path)
+        .map(|f| match f.kind {
+            registry::FileKind::DenyRule => serde_json::from_str::<serde_json::Value>(&content)
+                .ok()
+                .and_then(|v| {
+                    v.pointer("/permissions/deny")
+                        .and_then(|d| d.as_array())
+                        .map(|a| !a.is_empty())
+                })
+                .unwrap_or(false),
+            registry::FileKind::Ignore
+            | registry::FileKind::Rules
+            | registry::FileKind::CrossTool => {
+                let marker = first_line(f.block);
+                content.contains(marker)
+            }
+        })
+        .unwrap_or(false);
     FenceFileStatus {
         path: rel_path.to_string(),
         exists,
@@ -360,6 +651,8 @@ pub struct FenceRemoveResult {
 ///   of `permissions.deny`; if the array empties, `deny` is removed; if
 ///   `permissions` empties, it is removed too. Resulting `{}` files are
 ///   deleted to avoid leaving orphan stubs.
+///
+/// Operates over ALL registry targets regardless of config (config-independent).
 pub fn remove_fence(project_dir: &Path, dry_run: bool) -> Result<FenceRemoveResult, OpError> {
     crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
         source: crate::ops::monitor::EventSource::Fence,
@@ -375,21 +668,43 @@ pub fn remove_fence(project_dir: &Path, dry_run: bool) -> Result<FenceRemoveResu
 
     let mut result = FenceRemoveResult::default();
 
-    delete_envforgeignore(project_dir, dry_run, &mut result)?;
-    strip_cursorignore(project_dir, dry_run, &mut result)?;
-    strip_cursorrules(project_dir, dry_run, &mut result)?;
-    strip_copilot_instructions(project_dir, dry_run, &mut result)?;
-    strip_claude_settings(project_dir, dry_run, &mut result)?;
+    // Config-independent: iterate ALL registry targets so a previously-fenced
+    // file is always cleaned even if the target has since been disabled.
+    for spec in registry::REGISTRY {
+        for file in spec.files {
+            strip_file(project_dir, file, dry_run, &mut result)?;
+        }
+    }
 
     Ok(result)
 }
 
-fn delete_envforgeignore(
+// ─── FileKind-dispatched strippers ───────────────────────────────────────────
+
+/// Dispatch a `TargetFile` to the correct stripper based on `FileKind`/`Ownership`.
+fn strip_file(
     dir: &Path,
+    file: &registry::TargetFile,
     dry_run: bool,
     result: &mut FenceRemoveResult,
 ) -> Result<(), OpError> {
-    let path = dir.join(".envforgeignore");
+    match file.kind {
+        registry::FileKind::DenyRule => strip_deny_rule(dir, file, dry_run, result),
+        _ => match file.ownership {
+            registry::Ownership::FullyOwned => delete_owned_file(dir, file, dry_run, result),
+            registry::Ownership::Shared => strip_shared(dir, file, dry_run, result),
+        },
+    }
+}
+
+/// Delete a fully-owned file (e.g. `.envforgeignore`).
+fn delete_owned_file(
+    dir: &Path,
+    file: &registry::TargetFile,
+    dry_run: bool,
+    result: &mut FenceRemoveResult,
+) -> Result<(), OpError> {
+    let path = dir.join(file.path);
     if !path.exists() {
         result.files_skipped.push(path);
         return Ok(());
@@ -401,18 +716,26 @@ fn delete_envforgeignore(
     Ok(())
 }
 
-fn strip_cursorignore(
+/// Strip an EnvForge-owned block from a shared file.
+/// For `Rules` files whose block starts with `## `, uses markdown-section excision;
+/// for `Ignore`/`Rules` (non-markdown-section) files, uses block-substring removal.
+fn strip_shared(
     dir: &Path,
+    file: &registry::TargetFile,
     dry_run: bool,
     result: &mut FenceRemoveResult,
 ) -> Result<(), OpError> {
-    let path = dir.join(".cursorignore");
+    let path = dir.join(file.path);
     if !path.exists() {
         result.files_skipped.push(path);
         return Ok(());
     }
     let content = std::fs::read_to_string(&path)?;
-    let stripped = strip_block(&content, CURSORIGNORE_BLOCK);
+    let stripped = if file.block.trim_start().starts_with("## ") {
+        strip_markdown_section(&content, first_line(file.block))
+    } else {
+        strip_block(&content, file.block)
+    };
     if stripped == content {
         result.files_skipped.push(path);
         return Ok(());
@@ -421,52 +744,14 @@ fn strip_cursorignore(
     Ok(())
 }
 
-fn strip_cursorrules(
+/// Strip EnvForge deny rules from a JSON settings file (e.g. `.claude/settings.json`).
+fn strip_deny_rule(
     dir: &Path,
+    file: &registry::TargetFile,
     dry_run: bool,
     result: &mut FenceRemoveResult,
 ) -> Result<(), OpError> {
-    let path = dir.join(".cursorrules");
-    if !path.exists() {
-        result.files_skipped.push(path);
-        return Ok(());
-    }
-    let content = std::fs::read_to_string(&path)?;
-    let stripped = strip_block(&content, CURSORRULES_BLOCK);
-    if stripped == content {
-        result.files_skipped.push(path);
-        return Ok(());
-    }
-    write_or_delete(&path, &stripped, dry_run, result)?;
-    Ok(())
-}
-
-fn strip_copilot_instructions(
-    dir: &Path,
-    dry_run: bool,
-    result: &mut FenceRemoveResult,
-) -> Result<(), OpError> {
-    let path = dir.join(".github/copilot-instructions.md");
-    if !path.exists() {
-        result.files_skipped.push(path);
-        return Ok(());
-    }
-    let content = std::fs::read_to_string(&path)?;
-    let stripped = strip_secret_safety_section(&content);
-    if stripped == content {
-        result.files_skipped.push(path);
-        return Ok(());
-    }
-    write_or_delete(&path, &stripped, dry_run, result)?;
-    Ok(())
-}
-
-fn strip_claude_settings(
-    dir: &Path,
-    dry_run: bool,
-    result: &mut FenceRemoveResult,
-) -> Result<(), OpError> {
-    let path = dir.join(".claude/settings.json");
+    let path = dir.join(file.path);
     if !path.exists() {
         result.files_skipped.push(path);
         return Ok(());
@@ -494,7 +779,7 @@ fn strip_claude_settings(
             deny.retain(|entry| {
                 entry
                     .as_str()
-                    .map(|s| !CLAUDE_DENY_RULES.contains(&s))
+                    .map(|s| !file.deny_rules.contains(&s))
                     .unwrap_or(true)
             });
             if deny.len() != before_len {
@@ -535,7 +820,7 @@ fn strip_claude_settings(
 
     if !dry_run {
         let serialized = serde_json::to_string_pretty(&json)?;
-        std::fs::write(&path, format!("{}\n", serialized))?;
+        atomic_write_fence(&path, &format!("{serialized}\n"))?;
     }
     let _ = deny_empty;
     result.files_updated.push(path);
@@ -568,11 +853,11 @@ fn strip_block(content: &str, block: &str) -> String {
     out
 }
 
-/// Cut the `## Secret Safety Rules` section out of a markdown document.
+/// Cut a `## heading` section out of a markdown document.
 /// Removes from the heading line up to (but not including) the next `##`
 /// heading at the same level, or to EOF if none exists.
-fn strip_secret_safety_section(content: &str) -> String {
-    let marker = "## Secret Safety Rules";
+fn strip_markdown_section(content: &str, heading: &str) -> String {
+    let marker = heading;
     let Some(start) = content.find(marker) else {
         return content.to_string();
     };
@@ -649,7 +934,7 @@ fn write_or_delete(
             // Normalize: ensure exactly one trailing newline.
             let mut to_write = new_content.trim_end().to_string();
             to_write.push('\n');
-            std::fs::write(path, to_write)?;
+            atomic_write_fence(path, &to_write)?;
         }
         result.files_updated.push(path.to_path_buf());
     }
@@ -657,16 +942,79 @@ fn write_or_delete(
 }
 
 /// Check which fence files exist and are properly configured.
+///
+/// Status is computed over the **enabled** target set only (D5).
+/// A disabled target's stale file on disk does not make the fence `Partial`.
+/// `all_fenced` is `true` iff every *enabled* target is present and fenced.
 pub fn check_fence_status(project_dir: &Path) -> Result<FenceStatus, OpError> {
-    let files = vec![
-        check_file_status(project_dir, ".envforgeignore"),
-        check_file_status(project_dir, ".cursorignore"),
-        check_file_status(project_dir, ".cursorrules"),
-        check_file_status(project_dir, ".github/copilot-instructions.md"),
-        check_file_status(project_dir, ".claude/settings.json"),
-    ];
-    let all_fenced = files.iter().all(|f| f.fenced);
-    let unfenced: Vec<FenceFileStatus> = files.iter().filter(|f| !f.fenced).cloned().collect();
+    check_fence_status_with(project_dir, &load_fence_config_or_safe_default())
+}
+
+/// Like [`check_fence_status`] but takes an explicit config (for testing / callers
+/// that have already loaded config).
+pub fn check_fence_status_with(
+    project_dir: &Path,
+    cfg: &FenceConfig,
+) -> Result<FenceStatus, OpError> {
+    // Compute detected list once; individual target checks use membership lookup
+    // to avoid re-scanning the filesystem per-target (DRY / single source).
+    // FenceTarget is Copy+Eq so a Vec membership check is fine for 11 targets.
+    let detected_list: Vec<FenceTarget> = detect_installed_targets(project_dir);
+
+    // Build per-target coverage for enabled targets only. A target is fenced
+    // iff ALL of its files are fenced (multi-file targets need every file).
+    // `covered` vs `fallback` distinguishes a real ignore mechanism from a
+    // rules/deny-only fallback (has_real_ignore) — FR7/FR2b honesty.
+    let mut targets: Vec<TargetStatus> = Vec::new();
+    let mut files: Vec<FenceFileStatus> = Vec::new();
+    for spec in registry::REGISTRY
+        .iter()
+        .filter(|spec| cfg.targets.is_enabled(spec.target))
+    {
+        let f_stats: Vec<FenceFileStatus> = spec
+            .files
+            .iter()
+            .map(|f| check_file_status(project_dir, f.path))
+            .collect();
+        let target_fenced = !f_stats.is_empty() && f_stats.iter().all(|f| f.fenced);
+        // Detection (Story 1.7): a target is "installed" if any detection hint
+        // exists in the workspace. EnvForge-owned targets (no hints) are always
+        // applicable. An installed-but-unfenced tool is the dangerous case
+        // (FR8); an absent tool is `not_installed` and does NOT break the
+        // aggregate (FR11).
+        // Detection logic is centralised in `detect_installed_targets` (DRY).
+        let installed = detected_list.contains(&spec.target);
+        let state = if target_fenced {
+            if spec.has_real_ignore {
+                TargetCoverage::Covered
+            } else {
+                TargetCoverage::Fallback
+            }
+        } else if installed {
+            TargetCoverage::Unfenced
+        } else {
+            TargetCoverage::NotInstalled
+        };
+        files.extend(f_stats.iter().cloned());
+        targets.push(TargetStatus {
+            id: spec.id.to_string(),
+            tool: spec.tool.to_string(),
+            state,
+            installed,
+            files: f_stats,
+        });
+    }
+
+    // Aggregate is honest: protected unless some DETECTED target is unfenced.
+    // not_installed targets are not exposure and do not break the aggregate
+    // (FR11). Only an installed-but-unfenced target flips it to false.
+    let all_fenced = targets.iter().all(|t| t.state != TargetCoverage::Unfenced);
+    // Completeness lists only the files of installed-but-unfenced targets.
+    let unfenced: Vec<FenceFileStatus> = targets
+        .iter()
+        .filter(|t| t.state == TargetCoverage::Unfenced)
+        .flat_map(|t| t.files.iter().filter(|f| !f.fenced).cloned())
+        .collect();
     let completeness = if all_fenced {
         FenceCompleteness::Complete
     } else {
@@ -676,6 +1024,7 @@ pub fn check_fence_status(project_dir: &Path) -> Result<FenceStatus, OpError> {
         files,
         all_fenced,
         completeness,
+        targets,
     })
 }
 
@@ -691,6 +1040,80 @@ pub const KNOWN_TOOLS: &[(&str, &str)] = &[
     ("windsurf", ".windsurfrules"),
     ("continue", ".continueignore"),
 ];
+
+/// Fence exactly the given targets: builds a `FenceConfig` enabling only
+/// `targets` then delegates to [`create_fence_with`].
+///
+/// This is the shared implementation used by both the `project init` CLI flag
+/// path and the `project wizard` interactive hardening step. It is the single
+/// source of truth for "fence a specific subset of targets" (DRY / NFR10).
+///
+/// # Errors
+///
+/// Returns an [`OpError`] if any fence file write fails (per-file errors are
+/// aggregated in `FenceResult::files_failed`; the first fatal error from
+/// `create_fence_with` is returned directly).
+pub fn create_fence_for(
+    project_dir: &std::path::Path,
+    targets: &[FenceTarget],
+    dry_run: bool,
+) -> Result<FenceResult, OpError> {
+    let mut cfg = crate::config::FenceConfig::default();
+    for t in FenceTarget::all() {
+        cfg.targets.set_enabled(t, targets.contains(&t));
+    }
+    create_fence_with(project_dir, dry_run, &cfg)
+}
+
+/// Interactive checkbox multi-select of fence targets (dialoguer `MultiSelect`).
+///
+/// Pre-checks tools detected in `project_dir`. Returns the chosen targets,
+/// or an empty `Vec` when the user presses Esc to skip. Requires a TTY —
+/// callers must gate on interactivity before calling this function.
+///
+/// # Errors
+///
+/// Returns `std::io::Error` if the terminal interaction fails (e.g. no TTY
+/// attached, signal interruption).
+pub fn select_targets_interactive(
+    project_dir: &std::path::Path,
+) -> std::io::Result<Vec<FenceTarget>> {
+    use dialoguer::{theme::ColorfulTheme, MultiSelect};
+
+    let detected = detect_installed_targets(project_dir);
+    let items: Vec<String> = registry::REGISTRY
+        .iter()
+        .map(|s| {
+            let mark = if detected.contains(&s.target) {
+                " \u{2014} detected"
+            } else {
+                ""
+            };
+            format!("{} [{}]{}", s.tool, s.id, mark)
+        })
+        .collect();
+    let defaults: Vec<bool> = registry::REGISTRY
+        .iter()
+        .map(|s| detected.contains(&s.target))
+        .collect();
+
+    let selection = MultiSelect::with_theme(&ColorfulTheme::default())
+        .with_prompt(
+            "Select AI tools to fence  (\u{2191}/\u{2193} move \u{00b7} space toggle \u{00b7} enter confirm \u{00b7} esc skip)",
+        )
+        .items(&items)
+        .defaults(&defaults)
+        .interact_opt()
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    Ok(match selection {
+        Some(idxs) => idxs
+            .into_iter()
+            .map(|i| registry::REGISTRY[i].target)
+            .collect(),
+        None => Vec::new(),
+    })
+}
 
 /// Propagate fence rules from `.envforgeignore` to a specific tool's
 /// ignore file.  Uses symlinks on Unix (auto-updates when the source
@@ -750,14 +1173,20 @@ pub fn apply_tool(project_dir: &Path, tool: &str, dry_run: bool) -> Result<PathB
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::FenceTargets;
     use tempfile::TempDir;
+
+    /// The fence marker string — first line of `CURSORIGNORE_BLOCK`, used in tests
+    /// to verify that shared ignore files contain the EnvForge block.
+    const FENCE_MARKER: &str = "# EnvForge secret fence";
 
     #[test]
     fn test_create_fence_fresh_dir() {
         let tmp = TempDir::new().unwrap();
         let result = create_fence(tmp.path(), false).unwrap();
 
-        assert_eq!(result.files_created.len(), 5);
+        let expected_files: usize = registry::REGISTRY.iter().map(|s| s.files.len()).sum();
+        assert_eq!(result.files_created.len(), expected_files);
         assert!(result.files_updated.is_empty());
         assert!(result.files_skipped.is_empty());
 
@@ -787,15 +1216,17 @@ mod tests {
     fn test_create_fence_idempotent() {
         let tmp = TempDir::new().unwrap();
 
+        let expected_files: usize = registry::REGISTRY.iter().map(|s| s.files.len()).sum();
+
         // First run
         let r1 = create_fence(tmp.path(), false).unwrap();
-        assert_eq!(r1.files_created.len(), 5);
+        assert_eq!(r1.files_created.len(), expected_files);
 
         // Second run — everything should be skipped
         let r2 = create_fence(tmp.path(), false).unwrap();
         assert!(r2.files_created.is_empty());
         assert!(r2.files_updated.is_empty());
-        assert_eq!(r2.files_skipped.len(), 5);
+        assert_eq!(r2.files_skipped.len(), expected_files);
 
         // Verify files haven't been duplicated
         let cursorignore = std::fs::read_to_string(tmp.path().join(".cursorignore")).unwrap();
@@ -890,8 +1321,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         create_fence(tmp.path(), false).unwrap();
 
-        let target = apply_tool(tmp.path(), "aider", true).unwrap();
-        // Dry run returns path but doesn't create the file
+        // Use "continue" (.continueignore) — a KNOWN_TOOLS entry not managed by the registry,
+        // so create_fence does not pre-create it, and dry-run must leave it absent.
+        let target = apply_tool(tmp.path(), "continue", true).unwrap();
         assert!(!target.exists());
     }
 
@@ -911,5 +1343,917 @@ mod tests {
         let content = std::fs::read_to_string(tmp.path().join(".cursorignore")).unwrap();
         assert!(content.contains("node_modules/"));
         assert!(content.contains(FENCE_MARKER));
+    }
+
+    // ─── FenceConfig / FenceTarget / Resolution Tests ──────────────
+
+    /// Absent config → all five targets enabled (NFR5 / AC3 from Story 1.1).
+    #[test]
+    fn test_fence_config_absent_all_enabled() {
+        let cfg = FenceConfig::default();
+        for target in FenceTarget::all() {
+            assert!(
+                cfg.targets.is_enabled(target),
+                "target {:?} should default to enabled",
+                target
+            );
+        }
+    }
+
+    /// Per-target skip: each target can be disabled individually.
+    /// Tests that exactly the disabled target is skipped and the rest are created.
+    #[test]
+    fn test_fence_config_skip_envforgeignore() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.set_enabled(FenceTarget::Envforgeignore, false);
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(
+            !tmp.path().join(".envforgeignore").exists(),
+            "disabled target must not be created"
+        );
+        // Envforgeignore spec has 1 file; remaining total files are created
+        let total_files: usize = registry::REGISTRY.iter().map(|s| s.files.len()).sum();
+        let envforgeignore_files = registry::spec_for(FenceTarget::Envforgeignore).files.len();
+        assert_eq!(
+            result.files_created.len(),
+            total_files - envforgeignore_files
+        );
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with(".envforgeignore")));
+    }
+
+    #[test]
+    fn test_fence_config_skip_cursor_ignore() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.set_enabled(FenceTarget::CursorIgnore, false);
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(!tmp.path().join(".cursorignore").exists());
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with(".cursorignore")));
+    }
+
+    #[test]
+    fn test_fence_config_skip_cursor_rules() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.set_enabled(FenceTarget::CursorRules, false);
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(!tmp.path().join(".cursorrules").exists());
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with(".cursorrules")));
+    }
+
+    #[test]
+    fn test_fence_config_skip_copilot() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.set_enabled(FenceTarget::Copilot, false);
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(!tmp.path().join(".github/copilot-instructions.md").exists());
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with("copilot-instructions.md")));
+    }
+
+    #[test]
+    fn test_fence_config_skip_claude_code() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.set_enabled(FenceTarget::ClaudeCode, false);
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        assert!(!tmp.path().join(".claude/settings.json").exists());
+        assert!(result
+            .files_skipped
+            .iter()
+            .any(|p| p.ends_with("settings.json")));
+    }
+
+    /// Byte-identical default: no config → same files as current behavior (NFR5).
+    #[test]
+    fn test_fence_config_default_byte_identical_output() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = FenceConfig::default();
+        let result = create_fence_with(tmp.path(), false, &cfg).unwrap();
+        let expected_files: usize = registry::REGISTRY.iter().map(|s| s.files.len()).sum();
+        assert_eq!(
+            result.files_created.len(),
+            expected_files,
+            "default config must create all registry files"
+        );
+        assert!(result.files_updated.is_empty());
+        // The skipped list should be empty (all enabled, fresh dir)
+        assert!(result.files_skipped.is_empty());
+    }
+
+    /// check_fence_status_with: disabled target does not make status Partial.
+    #[test]
+    fn test_check_fence_status_disabled_target_not_partial() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        cfg.targets.set_enabled(FenceTarget::Copilot, false);
+
+        // Create fence without copilot
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+        let status = check_fence_status_with(tmp.path(), &cfg).unwrap();
+
+        // All enabled targets (4) should be fenced
+        assert!(
+            status.all_fenced,
+            "disabled target must not make status Partial"
+        );
+        assert!(matches!(status.completeness, FenceCompleteness::Complete));
+        // One per-target entry per enabled target (copilot excluded).
+        assert_eq!(status.targets.len(), registry::REGISTRY.len() - 1);
+        assert!(!status.targets.iter().any(|t| t.id == "copilot"));
+    }
+
+    /// Stale disabled file must not flip status to Partial.
+    #[test]
+    fn test_check_fence_status_stale_disabled_file_not_partial() {
+        let tmp = TempDir::new().unwrap();
+
+        // Create an unfenced copilot file (stale) before configuring fence
+        let github_dir = tmp.path().join(".github");
+        std::fs::create_dir_all(&github_dir).unwrap();
+        std::fs::write(github_dir.join("copilot-instructions.md"), "# My docs\n").unwrap();
+
+        // Config: copilot disabled
+        let mut cfg = FenceConfig::default();
+        cfg.targets.set_enabled(FenceTarget::Copilot, false);
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let status = check_fence_status_with(tmp.path(), &cfg).unwrap();
+        assert!(
+            status.all_fenced,
+            "stale disabled file must not cause Partial status"
+        );
+    }
+
+    /// Enabled-missing target makes status Partial.
+    #[test]
+    fn test_check_fence_status_enabled_missing_is_partial() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = FenceConfig::default();
+        // Don't create any files; all enabled but none exist
+        let status = check_fence_status_with(tmp.path(), &cfg).unwrap();
+        assert!(!status.all_fenced);
+        assert!(matches!(status.completeness, FenceCompleteness::Partial(_)));
+    }
+
+    /// resolve_fence_targets: source is Default when all enabled.
+    #[test]
+    fn test_resolve_fence_targets_all_default() {
+        let cfg = FenceConfig::default();
+        let resolved = resolve_fence_targets(&cfg);
+        assert_eq!(resolved.len(), registry::REGISTRY.len());
+        for r in &resolved {
+            assert!(r.enabled);
+            assert_eq!(r.source, ConfigSource::Default);
+        }
+    }
+
+    /// resolve_fence_targets: disabled target reports source=Global.
+    #[test]
+    fn test_resolve_fence_targets_disabled_is_global() {
+        let mut cfg = FenceConfig::default();
+        cfg.targets.set_enabled(FenceTarget::ClaudeCode, false);
+        let resolved = resolve_fence_targets(&cfg);
+        let claude = resolved
+            .iter()
+            .find(|r| r.target == FenceTarget::ClaudeCode)
+            .unwrap();
+        assert!(!claude.enabled);
+        assert_eq!(claude.source, ConfigSource::Global);
+    }
+
+    /// FenceTarget::all() returns all distinct targets (count == registry length).
+    #[test]
+    fn test_fence_target_all_unique() {
+        let all = FenceTarget::all();
+        assert_eq!(all.len(), registry::REGISTRY.len());
+        let strs: Vec<&str> = all.iter().map(|t| t.as_str()).collect();
+        let unique: std::collections::HashSet<_> = strs.iter().collect();
+        assert_eq!(
+            unique.len(),
+            registry::REGISTRY.len(),
+            "all targets must have unique string IDs"
+        );
+    }
+
+    /// Story 1.5: remove_fence operates on all targets regardless of config.
+    #[test]
+    fn test_remove_fence_config_independent_cleans_disabled_target() {
+        let tmp = TempDir::new().unwrap();
+
+        // Create with all enabled first (simulating a prior full fence)
+        let full_cfg = FenceConfig::default();
+        create_fence_with(tmp.path(), false, &full_cfg).unwrap();
+
+        // Now disable copilot in config — but remove_fence must still clean it
+        let remove_result = super::remove_fence(tmp.path(), false).unwrap();
+        // copilot file should have been cleaned (it exists and has fence content)
+        assert!(
+            remove_result
+                .files_removed
+                .iter()
+                .chain(remove_result.files_updated.iter())
+                .any(|p| p.to_str().unwrap_or("").contains("copilot")),
+            "remove_fence must clean copilot even if config disables it"
+        );
+    }
+
+    /// is_enabled / set_enabled round-trip for each target.
+    #[test]
+    fn test_fence_targets_set_enabled_roundtrip() {
+        for target in FenceTarget::all() {
+            let mut targets = FenceTargets::default();
+            // Disable
+            targets.set_enabled(target, false);
+            assert!(
+                !targets.is_enabled(target),
+                "set_enabled false failed for {:?}",
+                target
+            );
+            // Re-enable
+            targets.set_enabled(target, true);
+            assert!(
+                targets.is_enabled(target),
+                "set_enabled true failed for {:?}",
+                target
+            );
+        }
+    }
+
+    // ─── Story 1.2: FileKind-dispatched writer/stripper round-trip tests ──────
+
+    /// NFR-S4 / R1: Shared Ignore file round-trip preserves user content.
+    /// Pre-write `.cursorignore` with user content, create fence (appends block),
+    /// remove fence, assert user content survives and fence block is gone.
+    #[test]
+    fn test_shared_block_roundtrip_preserves_user_content() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join(".cursorignore");
+
+        // Pre-existing user content
+        std::fs::write(&path, "node_modules/\n").unwrap();
+
+        create_fence(tmp.path(), false).unwrap();
+
+        let after_create = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after_create.contains("node_modules/"),
+            "user content must survive create"
+        );
+        assert!(
+            after_create.contains(FENCE_MARKER),
+            "fence block must be present after create"
+        );
+
+        remove_fence(tmp.path(), false).unwrap();
+
+        let after_remove = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after_remove.contains("node_modules/"),
+            "user content must survive remove"
+        );
+        assert!(
+            !after_remove.contains(FENCE_MARKER),
+            "fence block must be gone after remove"
+        );
+    }
+
+    /// NFR-R1: Shared Rules (markdown section) round-trip preserves user content.
+    /// Pre-write `.github/copilot-instructions.md` with a user section, create fence
+    /// (appends Secret Safety Rules), remove fence, assert user section preserved.
+    #[test]
+    fn test_rules_section_roundtrip_preserves_user_content() {
+        let tmp = TempDir::new().unwrap();
+        let github_dir = tmp.path().join(".github");
+        std::fs::create_dir_all(&github_dir).unwrap();
+        let path = github_dir.join("copilot-instructions.md");
+
+        std::fs::write(&path, "## My Rules\n- foo\n").unwrap();
+
+        create_fence(tmp.path(), false).unwrap();
+
+        let after_create = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after_create.contains("## My Rules"),
+            "user section must survive create"
+        );
+        assert!(
+            after_create.contains("## Secret Safety Rules"),
+            "fence section must be present after create"
+        );
+
+        remove_fence(tmp.path(), false).unwrap();
+
+        let after_remove = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after_remove.contains("## My Rules"),
+            "user section must survive remove"
+        );
+        assert!(
+            after_remove.contains("- foo"),
+            "user content must survive remove"
+        );
+        assert!(
+            !after_remove.contains("## Secret Safety Rules"),
+            "fence section must be gone after remove"
+        );
+    }
+
+    /// NFR-R1 / R3: DenyRule round-trip preserves unrelated keys.
+    /// Pre-write `.claude/settings.json` with permissions.allow + an unrelated deny rule,
+    /// create fence, remove fence, assert allow + unrelated deny preserved, envforge deny rules gone.
+    #[test]
+    fn test_deny_rule_roundtrip_preserves_other_keys() {
+        let tmp = TempDir::new().unwrap();
+        let claude_dir = tmp.path().join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+
+        let existing = serde_json::json!({
+            "permissions": {
+                "allow": ["Write(src/*)"],
+                "deny": ["Read(supersecret.txt)"]
+            }
+        });
+        std::fs::write(
+            claude_dir.join("settings.json"),
+            serde_json::to_string_pretty(&existing).unwrap(),
+        )
+        .unwrap();
+
+        create_fence(tmp.path(), false).unwrap();
+
+        let content = std::fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let deny = json["permissions"]["deny"].as_array().unwrap();
+        assert!(
+            deny.iter()
+                .any(|v| v.as_str() == Some("Read(supersecret.txt)")),
+            "unrelated deny rule must survive create"
+        );
+        assert!(
+            deny.iter().any(|v| v.as_str() == Some("Read(.env)")),
+            "envforge deny rule must be present after create"
+        );
+        let allow = json["permissions"]["allow"].as_array().unwrap();
+        assert_eq!(allow.len(), 1, "allow must survive create");
+
+        remove_fence(tmp.path(), false).unwrap();
+
+        let content2 = std::fs::read_to_string(claude_dir.join("settings.json")).unwrap();
+        let json2: serde_json::Value = serde_json::from_str(&content2).unwrap();
+        let deny2 = json2["permissions"]["deny"].as_array().unwrap();
+        assert!(
+            deny2
+                .iter()
+                .any(|v| v.as_str() == Some("Read(supersecret.txt)")),
+            "unrelated deny rule must survive remove"
+        );
+        assert!(
+            !deny2.iter().any(|v| v.as_str() == Some("Read(.env)")),
+            "envforge deny rule must be gone after remove"
+        );
+        let allow2 = json2["permissions"]["allow"].as_array().unwrap();
+        assert_eq!(allow2.len(), 1, "allow must survive remove");
+    }
+
+    /// NFR-R1: FullyOwned file is deleted on remove_fence.
+    #[test]
+    fn test_fully_owned_deleted_on_remove() {
+        let tmp = TempDir::new().unwrap();
+        create_fence(tmp.path(), false).unwrap();
+
+        let path = tmp.path().join(".envforgeignore");
+        assert!(path.exists(), ".envforgeignore must exist after create");
+
+        remove_fence(tmp.path(), false).unwrap();
+        assert!(
+            !path.exists(),
+            ".envforgeignore must be deleted after remove_fence"
+        );
+    }
+
+    /// NFR-R3: create_fence is idempotent — file bytes identical after two runs.
+    #[test]
+    fn test_create_fence_idempotent_no_diff() {
+        let tmp = TempDir::new().unwrap();
+
+        create_fence(tmp.path(), false).unwrap();
+
+        // Capture bytes after first run
+        let snap1: Vec<(std::path::PathBuf, Vec<u8>)> = [
+            ".envforgeignore",
+            ".cursorignore",
+            ".cursorrules",
+            ".github/copilot-instructions.md",
+            ".claude/settings.json",
+        ]
+        .iter()
+        .map(|p| {
+            let full = tmp.path().join(p);
+            let bytes = std::fs::read(&full).unwrap();
+            (full, bytes)
+        })
+        .collect();
+
+        create_fence(tmp.path(), false).unwrap();
+
+        // Capture bytes after second run and compare
+        for (path, bytes_before) in &snap1 {
+            let bytes_after = std::fs::read(path).unwrap();
+            assert_eq!(
+                bytes_before, &bytes_after,
+                "file {:?} changed on second create_fence run (not idempotent)",
+                path
+            );
+        }
+    }
+
+    // ─── Story 1.3: New tool round-trip tests ─────────────────────────────────
+
+    /// Windsurf: create_fence writes .codeiumignore + .windsurf/rules/envforge.md;
+    /// remove_fence cleans both.
+    #[test]
+    fn test_windsurf_fence_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        // Only create windsurf so the test is focused
+        for t in FenceTarget::all() {
+            if t != FenceTarget::Windsurf {
+                cfg.targets.set_enabled(t, false);
+            }
+        }
+
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let codeiumignore = tmp.path().join(".codeiumignore");
+        let windsurf_rules = tmp.path().join(".windsurf/rules/envforge.md");
+        assert!(codeiumignore.exists(), ".codeiumignore must be created");
+        assert!(
+            windsurf_rules.exists(),
+            ".windsurf/rules/envforge.md must be created"
+        );
+        let ignore_content = std::fs::read_to_string(&codeiumignore).unwrap();
+        assert!(
+            ignore_content.contains(FENCE_MARKER),
+            ".codeiumignore must contain fence marker"
+        );
+        let rules_content = std::fs::read_to_string(&windsurf_rules).unwrap();
+        assert!(
+            rules_content.contains("Never read .env files directly"),
+            ".windsurf/rules/envforge.md must contain rules text"
+        );
+
+        remove_fence(tmp.path(), false).unwrap();
+        assert!(
+            !codeiumignore.exists(),
+            ".codeiumignore must be removed after remove_fence"
+        );
+        assert!(
+            !windsurf_rules.exists(),
+            ".windsurf/rules/envforge.md must be removed after remove_fence"
+        );
+    }
+
+    /// Cline: create_fence writes .clineignore + .clinerules;
+    /// remove_fence cleans both.
+    #[test]
+    fn test_cline_fence_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        for t in FenceTarget::all() {
+            if t != FenceTarget::Cline {
+                cfg.targets.set_enabled(t, false);
+            }
+        }
+
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let clineignore = tmp.path().join(".clineignore");
+        let clinerules = tmp.path().join(".clinerules");
+        assert!(clineignore.exists(), ".clineignore must be created");
+        assert!(clinerules.exists(), ".clinerules must be created");
+        let ignore_content = std::fs::read_to_string(&clineignore).unwrap();
+        assert!(
+            ignore_content.contains(FENCE_MARKER),
+            ".clineignore must contain fence marker"
+        );
+        let rules_content = std::fs::read_to_string(&clinerules).unwrap();
+        assert!(
+            rules_content.contains("Never read .env files directly"),
+            ".clinerules must contain rules text"
+        );
+
+        remove_fence(tmp.path(), false).unwrap();
+        assert!(
+            !clineignore.exists(),
+            ".clineignore must be removed after remove_fence"
+        );
+        assert!(
+            !clinerules.exists(),
+            ".clinerules must be removed after remove_fence"
+        );
+    }
+
+    /// Aider: create_fence writes .aiderignore; remove_fence cleans it.
+    #[test]
+    fn test_aider_fence_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        for t in FenceTarget::all() {
+            if t != FenceTarget::Aider {
+                cfg.targets.set_enabled(t, false);
+            }
+        }
+
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let aiderignore = tmp.path().join(".aiderignore");
+        assert!(aiderignore.exists(), ".aiderignore must be created");
+        let content = std::fs::read_to_string(&aiderignore).unwrap();
+        assert!(
+            content.contains(FENCE_MARKER),
+            ".aiderignore must contain fence marker"
+        );
+
+        remove_fence(tmp.path(), false).unwrap();
+        assert!(
+            !aiderignore.exists(),
+            ".aiderignore must be removed after remove_fence"
+        );
+    }
+
+    /// Gemini: create_fence writes .geminiignore + GEMINI.md; remove_fence cleans both.
+    #[test]
+    fn test_gemini_fence_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        for t in FenceTarget::all() {
+            if t != FenceTarget::Gemini {
+                cfg.targets.set_enabled(t, false);
+            }
+        }
+
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let geminiignore = tmp.path().join(".geminiignore");
+        let gemini_md = tmp.path().join("GEMINI.md");
+        assert!(geminiignore.exists(), ".geminiignore must be created");
+        assert!(gemini_md.exists(), "GEMINI.md must be created");
+        let ignore_content = std::fs::read_to_string(&geminiignore).unwrap();
+        assert!(
+            ignore_content.contains(FENCE_MARKER),
+            ".geminiignore must contain fence marker"
+        );
+        let rules_content = std::fs::read_to_string(&gemini_md).unwrap();
+        assert!(
+            rules_content.contains("Never read .env files directly"),
+            "GEMINI.md must contain rules text"
+        );
+
+        remove_fence(tmp.path(), false).unwrap();
+        assert!(
+            !geminiignore.exists(),
+            ".geminiignore must be removed after remove_fence"
+        );
+        assert!(
+            !gemini_md.exists(),
+            "GEMINI.md must be removed after remove_fence"
+        );
+    }
+
+    /// Story 1.6: per-target coverage states — covered vs fallback vs unfenced.
+    #[test]
+    fn test_target_coverage_states() {
+        let tmp = TempDir::new().unwrap();
+        create_fence(tmp.path(), false).unwrap();
+        let status = check_fence_status(tmp.path()).unwrap();
+
+        let by_id = |id: &str| {
+            status
+                .targets
+                .iter()
+                .find(|t| t.id == id)
+                .unwrap_or_else(|| panic!("target {id} missing"))
+                .state
+        };
+
+        // Real-ignore tool, fenced → Covered.
+        assert_eq!(by_id("cursor_ignore"), TargetCoverage::Covered);
+        assert_eq!(by_id("aider"), TargetCoverage::Covered);
+        // No-ignore tools, protected via rules/deny → Fallback (honest, FR2b).
+        assert_eq!(by_id("copilot"), TargetCoverage::Fallback);
+        assert_eq!(by_id("claude_code"), TargetCoverage::Fallback);
+        assert_eq!(by_id("agents_md"), TargetCoverage::Fallback);
+        // Multi-file target fully fenced → Covered (windsurf has a real ignore).
+        assert_eq!(by_id("windsurf"), TargetCoverage::Covered);
+    }
+
+    /// Story 1.6 / FR11: aggregate "AI BLOCKED" only when no target is unfenced.
+    #[test]
+    fn test_aggregate_protected_only_when_all_covered() {
+        let tmp = TempDir::new().unwrap();
+        // Empty dir: no AI tools detected → tool targets are NotInstalled, but
+        // EnvForge's own .envforgeignore is always-applicable and unfenced, so
+        // the project is not yet protected.
+        let status = check_fence_status(tmp.path()).unwrap();
+        assert!(!status.all_fenced, "empty dir must not be protected");
+        let envforge = status
+            .targets
+            .iter()
+            .find(|t| t.id == "envforgeignore")
+            .unwrap();
+        assert_eq!(envforge.state, TargetCoverage::Unfenced);
+        // Tools with detection hints are not present → NotInstalled.
+        assert_eq!(
+            status
+                .targets
+                .iter()
+                .find(|t| t.id == "cursor_ignore")
+                .unwrap()
+                .state,
+            TargetCoverage::NotInstalled
+        );
+
+        // Fence everything → all covered/fallback → protected.
+        create_fence(tmp.path(), false).unwrap();
+        let status = check_fence_status(tmp.path()).unwrap();
+        assert!(status.all_fenced, "fully fenced must be protected");
+        assert!(status
+            .targets
+            .iter()
+            .all(|t| matches!(t.state, TargetCoverage::Covered | TargetCoverage::Fallback)));
+    }
+
+    /// Story 1.7: a tool present in the workspace but not fenced is the
+    /// dangerous installed-but-unfenced case — distinct from not_installed.
+    #[test]
+    fn test_detection_installed_but_unfenced() {
+        let tmp = TempDir::new().unwrap();
+        // Simulate Cursor being installed (its detection hint) without fencing.
+        std::fs::create_dir_all(tmp.path().join(".cursor")).unwrap();
+
+        let status = check_fence_status(tmp.path()).unwrap();
+        let cursor = status
+            .targets
+            .iter()
+            .find(|t| t.id == "cursor_ignore")
+            .unwrap();
+        assert!(cursor.installed, "Cursor must be detected as installed");
+        assert_eq!(
+            cursor.state,
+            TargetCoverage::Unfenced,
+            "installed-but-unfenced tool must be Unfenced, not NotInstalled"
+        );
+        assert!(
+            !status.all_fenced,
+            "an installed-but-unfenced tool breaks the aggregate (FR8/FR11)"
+        );
+
+        // A tool with no hints present stays NotInstalled and does NOT break it.
+        let claude = status
+            .targets
+            .iter()
+            .find(|t| t.id == "claude_code")
+            .unwrap();
+        assert!(!claude.installed);
+        assert_eq!(claude.state, TargetCoverage::NotInstalled);
+    }
+
+    /// Story 1.7 / FR11: not_installed tools do not break the aggregate. A repo
+    /// with one fenced tool and the rest absent is protected.
+    #[test]
+    fn test_not_installed_does_not_break_aggregate() {
+        let tmp = TempDir::new().unwrap();
+        // Fence only envforgeignore + cursor; pretend nothing else installed.
+        let mut cfg = FenceConfig::default();
+        for t in FenceTarget::all() {
+            if !matches!(
+                t,
+                FenceTarget::Envforgeignore | FenceTarget::CursorIgnore | FenceTarget::CursorRules
+            ) {
+                cfg.targets.set_enabled(t, false);
+            }
+        }
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+        // Status over the SAME reduced config: enabled targets all fenced.
+        let status = check_fence_status_with(tmp.path(), &cfg).unwrap();
+        assert!(
+            status.all_fenced,
+            "all enabled targets fenced → protected even though other tools exist in the registry"
+        );
+    }
+
+    /// Story 1.6: a multi-file target needs ALL its files fenced to be covered.
+    #[test]
+    fn test_multifile_target_unfenced_if_one_file_missing() {
+        let tmp = TempDir::new().unwrap();
+        create_fence(tmp.path(), false).unwrap();
+        // Delete one of windsurf's two files (the rules file).
+        std::fs::remove_file(tmp.path().join(".windsurf/rules/envforge.md")).unwrap();
+
+        let status = check_fence_status(tmp.path()).unwrap();
+        let windsurf = status.targets.iter().find(|t| t.id == "windsurf").unwrap();
+        assert_eq!(
+            windsurf.state,
+            TargetCoverage::Unfenced,
+            "missing one file of a multi-file target → unfenced"
+        );
+        assert!(
+            !status.all_fenced,
+            "one unfenced target breaks the aggregate"
+        );
+    }
+
+    /// Story 1.5 / NFR-R4: one target failing does not abort the others.
+    /// A directory placed where a fence file should go makes that target fail;
+    /// the rest must still be written and the failure captured (not swallowed).
+    #[test]
+    fn test_fence_partial_failure_isolated() {
+        let tmp = TempDir::new().unwrap();
+        // Block .cursorignore by creating a directory at its path → write fails.
+        std::fs::create_dir_all(tmp.path().join(".cursorignore")).unwrap();
+
+        let result = create_fence(tmp.path(), false).unwrap();
+
+        // The blocked target is reported as failed...
+        assert!(
+            result
+                .files_failed
+                .iter()
+                .any(|(p, _)| p.ends_with(".cursorignore")),
+            "blocked target must be in files_failed"
+        );
+        // ...but other targets were still written (loop did not abort).
+        assert!(
+            tmp.path().join(".envforgeignore").exists(),
+            "other targets must still be fenced despite one failure"
+        );
+        assert!(
+            !result.files_created.is_empty(),
+            "partial success expected, not total abort"
+        );
+    }
+
+    /// Story 1.5 / NFR-P1: a full fence pass completes well under 500 ms.
+    #[test]
+    fn test_fence_full_pass_under_budget() {
+        let tmp = TempDir::new().unwrap();
+        let start = std::time::Instant::now();
+        create_fence(tmp.path(), false).unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "full fence pass took {elapsed:?}, budget is 500ms (NFR-P1)"
+        );
+    }
+
+    /// Story 1.4: AGENTS.md cross-tool target round-trips and preserves user content.
+    #[test]
+    fn test_agents_md_fence_roundtrip_preserves_user_content() {
+        let tmp = TempDir::new().unwrap();
+        // Pre-existing user AGENTS.md with their own section.
+        let agents = tmp.path().join("AGENTS.md");
+        std::fs::write(&agents, "# Project Agents\n\n## Build\n- run cargo build\n").unwrap();
+
+        let mut cfg = FenceConfig::default();
+        for t in FenceTarget::all() {
+            if t != FenceTarget::AgentsMd {
+                cfg.targets.set_enabled(t, false);
+            }
+        }
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let content = std::fs::read_to_string(&agents).unwrap();
+        assert!(
+            content.contains("## EnvForge Secret Safety"),
+            "AGENTS.md must gain the EnvForge section"
+        );
+        assert!(
+            content.contains("## Build") && content.contains("run cargo build"),
+            "user section must be preserved on create"
+        );
+
+        remove_fence(tmp.path(), false).unwrap();
+        let after = std::fs::read_to_string(&agents).unwrap();
+        assert!(
+            !after.contains("## EnvForge Secret Safety"),
+            "EnvForge section must be stripped on remove"
+        );
+        assert!(
+            after.contains("## Build") && after.contains("run cargo build"),
+            "user section must survive remove (FR3 / NFR-S4)"
+        );
+    }
+
+    /// Story 1.4: Amazon Q rules fallback (no ignore file) round-trips.
+    #[test]
+    fn test_amazon_q_fence_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let mut cfg = FenceConfig::default();
+        for t in FenceTarget::all() {
+            if t != FenceTarget::AmazonQ {
+                cfg.targets.set_enabled(t, false);
+            }
+        }
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let rules = tmp.path().join(".amazonq/rules/envforge.md");
+        assert!(rules.exists(), ".amazonq/rules/envforge.md must be created");
+        assert!(std::fs::read_to_string(&rules)
+            .unwrap()
+            .contains("## Secret Safety Rules"));
+
+        remove_fence(tmp.path(), false).unwrap();
+        assert!(
+            !rules.exists(),
+            ".amazonq rules file must be removed after remove_fence"
+        );
+    }
+
+    /// Story 1.4 / FR2b: no-ignore-file tools are marked has_real_ignore=false
+    /// so status reports a fallback, never a false "covered".
+    #[test]
+    fn test_fallback_tools_marked_no_real_ignore() {
+        use registry::spec_for;
+        for t in [
+            FenceTarget::Copilot,
+            FenceTarget::CursorRules,
+            FenceTarget::ClaudeCode,
+            FenceTarget::AgentsMd,
+            FenceTarget::AmazonQ,
+        ] {
+            assert!(
+                !spec_for(t).has_real_ignore,
+                "{:?} has no real ignore mechanism — must be marked fallback",
+                t
+            );
+        }
+        // Tools that DO have a native ignore file.
+        for t in [
+            FenceTarget::CursorIgnore,
+            FenceTarget::Windsurf,
+            FenceTarget::Cline,
+            FenceTarget::Aider,
+            FenceTarget::Gemini,
+        ] {
+            assert!(
+                spec_for(t).has_real_ignore,
+                "{:?} has a native ignore file",
+                t
+            );
+        }
+    }
+
+    /// FR3 / NFR-S4: .codeiumignore preserves user content across create + remove.
+    #[test]
+    fn test_codeiumignore_preserves_user_content() {
+        let tmp = TempDir::new().unwrap();
+
+        // Pre-write .codeiumignore with user content
+        std::fs::write(tmp.path().join(".codeiumignore"), "dist/\n").unwrap();
+
+        let mut cfg = FenceConfig::default();
+        for t in FenceTarget::all() {
+            if t != FenceTarget::Windsurf {
+                cfg.targets.set_enabled(t, false);
+            }
+        }
+
+        create_fence_with(tmp.path(), false, &cfg).unwrap();
+
+        let after_create = std::fs::read_to_string(tmp.path().join(".codeiumignore")).unwrap();
+        assert!(
+            after_create.contains("dist/"),
+            "user content must survive create_fence"
+        );
+        assert!(
+            after_create.contains(FENCE_MARKER),
+            "fence marker must be present after create_fence"
+        );
+
+        remove_fence(tmp.path(), false).unwrap();
+
+        let after_remove = std::fs::read_to_string(tmp.path().join(".codeiumignore")).unwrap();
+        assert!(
+            after_remove.contains("dist/"),
+            "user content must survive remove_fence"
+        );
+        assert!(
+            !after_remove.contains(FENCE_MARKER),
+            "fence marker must be gone after remove_fence"
+        );
     }
 }

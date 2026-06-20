@@ -137,6 +137,23 @@ pub fn ensure_age_key() -> Result<Zeroizing<String>, EncryptError> {
             ))
         }
     } else {
+        // Serialize first-run key generation within the process. Without this,
+        // concurrent callers each take this branch, generate a *different* key,
+        // and clobber each other's file via the atomic rename — leaving values
+        // encrypted under a key no longer on disk ("No matching keys found").
+        static GEN_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        let _gen_guard = GEN_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Double-check under the lock: a racer may have generated the key while
+        // we waited — if so, just read theirs instead of generating a second.
+        if path.exists() {
+            let content = std::fs::read_to_string(&path)
+                .map_err(|e| EncryptError::KeyError(format!("Cannot read age key file: {}", e)))?;
+            return Ok(Zeroizing::new(content));
+        }
+
         let key = age::x25519::Identity::generate();
         let secret = key.to_string();
         let public = key.to_public().to_string();
@@ -187,6 +204,22 @@ pub fn ensure_age_key() -> Result<Zeroizing<String>, EncryptError> {
             log::warn!("Failed to generate recovery key: {}", e);
         }
 
+        // Concurrency convergence: if another process generated + persisted a
+        // *different* key between our generate and our rename, the on-disk file
+        // now holds its key, not ours. Re-read the persisted file and return
+        // THAT, so every racing generator converges on the single key that won
+        // the atomic rename. Otherwise data encrypted with our in-memory key
+        // couldn't be decrypted once the other key won the file (flaky under
+        // parallel first-run key generation).
+        #[cfg(unix)]
+        {
+            let final_content = std::fs::read_to_string(&path).map_err(|e| {
+                EncryptError::KeyError(format!("Cannot re-read key file after write: {}", e))
+            })?;
+            return Ok(Zeroizing::new(final_content));
+        }
+
+        #[allow(unreachable_code)]
         Ok(Zeroizing::new(content))
     }
 }

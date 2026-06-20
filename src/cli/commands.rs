@@ -12,8 +12,8 @@ use crate::ops::*;
 use crate::parser::*;
 
 use super::{
-    AiHookAction, BackupAction, Commands, LeaseAction, McpAction, ProjectAction, ProjectEnvAction,
-    SessionAction, ShareAction, SnapshotAction,
+    AiHookAction, BackupAction, Commands, FenceAction, FenceConfigArgs, LeaseAction, McpAction,
+    ProjectAction, ProjectEnvAction, SessionAction, ShareAction, SnapshotAction,
 };
 
 /// Execute a CLI subcommand.
@@ -35,7 +35,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             *reveal,
             *keys_only,
         ),
-        Commands::Get { key } => cmd_get(key, json),
+        Commands::Get { key, reveal } => cmd_get(key, json, *reveal),
         Commands::Set { assignment, stdin } => cmd_set(assignment, dry_run, *stdin),
         Commands::Delete { key } => cmd_delete(key, dry_run),
         Commands::Copy { key, key_only } => cmd_copy(key, *key_only),
@@ -50,6 +50,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             format,
             k8s_name,
             k8s_namespace,
+            reveal,
         } => {
             if *safe {
                 cmd_export_safe(path.as_deref())
@@ -62,6 +63,7 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
                     filter.as_deref(),
                     k8s_name.as_deref(),
                     k8s_namespace.as_deref(),
+                    *reveal,
                 )
             } else {
                 cmd_export(path.as_deref(), *exclude_sensitive, filter.as_deref())
@@ -202,8 +204,14 @@ pub fn execute_command(command: &Commands, json: bool, dry_run: bool) {
             reveal,
         } => cmd_search(query, json, *fuzzy, *reveal),
         Commands::Exposure { file } => cmd_exposure(file),
-        Commands::Fence { status, disable } => {
-            if *status {
+        Commands::Fence {
+            status,
+            disable,
+            action,
+        } => {
+            if let Some(FenceAction::Config(args)) = action {
+                cmd_fence_config(args, json)
+            } else if *status {
                 cmd_fence_status(json)
             } else if *disable {
                 cmd_fence_disable(dry_run)
@@ -535,24 +543,21 @@ fn cmd_search(
 }
 
 fn is_sensitive(key: &str) -> bool {
-    let lower = key.to_lowercase();
-    lower.contains("secret")
-        || lower.contains("token")
-        || lower.contains("password")
-        || lower.contains("credential")
-        || (lower.contains("key") && !lower.contains("keyboard"))
+    // Canonical key-sensitivity decision lives in ops::dotenv. Delegate so the
+    // CLI, TUI mask, and export paths can never drift apart (FR6 / L6 / L12).
+    crate::ops::dotenv::is_sensitive_key(key)
 }
 
 fn mask_value(value: &str) -> String {
     if value.len() < 8 {
         return "****".to_string();
     }
-    let first2 = &value[..3];
-    let last2 = &value[value.len() - 3..];
+    let first2 = crate::ops::sanitize::char_prefix(value, 3);
+    let last2 = crate::ops::sanitize::char_suffix(value, 3);
     format!("{}***{}", first2, last2)
 }
 
-fn cmd_get(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_get(key: &str, json: bool, reveal: bool) -> Result<(), Box<dyn std::error::Error>> {
     let (_config, shell_files) = load_context()?;
     let entries = collect_all_entries(&shell_files);
 
@@ -561,27 +566,40 @@ fn cmd_get(key: &str, json: bool) -> Result<(), Box<dyn std::error::Error>> {
         .find(|e| e.key == key && e.location != EntryLocation::Commented);
 
     if let Some(e) = entry {
-        crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
-            source: crate::ops::monitor::EventSource::Reveal,
-            key: Some(key.to_string()),
-            message: format!(
-                "CLI get: access to '{}' from {}",
-                key,
-                e.source_file.display()
-            ),
-            timestamp: chrono::Utc::now(),
-            severity: crate::ops::monitor::SecuritySeverity::Info,
-        });
+        // L11: only emit a Reveal event when a sensitive value is actually
+        // disclosed in cleartext (--reveal on a sensitive key). A masked default
+        // read is not a reveal and shouldn't fire a (Warn) reveal event.
+        if reveal && is_sensitive(key) {
+            crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
+                source: crate::ops::monitor::EventSource::Reveal,
+                key: Some(key.to_string()),
+                message: format!(
+                    "CLI get --reveal: cleartext access to '{}' from {}",
+                    key,
+                    e.source_file.display()
+                ),
+                timestamp: chrono::Utc::now(),
+                severity: crate::ops::monitor::SecuritySeverity::Warn,
+            });
+        }
+        // H6/FR28: a value-bearing read masks sensitive values by default;
+        // cleartext only with explicit --reveal. Non-sensitive keys print as-is.
+        let display_value = if is_sensitive(key) && !reveal {
+            mask_value(&e.value)
+        } else {
+            e.value.clone()
+        };
         if json {
             let obj = serde_json::json!({
                 "key": e.key,
-                "value": e.value,
+                "value": display_value,
+                "redacted": is_sensitive(key) && !reveal,
                 "source_file": e.source_file.to_string_lossy(),
                 "line_number": e.line_number,
             });
             println!("{}", serde_json::to_string_pretty(&obj)?);
         } else {
-            println!("{}", e.value);
+            println!("{}", display_value);
         }
         Ok(())
     } else {
@@ -656,11 +674,17 @@ fn cmd_set(assignment: &str, dry_run: bool, stdin: bool) -> Result<(), Box<dyn s
             &serialize_shell_file(sf),
             &sf.path.to_string_lossy(),
         );
-        print!("{}", diff);
+        // L2/FR3: never echo a sensitive cleartext value in the dry-run diff
+        // (would defeat `--stdin`). Redacts both old and new sides.
+        print!(
+            "{}",
+            crate::ops::sanitize::redact_sensitive_assignments(&diff)
+        );
     } else {
         let content = serialize_shell_file(sf);
         safe_write(&sf.path, &content, Some(sf.hash))?;
-        println!("Set {} ({} chars)", key, value.len());
+        // L1/FR4: do not disclose the secret's length.
+        println!("Set {}", key);
         crate::ops::schema::auto_update_ai_context();
     }
     zeroize_secret_value(value);
@@ -891,6 +915,7 @@ fn cmd_export_format(
     filter_query: Option<&str>,
     k8s_name: Option<&str>,
     k8s_namespace: Option<&str>,
+    reveal: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::ops::export_format::{export_as, ExportFormat};
 
@@ -906,24 +931,46 @@ fn cmd_export_format(
         entries
     };
 
-    let output = export_as(&filtered, &format, k8s_name, k8s_namespace);
+    // M7/FR28: redact sensitive values by default; `--reveal` emits cleartext.
+    // Otherwise `export --format …` would write every secret to stdout/file.
+    let mut redacted = 0usize;
+    let to_export: Vec<EnvEntry> = if reveal {
+        filtered
+    } else {
+        filtered
+            .into_iter()
+            .map(|mut e| {
+                if e.location != EntryLocation::Commented && is_sensitive(&e.key) {
+                    e.value = "[REDACTED]".to_string();
+                    redacted += 1;
+                }
+                e
+            })
+            .collect()
+    };
+
+    let output = export_as(&to_export, &format, k8s_name, k8s_namespace);
+    let exported_count = to_export
+        .iter()
+        .filter(|e| e.location != EntryLocation::Commented)
+        .count();
 
     match path {
         Some(p) => {
             std::fs::write(p, &output)?;
             println!(
                 "Exported {} entries to {} ({})",
-                filtered
-                    .iter()
-                    .filter(|e| e.location != EntryLocation::Commented)
-                    .count(),
-                p,
-                format_name
+                exported_count, p, format_name
             );
         }
         None => {
             print!("{}", output);
         }
+    }
+    if !reveal && redacted > 0 {
+        eprintln!(
+            "note: {redacted} sensitive value(s) redacted as [REDACTED]; pass --reveal to export cleartext."
+        );
     }
     Ok(())
 }
@@ -1355,6 +1402,12 @@ fn cmd_mcp(
             lockfile,
             args,
         } => mcp_pin_cmd::cmd_launch(ide, args, lockfile.as_ref()),
+        #[cfg(feature = "mcp-server")]
+        McpAction::Serve => {
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| format!("failed to create tokio runtime: {e}"))?;
+            rt.block_on(crate::mcp::server::serve_stdio())
+        }
     }
 }
 
@@ -1383,10 +1436,7 @@ fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
                 "findings": items,
             }))?
         );
-        return Ok(());
-    }
-
-    if findings.is_empty() {
+    } else if findings.is_empty() {
         println!("No plaintext secrets found in MCP configs.");
     } else {
         println!(
@@ -1396,6 +1446,12 @@ fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!("Run `envforge mcp harden` to fix them.");
     }
 
+    // FR24: deterministic exit code for CI gating — non-zero when hardcoded
+    // credentials are present so a CI job can fail the build. Clean = 0.
+    // (Exit 1 is reserved for command errors.)
+    if !findings.is_empty() {
+        process::exit(2);
+    }
     Ok(())
 }
 
@@ -1520,6 +1576,23 @@ fn cmd_backup(action: &BackupAction, json: bool) -> Result<(), Box<dyn std::erro
                 return Err(format!("Backup file not found: {}", file).into());
             }
 
+            // L4: the path is user-supplied. Confine reads to the backups
+            // directory and refuse symlink/`..` escape — otherwise this reads
+            // (and, once restore gains write capability, could clobber)
+            // arbitrary files outside the backup store.
+            let backups_root = backups_dir().map_err(|e| e.to_string())?;
+            let canonical_backup = std::fs::canonicalize(backup_path)
+                .map_err(|e| format!("cannot resolve backup path: {}", e))?;
+            let canonical_root = std::fs::canonicalize(&backups_root)
+                .map_err(|e| format!("cannot resolve backups directory: {}", e))?;
+            if !canonical_backup.starts_with(&canonical_root) {
+                return Err(format!(
+                    "refusing to restore from outside the backups directory ({})",
+                    canonical_root.display()
+                )
+                .into());
+            }
+
             let file_name = backup_path
                 .file_name()
                 .unwrap_or_default()
@@ -1530,7 +1603,9 @@ fn cmd_backup(action: &BackupAction, json: bool) -> Result<(), Box<dyn std::erro
                 return Err("Cannot determine target file from backup name".into());
             }
 
-            let content = std::fs::read_to_string(backup_path)?;
+            // O_NOFOLLOW read on the confined, canonicalized path.
+            let content = crate::config::safe_fs::safe_read_to_string(&canonical_backup)
+                .map_err(|e| format!("failed to read backup: {}", e))?;
             if json {
                 println!(
                     "{}",
@@ -2188,23 +2263,8 @@ fn is_likely_secret(value: &str) -> bool {
             }
         }
     }
-    if value.len() > 16 {
-        return true;
-    }
-    if value.contains("://") {
-        return true;
-    }
-    let lower = value.to_lowercase();
-    for prefix in &[
-        "sk-", "ak-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "xoxb-", "xoxp-", "xapp-", "glpat-",
-        "gldt-", "glft-", "glsoat-", "key-", "pk.", "sk.", "whsec_", "eyJ", "AKIA", "ssh-",
-        "BEGIN ", "s3cr3t", "passw", "token", "api_key", "secret",
-    ] {
-        if lower.starts_with(prefix) {
-            return true;
-        }
-    }
-    false
+    // Canonical detection (incl. M1 entropy path) lives in ops::sanitize.
+    crate::ops::sanitize::value_looks_like_secret(value)
 }
 
 fn zeroize_secret_value(value: String) {
@@ -3970,6 +4030,11 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!("\x1b[90m- Skipped {} (already configured)\x1b[0m", display);
     }
 
+    for (path, err) in &result.files_failed {
+        let display = path.strip_prefix(&project_dir).unwrap_or(path).display();
+        eprintln!("\x1b[31m\u{2717}\x1b[0m Failed {}: {}", display, err);
+    }
+
     let total = result.files_created.len() + result.files_updated.len();
     if total > 0 {
         println!(
@@ -3988,6 +4053,16 @@ fn cmd_fence(dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "\n\u{1f512} FD isolation: VERIFIED — 0 env vars exposed via /proc/self/fd. Secrets cannot leak to child processes."
     );
+
+    // NFR-R4: partial results were reported above; a failed target must not
+    // present as success — surface a non-zero exit.
+    if !result.files_failed.is_empty() {
+        return Err(format!(
+            "{} fence target(s) failed to write (see above)",
+            result.files_failed.len()
+        )
+        .into());
+    }
 
     Ok(())
 }
@@ -4121,35 +4196,135 @@ fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
             "version": 1,
             "all_fenced": status.all_fenced,
             "files": status.files,
+            "targets": status.targets,
         });
         println!("{}", serde_json::to_string_pretty(&obj)?);
     } else {
+        use crate::ops::fence::TargetCoverage;
         println!("AI Secret Fence Status\n");
-        for f in &status.files {
-            let icon = if f.fenced {
-                "\x1b[32m✓\x1b[0m"
-            } else if f.exists {
-                "\x1b[33m⚠\x1b[0m"
-            } else {
-                "\x1b[31m✗\x1b[0m"
+        for t in &status.targets {
+            let (icon, label) = match t.state {
+                TargetCoverage::Covered => ("\x1b[32m✓\x1b[0m", "covered"),
+                TargetCoverage::Fallback => (
+                    "\x1b[32m✓\x1b[0m",
+                    "fallback (rules/deny — no native ignore)",
+                ),
+                TargetCoverage::Unfenced => (
+                    "\x1b[31m✗\x1b[0m",
+                    "installed but UNFENCED — run `envforge fence`",
+                ),
+                TargetCoverage::NotInstalled => ("\x1b[90m-\x1b[0m", "not installed"),
             };
-            let label = if f.fenced {
-                "fenced"
-            } else if f.exists {
-                "exists (not fenced)"
-            } else {
-                "missing"
-            };
-            println!(" {} {} — {}", icon, f.path, label);
+            println!(" {} {} — {}", icon, t.tool, label);
         }
         println!();
         if status.all_fenced {
-            println!("\x1b[32mAll fence files configured.\x1b[0m");
+            println!("\x1b[32mAI BLOCKED — all fence targets covered.\x1b[0m");
         } else {
-            println!("\x1b[33mSome fence files missing or incomplete. Run `envforge fence` to set up.\x1b[0m");
+            println!("\x1b[33mSome targets unfenced. Run `envforge fence` to set up.\x1b[0m");
         }
     }
 
+    // FR9: deterministic exit code for CI gating. 0 = protected, 2 = not.
+    // (Exit 1 is reserved for command errors.)
+    if !status.all_fenced {
+        std::process::exit(2);
+    }
+
+    Ok(())
+}
+
+/// Dispatch `envforge fence config [--list | enable <target> | disable <target>] [--json]`.
+fn cmd_fence_config(args: &FenceConfigArgs, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    // Determine mode: enable/disable mutations take priority; otherwise list.
+    if let Some(target) = args.enable {
+        cmd_fence_config_enable(target)
+    } else if let Some(target) = args.disable {
+        cmd_fence_config_disable(target)
+    } else {
+        // --list (or bare `fence config` with no flags)
+        cmd_fence_config_list(json)
+    }
+}
+
+fn cmd_fence_config_list(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::config::load_or_create_default;
+    use crate::ops::fence::resolve_fence_targets;
+
+    let cfg = load_or_create_default().map_err(|e| e.to_string())?;
+    let resolved = resolve_fence_targets(&cfg.fence);
+
+    if json {
+        let items: Vec<serde_json::Value> = resolved
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "target": r.target.as_str(),
+                    "enabled": r.enabled,
+                    "source": match r.source {
+                        crate::ops::fence::ConfigSource::Default => "default",
+                        crate::ops::fence::ConfigSource::Global => "global",
+                    },
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&items)?);
+    } else {
+        println!("Fence Target Configuration\n");
+        println!("{:<20} {:<10} SOURCE", "TARGET", "ENABLED");
+        println!("{}", "-".repeat(42));
+        for r in &resolved {
+            let state = if r.enabled { "enabled" } else { "disabled" };
+            let source = match r.source {
+                crate::ops::fence::ConfigSource::Default => "default",
+                crate::ops::fence::ConfigSource::Global => "global",
+            };
+            let state_colored = if r.enabled {
+                format!("\x1b[32m{state}\x1b[0m")
+            } else {
+                format!("\x1b[31m{state}\x1b[0m")
+            };
+            println!(
+                "{:<20} {:<10} ({})",
+                r.target.as_str(),
+                state_colored,
+                source
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_fence_config_enable(
+    target: crate::ops::fence::FenceTarget,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::config::{config_file_path, load_or_create_default, save_config};
+
+    let mut cfg = load_or_create_default().map_err(|e| e.to_string())?;
+    cfg.fence.targets.set_enabled(target, true);
+    let path = config_file_path().map_err(|e| e.to_string())?;
+    save_config(&cfg, &path).map_err(|e| e.to_string())?;
+    println!(
+        "\x1b[32m\u{2713}\x1b[0m Fence target '{}' enabled.",
+        target.as_str()
+    );
+    Ok(())
+}
+
+fn cmd_fence_config_disable(
+    target: crate::ops::fence::FenceTarget,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::config::{config_file_path, load_or_create_default, save_config};
+
+    let mut cfg = load_or_create_default().map_err(|e| e.to_string())?;
+    cfg.fence.targets.set_enabled(target, false);
+    let path = config_file_path().map_err(|e| e.to_string())?;
+    save_config(&cfg, &path).map_err(|e| e.to_string())?;
+    println!(
+        "\x1b[31m\u{2717}\x1b[0m Fence target '{}' disabled.",
+        target.as_str()
+    );
     Ok(())
 }
 
@@ -6147,6 +6322,85 @@ fn truncate_context(s: &str, max: usize) -> String {
     }
 }
 
+// ─── Project fence helpers ─────────────────────────────────
+
+/// Parse a comma-separated list of fence target ids into a `Vec<FenceTarget>`.
+/// Returns an error listing valid ids if any id is unknown.
+fn parse_fence_target_ids(
+    ids_str: &str,
+) -> Result<Vec<crate::ops::fence::FenceTarget>, Box<dyn std::error::Error>> {
+    use crate::ops::fence::registry;
+    use crate::ops::fence::FenceTarget;
+
+    let ids: Vec<&str> = ids_str
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let mut targets: Vec<FenceTarget> = Vec::new();
+    let mut unknown: Vec<&str> = Vec::new();
+    for id in &ids {
+        if registry::is_valid_id(id) {
+            let target = registry::REGISTRY
+                .iter()
+                .find(|s| s.id == *id)
+                .map(|s| s.target)
+                .expect("is_valid_id guarantees presence");
+            if !targets.contains(&target) {
+                targets.push(target);
+            }
+        } else {
+            unknown.push(id);
+        }
+    }
+
+    if !unknown.is_empty() {
+        let valid: Vec<&str> = registry::REGISTRY.iter().map(|s| s.id).collect();
+        return Err(format!(
+            "unknown fence target id(s): {}. Valid ids: {}",
+            unknown.join(", "),
+            valid.join(", ")
+        )
+        .into());
+    }
+
+    Ok(targets)
+}
+
+/// Apply fence for `chosen` targets. Delegates to
+/// [`crate::ops::fence::create_fence_for`] — single source of truth for
+/// "fence a specific subset of targets". Returns the chosen targets
+/// (passed through) so callers can report ids.
+fn apply_fence_for_targets(
+    project_dir: &std::path::Path,
+    chosen: &[crate::ops::fence::FenceTarget],
+) -> Result<Vec<crate::ops::fence::FenceTarget>, Box<dyn std::error::Error>> {
+    crate::ops::fence::create_fence_for(project_dir, chosen, false)?;
+    Ok(chosen.to_vec())
+}
+
+/// Interactive checkbox multi-select fence target prompt.
+/// Returns the chosen set (may be empty = skip).
+/// Delegates the multi-select UI to [`crate::ops::fence::select_targets_interactive`].
+fn prompt_fence_targets(
+    project_dir: &std::path::Path,
+) -> Result<Vec<crate::ops::fence::FenceTarget>, Box<dyn std::error::Error>> {
+    println!();
+    println!("AI fence — protect this project's secrets from AI tools.");
+
+    let chosen = crate::ops::fence::select_targets_interactive(project_dir)?;
+
+    if !chosen.is_empty() {
+        let names: Vec<&str> = chosen.iter().map(|t| t.as_str()).collect();
+        println!("Fencing: {}", names.join(", "));
+    } else {
+        println!("No tools selected — skipping fence.");
+    }
+
+    Ok(chosen)
+}
+
 // ─── Project Commands ──────────────────────────────────────
 
 fn cmd_project(
@@ -6166,7 +6420,13 @@ fn cmd_project(
             active,
             schema,
             env_file,
+            fence: fence_flag,
+            no_fence,
+            fence_targets: fence_targets_opt,
+            non_interactive,
         } => {
+            use crate::ops::fence::{self as fence_ops, detect_installed_targets, FenceTarget};
+
             let format = project::ConfigFormat::parse(format)?;
             let project_name = name
                 .clone()
@@ -6189,6 +6449,18 @@ fn cmd_project(
                     cwd.display(),
                     env_file_path.display()
                 );
+                // Report fence intent in dry-run
+                if !no_fence {
+                    let would_fence: Vec<FenceTarget> = if let Some(ids) = fence_targets_opt {
+                        parse_fence_target_ids(ids)?
+                    } else {
+                        detect_installed_targets(&cwd)
+                    };
+                    if !would_fence.is_empty() {
+                        let ids: Vec<&str> = would_fence.iter().map(|t| t.as_str()).collect();
+                        println!("Would fence: {}", ids.join(", "));
+                    }
+                }
                 return Ok(());
             }
 
@@ -6204,6 +6476,8 @@ fn cmd_project(
 
             let result = project::init_project(&opts)?;
 
+            let mut fenced_ids: Vec<String> = Vec::new();
+
             if json {
                 let out = serde_json::json!({
                     "config_path": result.config_path.display().to_string(),
@@ -6212,7 +6486,38 @@ fn cmd_project(
                     "environment": result.environment_name,
                     "format": format!("{:?}", result.format).to_lowercase(),
                 });
-                println!("{}", serde_json::to_string_pretty(&out)?);
+                // Fence step — non-interactive in JSON mode
+                if !no_fence {
+                    let chosen: Vec<FenceTarget> = if let Some(ids) = fence_targets_opt {
+                        parse_fence_target_ids(ids)?
+                    } else if *fence_flag || *non_interactive {
+                        detect_installed_targets(&cwd)
+                    } else {
+                        // JSON / script context with no fence flags → skip silently
+                        Vec::new()
+                    };
+                    if !chosen.is_empty() {
+                        let fence_result = apply_fence_for_targets(&cwd, &chosen)?;
+                        fenced_ids = fence_result
+                            .iter()
+                            .map(|t| t.as_str().to_string())
+                            .collect();
+                    }
+                }
+                let mut obj = out.as_object().cloned().unwrap_or_default();
+                obj.insert(
+                    "fenced".to_string(),
+                    serde_json::Value::Array(
+                        fenced_ids
+                            .iter()
+                            .map(|s| serde_json::Value::String(s.clone()))
+                            .collect(),
+                    ),
+                );
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::Value::Object(obj))?
+                );
             } else {
                 println!("Project initialized: {}", project_name);
                 println!("  Config: {}", result.config_path.display());
@@ -6225,6 +6530,58 @@ fn cmd_project(
                     Ok(true) => println!("  Added .env.* patterns to .gitignore"),
                     Ok(false) => println!("  .gitignore already has .env.* patterns"),
                     Err(e) => eprintln!("  Warning: could not update .gitignore: {}", e),
+                }
+
+                // ── Fence step ────────────────────────────────────────────
+                if !no_fence {
+                    let chosen: Vec<FenceTarget> = if let Some(ids) = fence_targets_opt {
+                        // Flag-provided ids — validate and map
+                        parse_fence_target_ids(ids)?
+                    } else {
+                        use std::io::IsTerminal as _;
+                        let is_tty = std::io::stdin().is_terminal();
+                        if is_tty && !non_interactive && !fence_flag {
+                            // Interactive prompt
+                            prompt_fence_targets(&cwd)?
+                        } else if *fence_flag || *non_interactive {
+                            // Non-interactive default: detected tools only
+                            detect_installed_targets(&cwd)
+                        } else {
+                            // Non-interactive, no fence flags → skip (don't surprise scripts)
+                            Vec::new()
+                        }
+                    };
+
+                    if !chosen.is_empty() {
+                        println!();
+                        println!("AI fence:");
+                        let fence_write = fence_ops::create_fence_for(&cwd, &chosen, false)?;
+
+                        for path in &fence_write.files_created {
+                            let d = path.strip_prefix(&cwd).unwrap_or(path).display();
+                            println!("  \x1b[32m\u{2713}\x1b[0m Created {}", d);
+                        }
+                        for path in &fence_write.files_updated {
+                            let d = path.strip_prefix(&cwd).unwrap_or(path).display();
+                            println!("  \x1b[32m\u{2713}\x1b[0m Updated {}", d);
+                        }
+                        for path in &fence_write.files_skipped {
+                            let d = path.strip_prefix(&cwd).unwrap_or(path).display();
+                            println!("  - Skipped {} (already configured)", d);
+                        }
+                        for (path, err) in &fence_write.files_failed {
+                            let d = path.strip_prefix(&cwd).unwrap_or(path).display();
+                            eprintln!("  \x1b[31m\u{2717}\x1b[0m Failed {}: {}", d, err);
+                        }
+
+                        if !fence_write.files_failed.is_empty() {
+                            return Err(format!(
+                                "{} fence target(s) failed to write",
+                                fence_write.files_failed.len()
+                            )
+                            .into());
+                        }
+                    }
                 }
             }
             Ok(())
