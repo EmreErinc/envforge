@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781641693311,
+  "lastUpdate": 1781953038308,
   "repoUrl": "https://github.com/EmreErinc/envforge",
   "entries": {
     "Benchmark": [
@@ -183,6 +183,54 @@ window.BENCHMARK_DATA = {
             "name": "security/redact_secrets_in_message",
             "value": 379,
             "range": "± 6",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "emre_erinc@hotmail.com",
+            "name": "Emre Erinç",
+            "username": "EmreErinc"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e21d5811e20d289ecde155bea8fc47c1d8dd4004",
+          "message": "Merge pull request #17 from EmreErinc/dependabot/github_actions/actions-640176b5ab\n\nBump actions/checkout from 6 to 7 in the actions group",
+          "timestamp": "2026-06-20T13:52:40+03:00",
+          "tree_id": "7bdd2394a9bb8900a011b5b13a6c6abe01896b51",
+          "url": "https://github.com/EmreErinc/envforge/commit/e21d5811e20d289ecde155bea8fc47c1d8dd4004"
+        },
+        "date": 1781953036837,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parser/roundtrip_small",
+            "value": 1874,
+            "range": "± 71",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parser/roundtrip_large_500_exports",
+            "value": 723059,
+            "range": "± 1693",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sync/compute_diff_small",
+            "value": 322,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "security/redact_secrets_in_message",
+            "value": 406,
+            "range": "± 2",
             "unit": "ns/iter"
           }
         ]
