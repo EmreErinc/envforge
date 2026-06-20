@@ -81,6 +81,23 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
 
         varTree.cellRenderer = EnvVarCellRenderer()
 
+        // Hide the synthetic "Variables" root so groups (or vars, when
+        // ungrouped) sit directly on the tab, like VS Code — one less level of
+        // nesting. Grouping itself is unchanged; keep root handles so group
+        // nodes still expand/collapse.
+        varTree.isRootVisible = false
+        varTree.showsRootHandles = true
+
+        // Live search: typing in the box did nothing before (only the refresh
+        // button ran a search). Debounce keystrokes ~250ms, then re-run
+        // refresh() which routes empty→list / non-empty→search.
+        val searchDebounce = Timer(250) { refresh() }.apply { isRepeats = false }
+        searchField.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = searchDebounce.restart()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = searchDebounce.restart()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = searchDebounce.restart()
+        })
+
         refresh()
     }
 
