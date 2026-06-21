@@ -1089,6 +1089,18 @@ pub enum CanaryAction {
         #[arg(long)]
         json: bool,
     },
+    /// Scan a directory tree for canary tokens in recognized config files (FR21)
+    ScanDir {
+        /// Root directory to walk (default: current directory)
+        #[arg(long, default_value = ".")]
+        dir: String,
+        /// Strict mode: exit 1 if any tokens found
+        #[arg(long)]
+        strict: bool,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
     /// Rotate the HMAC key (prior keys retained for verify)
     RotateKey {
         /// Show planned action without executing

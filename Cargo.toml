@@ -46,6 +46,10 @@ hex = "0.4"
 hostname = "0.4"
 rand = "0.10.1"
 serde_norway = "0.9.42"
+# Read-only YAML parser for application.yml/yaml config intelligence (unit 002).
+# yaml-rust2 exposes per-node marks (line/col) which is required for UTF-16-correct
+# LSP position ranges. Read-only: no yaml-rust2 serialization path is used.
+yaml-rust2 = "0.11"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "process", "time", "io-util"] }
 dashmap = "6.2"

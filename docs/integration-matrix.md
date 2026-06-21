@@ -1,4 +1,4 @@
-# EnvForge Integration Matrix (0.8.3 "Omnipresence")
+# EnvForge Integration Matrix (0.9 "Framework Config")
 
 What EnvForge covers across AI coding tools and editors. Generated from the
 fence target registry (`src/ops/fence/registry.rs`) and the editor plugins.
@@ -57,10 +57,37 @@ Cursor, VS Code, Windsurf, Cline: see `mcp-server.md`.
 | MCP-config credential lint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | MCP server (read-safe egress) | ✓ | — | ✓ client | ✓ client | ✓ client | ✓ extension |
 
-## Deferred to Vision (not in 0.8.3)
+## Config file types — LSP feature matrix (Intent 036, Phase 1)
+
+Features are implemented once in `envforge lsp` and served identically to every client (VS Code, IntelliJ, Neovim, and any generic LSP client). Client-specific capability flags do not alter feature dispatch; parity is enforced by `tests/cross_ide_release_tests.rs`.
+
+`full` = feature fully supported (read + write where applicable). `read-only` = feature works but the file is never written. `—` = not applicable for this file type.
+
+| File type | Hover | Completion | Go-to-def | Find-refs | Highlight | Diagnostics | Rename | Format |
+|---|---|---|---|---|---|---|---|---|
+| `.env` / `.env.*` / `*.env` | full | full | full | full | full | full | full | full |
+| `.env.local` / `.env.{env}` cascade | full | full | full | full | full | full | full | full |
+| `.env.schema` / `.env.schema.toml` | full | full | full | full | full | full | full | — |
+| `application.properties` | full | full | full | full | full | full | full | full |
+| `application-{profile}.properties` | full | full | full | full | full | full | full | full |
+| `microprofile-config.properties` | full | full | full | full | full | full | full | full |
+| `*.properties` (generic Quarkus) | full | full | full | full | full | full | full | full |
+| `application.yml` / `application.yaml` | read-only | read-only | read-only | read-only | read-only | read-only | — | — |
+| `application-{profile}.yml` / `.yaml` | read-only | read-only | read-only | read-only | read-only | read-only | — | — |
+
+**YAML read-only boundary:** `application.yml`/`.yaml` files are never written by EnvForge. Hover, completion, go-to-def, find-references, highlight, and diagnostics all work against the read model; rename and format return empty results (`None`/`[]`). This is enforced at the `WriteCapability::ReadOnly` layer and tested in `tests/cross_ide_release_tests.rs::test_parity_yaml_readonly_identical_on_all_clients`.
+
+**AI-safety parity:** all file types above — including YAML read-only — receive identical fence enforcement (values classified red/amber/green in the exposure map), redaction in hover/completion labels, canary detection, and AI-guard diagnostics on save. See `docs/ide-behavior-contract.md` for per-feature details.
+
+**Validated client combinations:** the feature functions accept no client-capability flags, making them deterministic across clients by construction. Validated combinations recorded: VS Code + IntelliJ + Neovim × all file types above × hover/completion/go-to-def/find-refs/highlight/diagnostics.
+
+## Deferred to Vision (not in 0.9)
 
 - Long-tail fence tools as community registry data: Roo Code, Continue, Augment, Tabnine, OpenAI Codex (several already covered via `AGENTS.md`).
 - MCP **remote** transport (Streamable HTTP + OAuth 2.1 / RFC 8707) and extra MCP tools (`exposure_map`, `canary_scan`, `canary_check`).
 - First-party **Emacs** / **Sublime Text** plugins (native UI).
 - Native **Zed** status-bar/gutter UI (blocked on Zed Visual Extension API, Draft RFC #53403).
-- Standalone `envforge doctor --ai` (detection is folded into `fence --status` for 0.8.3).
+- Standalone `envforge doctor --ai` (detection is folded into `fence --status` for 0.9).
+- YAML write path — comment-preserving round-trip-safe YAML serialization (deferred until a validated Rust solution exists).
+- TOML config files (`application.toml`, Spring Boot 3.2+), `.NET appsettings.json`, Rails `database.yml` (Phase 2+).
+- Full cross-format schema unification (single `.env.schema` governing properties + YAML + TOML).

@@ -51,6 +51,59 @@ All `textDocument/*` capabilities advertised by `envforge lsp`:
   on sensitive keys
 - `documentSymbol`, `workspace/symbol`, `foldingRange`
 
+### Additional document types (Intent 036 — Framework Config, Phase 1)
+
+The server also handles these document types via the `ConfigFormat` dispatch layer. All features above apply unless noted:
+
+| Document type | Notes |
+|---|---|
+| `application.properties` | Full read+write; Spring Boot base config |
+| `application-{profile}.properties` | Full read+write; Spring Boot profile variant |
+| `microprofile-config.properties` | Full read+write; Quarkus / MicroProfile |
+| `*.properties` (any Java properties file) | Full read+write |
+| `.env.local`, `.env.{environment}` (cascade) | Full read+write; `.env.schema` excluded (own handler) |
+| `application.yml` / `application.yaml` | **Read-only** — hover/completion/go-to-def/refs/highlight/diagnostics work; rename and format return empty (no write path) |
+| `application-{profile}.yml` / `.yaml` | **Read-only** — same as above |
+
+Client setup for the new types follows the same pattern as `.env`: add the file patterns to the client's `filetypes` / `file-types` / `selector` list. See per-client configs below.
+
+**Neovim** — add the new patterns to the `filetypes` list in `lspconfig.envforge`:
+
+```lua
+filetypes = { 'dotenv', 'sh', 'typescript', 'javascript',
+              'python', 'rust', 'go', 'java', 'kotlin',
+              'javaproperties', 'yaml' },
+```
+
+And extend `BufRead`/`BufNewFile` autocommands:
+
+```vim
+autocmd BufRead,BufNewFile .env,.env.*,*.env set filetype=dotenv
+autocmd BufRead,BufNewFile application.properties,application-*.properties,microprofile-config.properties set filetype=javaproperties
+autocmd BufRead,BufNewFile application.yml,application-*.yml,application.yaml,application-*.yaml set filetype=yaml
+```
+
+**Helix** — add extra language entries:
+
+```toml
+[[language]]
+name = "javaproperties"
+scope = "source.javaproperties"
+file-types = [{ glob = "application.properties" }, { glob = "application-*.properties" },
+              { glob = "microprofile-config.properties" }]
+roots = [".env.schema.toml", ".env.schema", ".git"]
+language-servers = ["envforge"]
+
+[[language]]
+name = "yaml"
+file-types = [{ glob = "application.yml" }, { glob = "application-*.yml" },
+              { glob = "application.yaml" }, { glob = "application-*.yaml" }]
+roots = [".env.schema.toml", ".env.schema", ".git"]
+language-servers = ["envforge"]
+```
+
+VS Code and IntelliJ first-party plugins handle the new document types automatically via their updated `documentSelector` / `languageMapping` entries.
+
 The named `envforge/*` security requests are also reachable from any
 client (the generic `workspace/executeCommand` is disabled) — see
 `docs/api-reference.md` for the request list and `docs/ide-behavior-contract.md`

@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Intent 036: Framework Config Files (Phase 1)
+
+Extends EnvForge's LSP intelligence to Java/JVM framework config files and
+formalizes `.env` cascade semantics. Phase 1 delivers full Spring Boot /
+Quarkus / MicroProfile `.properties` coverage and read-only YAML language
+features (`application.yml`/`.yaml` + `application-{profile}.*`). The same
+AI-safety guarantees that protect `.env` — fencing, redaction, exposure
+tracking, canary detection, AI-guard diagnostics — now extend to all new
+config surfaces automatically (zero new configuration required).
+
+### Added
+
+- **Framework config LSP (Unit 001 — properties + `.env` cascade):**
+  `is_jvm_config_file` / `is_env_cascade_file` / `is_config_format_file`
+  predicates route `application.properties`, `application-{profile}.properties`,
+  `microprofile-config.properties`, and the `.env` cascade (`.env.local`,
+  `.env.{env}`) through a new `ConfigFormat` dispatch layer without altering
+  existing `is_env_file` / `is_schema_file` results. Full language features
+  (hover, completion, go-to-def, find-refs, highlight, diagnostics, rename,
+  format) over all `.properties` file types. Profile-layer resolution and
+  `${VAR:default}` interpolation implemented as format-independent engines
+  (`src/ops/config_resolution.rs`). Parser: `src/ops/properties_parser.rs`.
+- **YAML config LSP read-only (Unit 002):** `application.yml`, `application.yaml`,
+  and `application-{profile}.yml`/`.yaml` are recognized by `is_yaml_config_file`
+  and served with `WriteCapability::ReadOnly`. Hover/completion/go-to-def/
+  find-refs/highlight/diagnostics all work; rename and format return `None`/`[]`
+  (no write path — comment-preserving YAML serialization deferred). Parser:
+  `src/parser/yaml_config_parser.rs` via `yaml-rust2`.
+- **AI-safety parity across config surfaces (Unit 003):** fence classification,
+  exposure tracking (`compute_config_exposure_map`), value redaction, canary
+  scan, and AI-guard diagnostics all apply to the new file types at the same
+  fidelity as `.env`. `is_config_canary_target` extended to recognize
+  `.properties` and `application.*yaml` files. Zero new user configuration
+  required.
+- **Cross-IDE validation + no-regression gate (Unit 004):** 22 new tests in
+  `tests/cross_ide_release_tests.rs` proving (a) feature functions are
+  deterministic and client-independent — same input yields same output on VS
+  Code, IntelliJ, Neovim, and any generic LSP client (FR22, NFR13); (b) the
+  new routing predicates do not alter results for any pre-existing
+  `.env` / `.env.schema` / shell URI (FR23, NFR12).
+- **Docs updated:** `docs/integration-matrix.md` (config file × feature matrix,
+  AI-safety parity table, YAML read-only boundary), `docs/lsp-clients.md`
+  (new document types + per-client setup snippets), `docs/ide-behavior-contract.md`
+  (CF1 section: per-feature behavior for properties, YAML read-only, AI-safety
+  parity across config surfaces).
+
+### Tests
+
+- **2,815 tests passing** (up from 2,569 pre-intent-036; +246). Intent-036 added ~245 tests
+  across `tests/properties_env_intelligence_tests.rs` (118), `tests/yaml_intelligence_tests.rs` (57),
+  `tests/ai_safety_parity_config_tests.rs` (45), and `tests/cross_ide_release_tests.rs` (25).
+  Includes regression tests for all adversarial-review
+  findings: routing fix, FR3 scope-narrowing, M-A AI-guard on cascade, M-B republish_all,
+  M-C depth cap, M-D CLI scan-dir, BOM stripping, `KEY = value` off-by-one, col-0
+  unterminated-ref, UTF-16 key range, NFR9 round-trip idempotency, goto-def determinism,
+  FR9 goto-def across docs, and canary.plant workspace-containment security guard.
+
+---
+
 ## [0.8.3] - 2026-06-20
 
 Broad expansion of AI-tool and editor coverage so EnvForge's secret-fencing,

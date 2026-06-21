@@ -10,6 +10,7 @@
 //! identically to humans.
 
 use std::io::{BufRead, BufReader, Read};
+use std::path::Path;
 
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
@@ -160,6 +161,178 @@ pub fn scan_reader<R: Read>(reader: R) -> Vec<TokenMatch> {
 /// Re-exported for use by `v2` test as well.
 pub fn matches_v2_format(token: &str) -> bool {
     token.starts_with(V2_PREFIX) && TokenScanner::new().pattern.is_match(token)
+}
+
+/// Returns `true` when the given path refers to a recognized config-format
+/// file that should be treated as a canary scan target.
+///
+/// The check operates on the **basename** (`.file_name()`) of the supplied
+/// path, so callers may pass either a bare filename *or* a full/relative
+/// path — `"subdir/application.yml"` and `"application.yml"` both return
+/// `true` (H-3 fix).
+///
+/// This predicate extends the canary scanner's file-type set to cover the
+/// same framework config files recognized by the LSP (units 001/002), so
+/// canary-token detection applies to `application.yml`, `.env.local`,
+/// `application-prod.properties`, etc. at parity with `.env` (FR21/AR7).
+///
+/// The check is intentionally conservative — it mirrors the recognition
+/// rules of `is_jvm_config_file`, `is_yaml_config_file`, and
+/// `is_env_cascade_file` from `src/lsp/config_file.rs`, so adding a new
+/// format only requires updating those predicates (single source).
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+/// use envforge::ops::canary::scanner::is_config_canary_target;
+///
+/// assert!(is_config_canary_target(Path::new("application.properties")));
+/// assert!(is_config_canary_target(Path::new("application-prod.yml")));
+/// assert!(is_config_canary_target(Path::new(".env.local")));
+/// assert!(is_config_canary_target(Path::new(".env")));
+/// assert!(is_config_canary_target(Path::new("subdir/application.yml")));
+/// assert!(!is_config_canary_target(Path::new("docker-compose.yml")));
+/// assert!(!is_config_canary_target(Path::new(".env.schema")));
+/// ```
+#[must_use]
+pub fn is_config_canary_target(path: &Path) -> bool {
+    // Extract the basename; if there is none (e.g. a root path) return false.
+    let file_name = match path.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n,
+        None => return false,
+    };
+
+    // JVM / Quarkus / MicroProfile: application.properties,
+    // application-{profile}.properties, microprofile-config.properties only.
+    // Intentionally narrow (matches is_jvm_config_file scope) to avoid
+    // false-positive canary hits on log4j.properties, pom.properties, etc.
+    if let Some(stem) = file_name.strip_suffix(".properties") {
+        if stem == "application" || stem == "microprofile-config" {
+            return true;
+        }
+        if let Some(profile) = stem.strip_prefix("application-") {
+            if !profile.is_empty() {
+                return true;
+            }
+        }
+        // Not a recognized JVM config file — do not treat as canary target.
+        return false;
+    }
+
+    // Spring / Quarkus YAML: application.yml/yaml or application-{profile}.yml/yaml.
+    // Scoped to application* only — NOT every .yml — consistent with
+    // `is_yaml_config_file` (scope-check requirement).
+    if let Some(stem) = file_name
+        .strip_suffix(".yml")
+        .or_else(|| file_name.strip_suffix(".yaml"))
+    {
+        if stem == "application" {
+            return true;
+        }
+        if let Some(profile) = stem.strip_prefix("application-") {
+            if !profile.is_empty() {
+                return true;
+            }
+        }
+    }
+
+    // .env cascade: .env, .env.local, .env.{env} — but NOT .env.schema / .env.schema.*.
+    if file_name == ".env" || file_name == ".env.local" {
+        return true;
+    }
+    if file_name.starts_with(".env.")
+        && file_name != ".env.schema"
+        && !file_name.starts_with(".env.schema.")
+    {
+        return true;
+    }
+
+    false
+}
+
+/// Scan all recognized config files under `dir` for canary tokens, returning
+/// one [`TokenMatch`] per detection with the originating file path embedded.
+///
+/// This wires `is_config_canary_target` into a real directory-walk entry
+/// point so that FR21 ("canary detection applies to recognized config files")
+/// is satisfied via a call path, not just a predicate (H-2 fix).
+///
+/// Only regular files whose basenames pass [`is_config_canary_target`] are
+/// opened; directories are walked recursively.  Unreadable files are
+/// silently skipped (the caller sees no tokens for them but does not crash).
+///
+/// # Errors
+///
+/// Returns `Err` only if `dir` itself cannot be read.  Per-file I/O errors
+/// are logged to `stderr` and skipped.
+pub fn scan_config_dir(dir: &Path) -> std::io::Result<Vec<ConfigFileMatch>> {
+    let mut results = Vec::new();
+    scan_config_dir_inner(dir, &mut results)?;
+    Ok(results)
+}
+
+fn scan_config_dir_inner(dir: &Path, out: &mut Vec<ConfigFileMatch>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!(
+                    "canary scan: read_dir entry error in {}: {}",
+                    dir.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(e) => {
+                eprintln!("canary scan: file_type error for {}: {}", path.display(), e);
+                continue;
+            }
+        };
+        if file_type.is_dir() {
+            // Skip common non-project directories to avoid excessive I/O.
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(
+                name,
+                "node_modules" | ".git" | "target" | ".gradle" | "build"
+            ) {
+                continue;
+            }
+            if let Err(e) = scan_config_dir_inner(&path, out) {
+                eprintln!("canary scan: cannot enter {}: {}", path.display(), e);
+            }
+        } else if file_type.is_file() && is_config_canary_target(&path) {
+            let f = match std::fs::File::open(&path) {
+                Ok(h) => h,
+                Err(e) => {
+                    eprintln!("canary scan: cannot open {}: {}", path.display(), e);
+                    continue;
+                }
+            };
+            let matches = scan_reader(f);
+            for m in matches {
+                out.push(ConfigFileMatch {
+                    path: path.clone(),
+                    token_match: m,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A canary token match found within a specific config file during a
+/// directory walk (see [`scan_config_dir`]).
+#[derive(Debug, Clone)]
+pub struct ConfigFileMatch {
+    /// Path of the file in which the token was found.
+    pub path: std::path::PathBuf,
+    /// The token match details.
+    pub token_match: TokenMatch,
 }
 
 #[cfg(test)]

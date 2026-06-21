@@ -408,4 +408,53 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | VS Code wiring | **Shipped.** Dedicated "Profiles" view in the EnvForge activity bar container. Shows active/inactive profiles with their source files. Double-click to switch. |
 | IntelliJ wiring | **Shipped.** Dedicated "Profiles" tab in the EnvForge tool window. Replaces the old Gear-menu profile switcher with a first-class tree view. Double-click a node to switch active profile. |
 
+### CF1 — Framework config file support (Intent 036, Phase 1)
+
+| Field | Value |
+|---|---|
+| Document types | `application.properties`, `application-{profile}.properties`, `microprofile-config.properties`, `*.properties` (any Java properties file), `.env.local`, `.env.{environment}` cascade, `application.yml`/`.yaml`, `application-{profile}.yml`/`.yaml` |
+| Routing predicate | `is_config_format_file(uri)` — checked after existing `is_env_file`/`is_schema_file` predicates; does not alter their results for owned URIs |
+| Feature dispatch | All language features route through `config_features.rs` functions which accept `&[ConfigEntry]` — format-agnostic; identical output regardless of file type or calling client |
+| Cross-client parity | Feature functions carry no client-capability parameters; same input ⇒ same output on VS Code, IntelliJ, Neovim, and any generic LSP client (NFR13). Enforced by `tests/cross_ide_release_tests.rs` |
+
+**Properties files (`application.properties`, `application-{profile}.properties`, etc.):**
+
+| Feature | Behavior |
+|---|---|
+| Hover | Key + value + resolved value from profile stack + provenance layer. Sensitive values redacted via `redact::redact_for_label` — same rule as `.env` hover |
+| Completion | Schema-backed key completions at key position; value completions at value position; `${...}` ref completions. Sort order identical to `.env` completions |
+| Go-to-definition | `${VAR}` placeholder → schema entry; cross-file jump to base `application.properties` from a profile override |
+| Find-references | All uses of a key across open config documents |
+| Highlight / Semantic tokens | VARIABLE (key) + STRING (value) + READONLY modifier on sensitive keys |
+| Diagnostics | Schema validation (unknown key, type mismatch, missing required, duplicate key, unterminated `${` ref) |
+| Rename | Atomic `WorkspaceEdit` across schema + open config documents (same contract as `.env` rename) |
+| Format | Canonical `.properties` whitespace — `key=value`, no spaces around `=`, single trailing newline |
+
+**YAML files (`application.yml`, `application-{profile}.yaml`, etc.) — Read-Only:**
+
+| Feature | Behavior |
+|---|---|
+| Hover | Key + value + resolved value + provenance. Sensitive values redacted |
+| Completion | Schema-backed key + `${...}` ref completions |
+| Go-to-definition | `${VAR}` → schema entry |
+| Find-references | Key usages across open config documents |
+| Highlight / Semantic tokens | Same rules as properties; READONLY on sensitive keys |
+| Diagnostics | Parse errors, unknown keys, unterminated refs |
+| Rename | **Returns `None` always** — `WriteCapability::ReadOnly`; no edit emitted |
+| Format | **Returns empty edit always** — `WriteCapability::ReadOnly`; file content never modified |
+
+The YAML read-only boundary is enforced at `WriteCapability::ReadOnly` in `config_file.rs::YamlFormat` and tested in `tests/cross_ide_release_tests.rs::test_parity_yaml_readonly_identical_on_all_clients`. Clients must not attempt to apply workspace edits when the user invokes rename/format on a YAML config file — `None`/`[]` responses are the correct signal to show a "not supported" notice.
+
+**AI-safety parity across config file types:**
+
+| Guarantee | Properties | YAML | Notes |
+|---|---|---|---|
+| Fence enforcement | ✓ | ✓ | Workspace fence classifies all entries green when active |
+| Exposure map | ✓ | ✓ | `envforge/exposureMap` accepts any config-format URI |
+| Hover/label redaction | ✓ | ✓ | `is_sensitive_key` + schema `sensitive: true` — same rule as `.env` |
+| Canary detection | ✓ | ✓ | `scan_text` runs on content; `is_config_canary_target` recognizes all config file types |
+| AI-guard diagnostics | ✓ | ✓ | `did_save` scan runs on all config-format documents |
+
+Test coverage: `tests/ai_safety_parity_config_tests.rs` (Unit 003).
+
 ### (future rows added here as each feature ships)
