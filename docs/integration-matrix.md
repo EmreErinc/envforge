@@ -72,10 +72,10 @@ Features are implemented once in `envforge lsp` and served identically to every 
 | `application-{profile}.properties` | full | full | full | full | full | full | full | full |
 | `microprofile-config.properties` | full | full | full | full | full | full | full | full |
 | `*.properties` (generic Quarkus) | full | full | full | full | full | full | full | full |
-| `application.yml` / `application.yaml` | read-only | read-only | read-only | read-only | read-only | read-only | — | — |
-| `application-{profile}.yml` / `.yaml` | read-only | read-only | read-only | read-only | read-only | read-only | — | — |
+| `application.yml` / `application.yaml` | full | full | full | full | full | full | ✓ | — |
+| `application-{profile}.yml` / `.yaml` | full | full | full | full | full | full | ✓ | — |
 
-**YAML read-only boundary:** `application.yml`/`.yaml` files are never written by EnvForge. Hover, completion, go-to-def, find-references, highlight, and diagnostics all work against the read model; rename and format return empty results (`None`/`[]`). This is enforced at the `WriteCapability::ReadOnly` layer and tested in `tests/cross_ide_release_tests.rs::test_parity_yaml_readonly_identical_on_all_clients`.
+**YAML write boundary (Intent 038):** `application.yml`/`.yaml` files support surgical key rename (upgraded from `ReadOnly` to `ReadWrite` in Intent 038). Rename uses `SurgicalEdit` — a byte-range splice that leaves every byte outside the edited key span identical by construction; no whole-document re-serialization, no comment or whitespace drift. Format intentionally returns empty edits (`[]`) — rename-only per Open decision 1. Anchor/alias documents return `None` (documented gap, never silently mis-edits). Tested in `tests/cross_ide_release_tests.rs::test_parity_yaml_readwrite_identical_on_all_clients` and `tests/yaml_writes_tests.rs`.
 
 **AI-safety parity:** all file types above — including YAML read-only — receive identical fence enforcement (values classified red/amber/green in the exposure map), redaction in hover/completion labels, canary detection, and AI-guard diagnostics on save. See `docs/ide-behavior-contract.md` for per-feature details.
 
@@ -88,6 +88,7 @@ Features are implemented once in `envforge lsp` and served identically to every 
 - First-party **Emacs** / **Sublime Text** plugins (native UI).
 - Native **Zed** status-bar/gutter UI (blocked on Zed Visual Extension API, Draft RFC #53403).
 - Standalone `envforge doctor --ai` (detection is folded into `fence --status` for 0.9).
-- YAML write path — comment-preserving round-trip-safe YAML serialization (deferred until a validated Rust solution exists).
+- YAML format (document-wide canonical formatting) — deferred; rename is surgical (Intent 038). Full formatting would require comment-preserving round-trip serialization.
+- YAML anchor/alias rename support — refused conservatively when anchors are present; tracked as a known gap in Intent 038.
 - TOML config files (`application.toml`, Spring Boot 3.2+), `.NET appsettings.json`, Rails `database.yml` (Phase 2+).
 - Full cross-format schema unification (single `.env.schema` governing properties + YAML + TOML).

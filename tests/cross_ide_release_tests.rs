@@ -99,9 +99,9 @@ fn test_parity_hover_identical_across_simulated_clients() {
     };
     // Simulate VS Code, IntelliJ, and Neovim each calling the function with the
     // same arguments (the function has no client-capability parameter).
-    let result_vscode = config_hover(pos, &entries, &layers, None);
-    let result_intellij = config_hover(pos, &entries, &layers, None);
-    let result_neovim = config_hover(pos, &entries, &layers, None);
+    let result_vscode = config_hover(pos, &entries, &layers, None, None);
+    let result_intellij = config_hover(pos, &entries, &layers, None, None);
+    let result_neovim = config_hover(pos, &entries, &layers, None, None);
 
     assert_eq!(
         result_vscode, result_intellij,
@@ -141,9 +141,9 @@ fn test_parity_hover_sensitive_key_redacted_same_for_all_clients() {
         },
     );
 
-    let result_vscode = config_hover(pos, &entries, &layers, Some(&schema));
-    let result_intellij = config_hover(pos, &entries, &layers, Some(&schema));
-    let result_neovim = config_hover(pos, &entries, &layers, Some(&schema));
+    let result_vscode = config_hover(pos, &entries, &layers, Some(&schema), None);
+    let result_intellij = config_hover(pos, &entries, &layers, Some(&schema), None);
+    let result_neovim = config_hover(pos, &entries, &layers, Some(&schema), None);
 
     // All three must agree.
     assert_eq!(result_vscode, result_intellij);
@@ -244,78 +244,65 @@ fn test_parity_semantic_tokens_identical_across_simulated_clients() {
     );
 }
 
-/// YAML files report `WriteCapability::ReadOnly` regardless of client.
-/// Rename and format return `None` / empty for YAML — identical no-op on all clients.
+/// Intent 038 inversion: YAML files are now ReadWrite, not ReadOnly.
+///
+/// This test was updated from the 036 "YAML must be ReadOnly" assertion to
+/// the 038 "YAML must be ReadWrite" assertion. The old write-guard is gone.
+///
+/// Parity across clients: write_capability() == ReadWrite on all IDE clients,
+/// config_yaml_format_text_edits() is a guaranteed no-op on all clients,
+/// and config_rename() with ReadOnly capability still returns None (capability
+/// gate is preserved for formats that are still read-only).
 #[test]
-fn test_parity_yaml_readonly_identical_on_all_clients() {
+fn test_parity_yaml_readwrite_identical_on_all_clients() {
+    use envforge::lsp::config_features::config_yaml_format_text_edits;
+
     let yaml_uri = url("/proj/application.yml");
     let (fmt, _layer) = format_for_uri(&yaml_uri).expect("should recognize application.yml");
+    // Intent 038: YAML is now ReadWrite, not ReadOnly.
     assert_eq!(
         fmt.write_capability(),
-        WriteCapability::ReadOnly,
-        "YAML must be ReadOnly for all clients"
+        WriteCapability::ReadWrite,
+        "YAML must be ReadWrite after Intent 038 (all clients)"
     );
 
     let doc_content = "spring:\n  datasource:\n    url: ${DATABASE_URL}\n";
     let entries = vec![entry("spring.datasource.url", "${DATABASE_URL}", 2)];
 
-    // Rename must return None for ReadOnly on all clients.
-    let rename_vscode = config_rename(
-        "spring.datasource.url",
-        "spring.db.url",
-        WriteCapability::ReadOnly,
-        None,
-        &HashMap::new(),
-        &HashMap::new(),
-    );
-    let rename_intellij = config_rename(
-        "spring.datasource.url",
-        "spring.db.url",
-        WriteCapability::ReadOnly,
-        None,
-        &HashMap::new(),
-        &HashMap::new(),
-    );
-    let rename_neovim = config_rename(
-        "spring.datasource.url",
-        "spring.db.url",
-        WriteCapability::ReadOnly,
-        None,
-        &HashMap::new(),
-        &HashMap::new(),
-    );
-    assert_eq!(
-        rename_vscode, None,
-        "YAML rename must return None on VS Code"
-    );
-    assert_eq!(
-        rename_intellij, None,
-        "YAML rename must return None on IntelliJ"
-    );
-    assert_eq!(
-        rename_neovim, None,
-        "YAML rename must return None on Neovim"
-    );
-
-    // Format must return empty edits for ReadOnly on all clients.
-    let fmt_vscode = config_format_text_edits(doc_content, WriteCapability::ReadOnly);
-    let fmt_intellij = config_format_text_edits(doc_content, WriteCapability::ReadOnly);
-    let fmt_neovim = config_format_text_edits(doc_content, WriteCapability::ReadOnly);
+    // YAML format is a guaranteed no-op on all clients (rename-only per Open decision 1).
+    let fmt_vscode = config_yaml_format_text_edits(doc_content);
+    let fmt_intellij = config_yaml_format_text_edits(doc_content);
+    let fmt_neovim = config_yaml_format_text_edits(doc_content);
     assert!(
         fmt_vscode.is_empty(),
-        "YAML format must return empty edits on VS Code"
+        "YAML format must be a no-op on VS Code"
     );
     assert!(
         fmt_intellij.is_empty(),
-        "YAML format must return empty edits on IntelliJ"
+        "YAML format must be a no-op on IntelliJ"
     );
     assert!(
         fmt_neovim.is_empty(),
-        "YAML format must return empty edits on Neovim"
+        "YAML format must be a no-op on Neovim"
     );
 
-    // The unused `entries` variable is referenced to suppress the warning, and
-    // to document that the parity applies regardless of document content.
+    // config_rename with ReadOnly capability still returns None on all clients
+    // (the capability gate is preserved; it just no longer applies to YAML).
+    let rename_readonly = config_rename(
+        "spring.datasource.url",
+        "spring.db.url",
+        WriteCapability::ReadOnly,
+        None,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    assert_eq!(
+        rename_readonly, None,
+        "config_rename must return None when write_capability is ReadOnly (all clients)"
+    );
+
+    // The unused `entries` variable is referenced to document that the parity
+    // applies regardless of document content.
     let _ = entries;
 }
 
@@ -334,8 +321,8 @@ fn test_parity_ascii_hover_position_encoding_independent() {
         line: 0,
         character: 3,
     };
-    let r_utf16 = config_hover(pos_utf16, &entries, &layers, None);
-    let r_utf8 = config_hover(pos_utf8_equiv, &entries, &layers, None);
+    let r_utf16 = config_hover(pos_utf16, &entries, &layers, None, None);
+    let r_utf8 = config_hover(pos_utf8_equiv, &entries, &layers, None, None);
     assert_eq!(
         r_utf16, r_utf8,
         "ASCII hover must be position-encoding independent"

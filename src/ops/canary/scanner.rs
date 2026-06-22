@@ -194,6 +194,21 @@ pub fn matches_v2_format(token: &str) -> bool {
 /// assert!(is_config_canary_target(Path::new("subdir/application.yml")));
 /// assert!(!is_config_canary_target(Path::new("docker-compose.yml")));
 /// assert!(!is_config_canary_target(Path::new(".env.schema")));
+/// // TOML canonical names are canary targets (intent 037).
+/// assert!(is_config_canary_target(Path::new("Cargo.toml")));
+/// assert!(is_config_canary_target(Path::new("pyproject.toml")));
+/// assert!(is_config_canary_target(Path::new("config.toml")));
+/// // Non-canonical TOML files are NOT canary targets.
+/// assert!(!is_config_canary_target(Path::new("foo.toml")));
+/// assert!(!is_config_canary_target(Path::new("Gemfile.toml")));
+/// // .NET appsettings JSONC files are canary targets (intent 039).
+/// assert!(is_config_canary_target(Path::new("appsettings.json")));
+/// assert!(is_config_canary_target(Path::new("appsettings.Production.json")));
+/// assert!(is_config_canary_target(Path::new("appsettings.Development.json")));
+/// // Other JSON files are NOT canary targets.
+/// assert!(!is_config_canary_target(Path::new("package.json")));
+/// assert!(!is_config_canary_target(Path::new("mcp.json")));
+/// assert!(!is_config_canary_target(Path::new("tsconfig.json")));
 /// ```
 #[must_use]
 pub fn is_config_canary_target(path: &Path) -> bool {
@@ -246,6 +261,25 @@ pub fn is_config_canary_target(path: &Path) -> bool {
         && !file_name.starts_with(".env.schema.")
     {
         return true;
+    }
+
+    // Canonical TOML config files — scoped to the same names recognized by
+    // `is_toml_config_file` (intent 037). NOT every *.toml.
+    if matches!(file_name, "Cargo.toml" | "pyproject.toml" | "config.toml") {
+        return true;
+    }
+
+    // .NET appsettings JSONC — scoped to the same names recognized by
+    // `is_appsettings_file` (intent 039). NOT every *.json.
+    if file_name == "appsettings.json" {
+        return true;
+    }
+    if let Some(rest) = file_name.strip_prefix("appsettings.") {
+        if let Some(env) = rest.strip_suffix(".json") {
+            if !env.is_empty() {
+                return true;
+            }
+        }
     }
 
     false

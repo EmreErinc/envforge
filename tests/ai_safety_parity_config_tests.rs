@@ -422,10 +422,40 @@ fn test_canary_target_unrelated_yaml_excluded() {
 
 #[test]
 fn test_canary_target_unrelated_files_excluded() {
-    assert!(!is_config_canary_target(Path::new("Cargo.toml")));
+    // Non-canonical TOML files must NOT be targets (intent 037 scoped recognition).
+    // Canonical TOML names (Cargo.toml, pyproject.toml, config.toml) ARE targets
+    // since intent 037 registers them in the AI-safety surface.
     assert!(!is_config_canary_target(Path::new("README.md")));
     assert!(!is_config_canary_target(Path::new("main.rs")));
     assert!(!is_config_canary_target(Path::new("package.json")));
+    assert!(!is_config_canary_target(Path::new("foo.toml")));
+    assert!(!is_config_canary_target(Path::new("Gemfile.toml")));
+}
+
+/// Intent 037: canonical TOML files are registered in the AI-safety canary surface.
+#[test]
+fn test_canary_target_canonical_toml_included() {
+    assert!(
+        is_config_canary_target(Path::new("Cargo.toml")),
+        "Cargo.toml must be a canary target (intent 037)"
+    );
+    assert!(
+        is_config_canary_target(Path::new("pyproject.toml")),
+        "pyproject.toml must be a canary target (intent 037)"
+    );
+    assert!(
+        is_config_canary_target(Path::new("config.toml")),
+        "config.toml must be a canary target (intent 037)"
+    );
+    // Non-canonical TOML files must still be excluded.
+    assert!(
+        !is_config_canary_target(Path::new("foo.toml")),
+        "foo.toml must NOT be a canary target"
+    );
+    assert!(
+        !is_config_canary_target(Path::new("Gemfile.toml")),
+        "Gemfile.toml must NOT be a canary target"
+    );
 }
 
 /// Canary token detection reuses the existing scan engine — verifies that

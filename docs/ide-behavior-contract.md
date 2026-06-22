@@ -430,7 +430,7 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | Rename | Atomic `WorkspaceEdit` across schema + open config documents (same contract as `.env` rename) |
 | Format | Canonical `.properties` whitespace — `key=value`, no spaces around `=`, single trailing newline |
 
-**YAML files (`application.yml`, `application-{profile}.yaml`, etc.) — Read-Only:**
+**YAML files (`application.yml`, `application-{profile}.yaml`, etc.) — ReadWrite for rename, no-op format:**
 
 | Feature | Behavior |
 |---|---|
@@ -440,10 +440,10 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | Find-references | Key usages across open config documents |
 | Highlight / Semantic tokens | Same rules as properties; READONLY on sensitive keys |
 | Diagnostics | Parse errors, unknown keys, unterminated refs |
-| Rename | **Returns `None` always** — `WriteCapability::ReadOnly`; no edit emitted |
-| Format | **Returns empty edit always** — `WriteCapability::ReadOnly`; file content never modified |
+| Rename | **Surgical `WorkspaceEdit`** — `WriteCapability::ReadWrite` (Intent 038). Uses `SurgicalEdit` byte-range splice on the resolved key token span; every byte outside the span is identical by construction. Returns `None` for anchor/alias documents (documented gap — never silently mis-edits). |
+| Format | **Returns empty edit always** — format is a deliberate no-op (rename-only per Open decision 1 of Intent 038). File content never modified by format. |
 
-The YAML read-only boundary is enforced at `WriteCapability::ReadOnly` in `config_file.rs::YamlFormat` and tested in `tests/cross_ide_release_tests.rs::test_parity_yaml_readonly_identical_on_all_clients`. Clients must not attempt to apply workspace edits when the user invokes rename/format on a YAML config file — `None`/`[]` responses are the correct signal to show a "not supported" notice.
+The YAML write boundary is enforced via `WriteCapability::ReadWrite` in `config_file.rs::YamlFormat` (upgraded from `ReadOnly` in Intent 038) and the `config_yaml_rename` / `config_yaml_format_text_edits` functions in `config_features.rs`. Clients receiving an empty `[]` from format should show "format not supported for YAML" rather than treating it as an error. Clients receiving `None` from rename on an anchor document should surface the "anchor/alias rename not supported" message. Tested in `tests/cross_ide_release_tests.rs::test_parity_yaml_readwrite_identical_on_all_clients` and `tests/yaml_writes_tests.rs` (46 tests).
 
 **AI-safety parity across config file types:**
 

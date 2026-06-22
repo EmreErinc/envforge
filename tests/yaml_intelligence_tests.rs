@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use envforge::lsp::config_features::{
     config_format_text_edits, config_hover, config_rename, config_semantic_tokens,
-    config_yaml_diagnostics,
+    config_yaml_diagnostics, config_yaml_format_text_edits,
 };
 use envforge::lsp::config_file::{
     format_for_uri, is_config_format_file, is_jvm_config_file, is_yaml_config_file,
@@ -71,10 +71,11 @@ fn test_is_config_format_file_includes_yaml() {
     assert!(is_config_format_file(&url("/proj/application-dev.yaml")));
 }
 
+/// Intent 038 inversion: format_for_uri returns ReadWrite for YAML, not ReadOnly.
 #[test]
-fn test_format_for_uri_yaml_returns_readonly_format() {
+fn test_format_for_uri_yaml_returns_readwrite_format() {
     let (fmt, layer) = format_for_uri(&url("/proj/application.yml")).unwrap();
-    assert_eq!(fmt.write_capability(), WriteCapability::ReadOnly);
+    assert_eq!(fmt.write_capability(), WriteCapability::ReadWrite);
     assert_eq!(layer, SourceLayer::Base);
 }
 
@@ -298,34 +299,45 @@ fn test_yaml_diagnostics_well_formed_no_diagnostics() {
 //   test_yaml_diagnostics_two_unterminated_both_reported (below).
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Story 005: YAML write-guard — no language feature writes YAML
+// Story 005 (Intent 038 inverted): YAML is now ReadWrite — rename works surgically
+//
+// These tests INVERT the 036 "YAML write path unreachable" assertions.
+// The old write-guard is gone; the new invariant is:
+//   - YamlFormat::write_capability() == ReadWrite
+//   - config_yaml_rename() succeeds and is surgical (byte-identical except renamed span)
+//   - config_yaml_format_text_edits() is a guaranteed no-op
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Intent 038 inversion: YamlFormat is now ReadWrite, not ReadOnly.
 #[test]
-fn test_yaml_write_capability_is_readonly() {
+fn test_yaml_write_capability_is_readwrite() {
     let (fmt, _) = format_for_uri(&url("/proj/application.yml")).unwrap();
     assert_eq!(
         fmt.write_capability(),
-        WriteCapability::ReadOnly,
-        "YAML format must be ReadOnly"
+        WriteCapability::ReadWrite,
+        "YAML format must be ReadWrite after Intent 038 upgrade"
     );
 }
 
+/// Intent 038: YAML format text edits are a guaranteed no-op.
+/// Format is intentionally omitted (rename-only per Open decision 1).
 #[test]
-fn test_yaml_format_text_edits_returns_empty_for_readonly() {
-    // config_format_text_edits respects WriteCapability::ReadOnly → empty edits.
-    let content = "key: value\n";
-    let edits = config_format_text_edits(content, WriteCapability::ReadOnly);
+fn test_yaml_format_text_edits_is_noop_for_yaml() {
+    use envforge::lsp::config_features::config_yaml_format_text_edits;
+    let content = "spring:\n  port: 8080\n  # keep this comment\n";
+    let edits = config_yaml_format_text_edits(content);
     assert!(
         edits.is_empty(),
-        "format edits must be empty for ReadOnly YAML; got {} edit(s)",
+        "YAML format must be a no-op; got {} edit(s)",
         edits.len()
     );
 }
 
+/// Intent 038: config_rename still returns None for ReadOnly capability
+/// (the capability gate is not removed — other formats still use it).
 #[test]
-fn test_yaml_rename_returns_none_for_readonly() {
-    // config_rename must return None for ReadOnly capability (write-guard).
+fn test_config_rename_returns_none_for_readonly_capability() {
+    // config_rename (the generic one) must still return None for ReadOnly.
     let open_docs: HashMap<Url, Vec<ConfigEntry>> = HashMap::new();
     let result = config_rename(
         "key",
@@ -337,7 +349,7 @@ fn test_yaml_rename_returns_none_for_readonly() {
     );
     assert!(
         result.is_none(),
-        "rename must return None for ReadOnly YAML"
+        "config_rename must return None when write_capability is ReadOnly"
     );
 }
 
@@ -354,7 +366,7 @@ fn test_yaml_hover_works_for_yaml_entries() {
         line: 0,
         character: 2,
     };
-    let hover = config_hover(pos, &entries, &[entries.clone()], None);
+    let hover = config_hover(pos, &entries, &[entries.clone()], None, None);
     assert!(hover.is_some(), "hover should work for YAML entries");
 }
 
@@ -773,42 +785,28 @@ fn test_yaml_diagnostics_two_unterminated_both_reported() {
     );
 }
 
-/// Replacement for vacuous write-guard tests: confirm YamlFormat.write_capability()
-/// is ReadOnly AND that rename returns None AND format returns empty edits
-/// when using a real parsed YAML document.
+/// Intent 038 inversion: YamlFormat is now ReadWrite.
+/// Confirm write_capability() == ReadWrite and that config_yaml_format_text_edits
+/// is still a no-op for a real parsed YAML document (rename-only per Open decision 1).
 #[test]
-fn test_yaml_write_guard_real_document_rename_and_format_return_nothing() {
-    use envforge::lsp::config_features::{config_format_text_edits, config_rename};
+fn test_yaml_readwrite_format_noop_and_capability_real_document() {
+    use envforge::lsp::config_features::config_yaml_format_text_edits;
     use envforge::lsp::config_file::format_for_uri;
     use envforge::ops::config_format::WriteCapability;
 
     let (fmt, layer) = format_for_uri(&url("/proj/application.yml")).unwrap();
-    assert_eq!(fmt.write_capability(), WriteCapability::ReadOnly);
+    // Intent 038: capability is now ReadWrite.
+    assert_eq!(fmt.write_capability(), WriteCapability::ReadWrite);
 
     let content = "server:\n  port: 8080\n";
     let entries = fmt.parse(content, layer);
     assert!(!entries.is_empty(), "entries must be parsed");
 
-    // Rename must return None for ReadOnly.
-    let open_docs: HashMap<Url, Vec<ConfigEntry>> = HashMap::new();
-    let rename_result = config_rename(
-        "server.port",
-        "server.http_port",
-        WriteCapability::ReadOnly,
-        None,
-        &HashMap::new(),
-        &open_docs,
-    );
-    assert!(
-        rename_result.is_none(),
-        "rename must return None for ReadOnly YAML document"
-    );
-
-    // Format must return empty edits for ReadOnly.
-    let format_edits = config_format_text_edits(content, WriteCapability::ReadOnly);
+    // Format is a guaranteed no-op for YAML (rename-only).
+    let format_edits = config_yaml_format_text_edits(content);
     assert!(
         format_edits.is_empty(),
-        "format edits must be empty for ReadOnly YAML document"
+        "YAML format must be a no-op (rename-only) even for real documents"
     );
 }
 

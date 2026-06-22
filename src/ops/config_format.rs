@@ -37,6 +37,10 @@ pub enum SourceLayer {
     DotEnvLocal,
     /// `.env.{environment}` (e.g. `.env.staging`)
     DotEnvEnvironment(String),
+    /// .NET `appsettings.json` (base layer — no environment suffix).
+    DotNetBase,
+    /// .NET `appsettings.{Environment}.json` (environment-specific layer).
+    DotNetEnvironment(String),
     /// Source unknown / not provided.
     Unknown,
 }
@@ -50,6 +54,8 @@ impl SourceLayer {
             SourceLayer::DotEnv => ".env".to_string(),
             SourceLayer::DotEnvLocal => ".env.local".to_string(),
             SourceLayer::DotEnvEnvironment(e) => format!(".env.{}", e),
+            SourceLayer::DotNetBase => "appsettings.json".to_string(),
+            SourceLayer::DotNetEnvironment(e) => format!("appsettings.{}.json", e),
             SourceLayer::Unknown => "unknown".to_string(),
         }
     }
@@ -57,13 +63,16 @@ impl SourceLayer {
     /// Numeric precedence — higher number wins when resolving conflicts.
     /// Within the `.env` cascade: `.env` < `.env.local` < `.env.{env}`.
     /// Within Spring profiles:   `base` < `profile`.
+    /// Within .NET cascade: `DotNetBase` < `DotNetEnvironment`.
     pub fn precedence(&self) -> u8 {
         match self {
             SourceLayer::DotEnv => 1,
             SourceLayer::Base => 1,
+            SourceLayer::DotNetBase => 1,
             SourceLayer::DotEnvLocal => 2,
             SourceLayer::DotEnvEnvironment(_) => 3,
             SourceLayer::Profile(_) => 2,
+            SourceLayer::DotNetEnvironment(_) => 2,
             SourceLayer::Unknown => 0,
         }
     }
@@ -179,6 +188,37 @@ pub fn source_layer_for_dotenv(file_name: &str) -> SourceLayer {
             SourceLayer::DotEnv
         }
     }
+}
+
+/// Detect the `SourceLayer` for a canonical TOML config file from its file name.
+///
+/// All canonical TOML config files (`Cargo.toml`, `pyproject.toml`,
+/// `config.toml`) map to `SourceLayer::Base` — they are single-file configs
+/// without a profile cascade.
+pub fn source_layer_for_toml(_file_name: &str) -> SourceLayer {
+    SourceLayer::Base
+}
+
+/// Detect the `SourceLayer` for a .NET appsettings JSON file from its file name.
+///
+/// Rules:
+/// - `appsettings.json`              → `SourceLayer::DotNetBase`
+/// - `appsettings.{Environment}.json` → `SourceLayer::DotNetEnvironment(env)`
+/// - Any other name                   → `SourceLayer::DotNetBase` (fallback)
+pub fn source_layer_for_appsettings(file_name: &str) -> SourceLayer {
+    if file_name == "appsettings.json" {
+        return SourceLayer::DotNetBase;
+    }
+    // appsettings.{Environment}.json — strip both prefix and suffix.
+    // M-3 fix: env must be a single segment (no embedded `.`).
+    if let Some(rest) = file_name.strip_prefix("appsettings.") {
+        if let Some(env) = rest.strip_suffix(".json") {
+            if !env.is_empty() && !env.contains('.') {
+                return SourceLayer::DotNetEnvironment(env.to_string());
+            }
+        }
+    }
+    SourceLayer::DotNetBase
 }
 
 /// Resolve a `${VAR}` or `${VAR:default}` interpolation reference from a

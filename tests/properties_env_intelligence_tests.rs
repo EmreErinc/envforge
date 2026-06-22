@@ -580,6 +580,7 @@ fn test_hover_shows_effective_value_and_layer() {
         &entries,
         &[entries.clone()],
         None,
+        None,
     );
     assert!(hover.is_some());
     let h = hover.unwrap();
@@ -613,6 +614,7 @@ fn test_hover_redacts_sensitive_value() {
         &entries,
         &[entries.clone()],
         Some(&schema),
+        None,
     );
     let h = hover.unwrap();
     if let tower_lsp::lsp_types::HoverContents::Markup(m) = h.contents {
@@ -642,6 +644,7 @@ fn test_hover_shows_schema_metadata() {
         &entries,
         &[entries.clone()],
         Some(&schema),
+        None,
     );
     let h = hover.unwrap();
     if let tower_lsp::lsp_types::HoverContents::Markup(m) = h.contents {
@@ -661,6 +664,7 @@ fn test_hover_no_hover_on_comment_line() {
         &[entry],
         &[],
         None,
+        None,
     );
     assert!(result.is_none());
 }
@@ -675,6 +679,7 @@ fn test_hover_no_hover_when_no_entry_at_position() {
         },
         &entries,
         &[entries.clone()],
+        None,
         None,
     );
     assert!(result.is_none());
@@ -1298,6 +1303,7 @@ fn test_h2_hover_resolves_value_from_other_layer() {
         &base,       // entries of the doc being hovered (base)
         &all_layers, // all layers assembled by server
         None,
+        None,
     );
     assert!(hover.is_some(), "hover must return a result");
     if let tower_lsp::lsp_types::HoverContents::Markup(m) = hover.unwrap().contents {
@@ -1328,6 +1334,7 @@ fn test_h2_hover_profile_wins_over_base_with_all_layers() {
         },
         &profile, // hovering from the profile doc
         &all_layers,
+        None,
         None,
     );
     assert!(hover.is_some());
@@ -1458,6 +1465,7 @@ fn test_m1_hover_non_sensitive_shows_actual_value() {
         &entries,
         &[entries.clone()],
         None,
+        None,
     );
     assert!(hover.is_some());
     if let tower_lsp::lsp_types::HoverContents::Markup(m) = hover.unwrap().contents {
@@ -1493,6 +1501,7 @@ fn test_m1_hover_sensitive_shows_redacted_annotation() {
         &entries,
         &[entries.clone()],
         Some(&schema),
+        None,
     );
     assert!(hover.is_some());
     if let tower_lsp::lsp_types::HoverContents::Markup(m) = hover.unwrap().contents {
