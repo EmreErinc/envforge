@@ -5,244 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Intent 040: Cross-Format Schema Unification
-
-Makes one `.env.schema` the format-agnostic single source of truth for key
-metadata (type, sensitivity, required, description) across `.env`,
-`application.properties`, YAML, TOML, and JSON. Pure `src/ops/` generalization
-of the intent-036 schema-validation + `schema_line_map` linkage — no new file
-format, no new crate. The roadmap capstone: it only has value once ≥2 formats
-are live, so it ships after 037 (TOML), 038 (YAML writes), and 039 (.NET).
-
-### Added
-
-- **Unified schema model + key normalizer (`src/ops/schema_unification.rs`):**
-  `UnifiedSchema` exposes each `.env.schema` entry as a format-agnostic logical
-  key; `KeyNormalizer` maps a concrete key (dotted / `:`-path / `UPPER_SNAKE` /
-  kebab) to one `LogicalKey`. Two-tier normalization: a strict tier preserves
-  distinct identities, and an explicitly-named, Spring-scoped relaxed tier
-  collapses `spring.datasource.url` ≡ `SPRING_DATASOURCE_URL` ≡
-  `spring-datasource-url` into one logical key (non-Spring keys unchanged).
-- **Cross-format diagnostics:** unknown-key, type-mismatch, and missing-required
-  computed against the unified schema for every `ConfigFormat`, not per-format
-  special-cased. A key defined in any format/layer satisfies the schema (no
-  false unknown-key); a `required` key absent from all layers across all formats
-  is flagged once. Recoverable errors only — no panic on malformed schema/config.
-- **Cross-format go-to-definition & find-references:** a key in any recognized
-  format navigates to its `.env.schema` definition AND all concrete definitions
-  across formats; find-references lists every occurrence. Reuses (generalizes)
-  the existing `schema_line_map` linkage across `src/lsp/config_features.rs`,
-  `definition.rs`, `references.rs`, `server.rs`, `document.rs`. Caches reused —
-  no per-keystroke sibling re-scan (NFR3).
+## [0.8.4] - 2026-06-23
 
 ### Changed
 
-- **Schema validation generalized** (`src/ops/schema.rs`, `schema_json.rs`,
-  `config_format.rs`): per-format schema paths resolve through the unified model
-  + normalizer rather than format-specific code.
+- **LSP / IDE attach scope narrowed — attach only to EnvForge's own files.** The
+  Language Server and the first-party VS Code, IntelliJ, and Neovim clients now
+  attach only to EnvForge's own files (`.env*`, `.env.schema*`, and the MCP
+  config files). They no longer attach to whole source languages
+  (TS/JS/Python/Rust/Go/Java/Kotlin/Ruby/PHP/C#/Shell): routing every source
+  buffer through the LSP to serve one niche feature (goto-definition from an
+  env-var read back to the schema) degraded the editor and, in lsp4ij-style
+  clients, broke native code intelligence. The from-source-code goto-definition
+  is no longer delivered by the first-party clients; the server still implements
+  it for generic LSP clients that opt in via their own source-language document
+  selectors.
 
 ### Tests
 
-- **3,105 tests passing.** Adversarial review caught and fixed: dead-code wiring
-  (the unified model is now actually wired into the LSP, proven by
-  `tests/schema_unification_wired_tests.rs`), false-sensitivity over-collapse
-  (resolved by the two-tier strict/relaxed normalization), false unknown-key
-  diagnostics, and NFR3 caching. Coverage in `tests/schema_unification_tests.rs`
-  and `tests/schema_unification_wired_tests.rs`.
-
----
-
-## [Unreleased] — Intent 039: .NET `appsettings.json` (JSONC)
-
-Adds full LSP intelligence over `appsettings.json` and the
-`appsettings.{Environment}.json` cascade, round-trip-safe via the
-comment-preserving `jsonc-parser` CST — a new `JsoncFormat` plugged into the
-intent-036 `ConfigFormat` seam, scoped so it never collides with `mcp.json`,
-`package.json`, or `tsconfig.json`.
-
-### Added
-
-- **`JsoncFormat` (`src/parser/jsonc_config_parser.rs`, `src/ops/config_format.rs`):**
-  comment- and trailing-comma-preserving JSONC parse into the positioned entry
-  model. Nested objects flatten to `:`-joined .NET paths (e.g.
-  `Logging:LogLevel:Default`) with UTF-16-correct spans; `write_capability` =
-  `ReadWrite`. Introduces a per-format path separator (`.` for properties/YAML,
-  `:` for .NET) as a small generalization of the entry/resolution model.
-- **Scoped recognition (`src/lsp/server.rs`, `config_file.rs`):** exact-name
-  predicate for `appsettings.json` / `appsettings.{Environment}.json`;
-  `is_mcp_config_file` is checked first so `mcp.json` and friends are never
-  claimed as appsettings (no regression to existing JSON handlers).
-- **`__`→`:` env-var binding:** `Logging__LogLevel__Default` (env) and
-  `Logging:LogLevel:Default` (JSON) resolve as the same logical key, so
-  go-to-definition and find-references link env-var overrides to the JSON keys
-  they bind to. .NET environment cascade resolved via `ASPNETCORE_ENVIRONMENT`.
-- **Read features + diagnostics + redaction:** hover, completion, go-to-def,
-  find-refs, semantic tokens, duplicate-key and unknown-key-vs-schema
-  diagnostics; sensitive values redacted at `.env` parity. Lossless rename/format
-  via the `jsonc-parser` CST (or shared `SurgicalEdit`) — byte-for-byte except
-  the intended change.
-- **New dependency:** `jsonc-parser = "0.32"`.
-
-### Tests
-
-- **3,105 tests passing.** Adversarial review caught and fixed a BOM-offset bug
-  (a leading UTF-8 BOM skewed every entry's position) and an `mcp.json` collision
-  (mcp.json now excluded and checked first). Coverage in
-  `tests/dotnet_appsettings_tests.rs`, plus 036/mcp.json non-regression tests.
-
----
-
-## [Unreleased] — Intent 038: YAML Writes (Surgical Rename)
-
-Upgrades YAML config files from `ReadOnly` to `ReadWrite` for rename operations,
-using a new surgical byte-range splice primitive (`SurgicalEdit`) that guarantees
-byte-identical output outside the edited key span — no whole-document re-serialization,
-no comment loss, no whitespace drift. Inverts the 036 YAML write-path restriction
-for rename; format remains a deliberate no-op (rename-only per Open decision 1).
-
-### Added
-
-- **`SurgicalEdit` utility (Unit 001, `src/ops/surgical_edit.rs`):** format-agnostic
-  byte-range splice. `apply(source, range, replacement)` produces a string where every
-  byte outside `range` is identical to `source` by construction (prefix + suffix
-  guaranteed untouched). `to_text_edit(&self, content)` converts the same splice to an
-  LSP `TextEdit` with UTF-16-correct positions. `assert_byte_identity` property harness
-  for test verification. Zero-panic on invalid ranges — returns `None` rather than
-  unwrapping.
-- **YAML span resolver (Unit 002, `src/parser/yaml_span_resolver.rs`):** resolves a
-  dotted-path key (e.g. `spring.datasource.url`) to the exact byte range of its leaf
-  key token using `yamlpath` (tree-sitter-yaml). Returns `YamlKeySpan { byte_range,
-  is_quoted }`. Anchor/alias guard: refuses all renames when the document contains
-  anchors (`doc.has_anchors()`), returning `Err(ResolveError::AnchorAlias)` — never
-  silently mis-edits an alias resolution site. Multi-document YAML gap documented.
-- **`config_yaml_rename` (`src/lsp/config_features.rs`):** atomic `WorkspaceEdit`
-  across base + profile YAML files using `SurgicalEdit` on the key span. Falls back to
-  `e.key_range` when doc content is unavailable. URIs sorted for determinism. Returns
-  `None` when `write_capability` is `ReadOnly` (capability gate preserved).
-- **`config_yaml_format_text_edits` (`src/lsp/config_features.rs`):** always returns
-  `Vec::new()` — format is intentionally a no-op (rename-only, Open decision 1).
-- **New dependencies:** `yamlpath = "1.26.1"`, `yamlpatch = "1.26.1"`.
-
-### Changed
-
-- **`YamlFormat::write_capability()` → `ReadWrite`** (`src/lsp/config_file.rs`): YAML
-  config files now participate in the rename write path. Format remains no-op.
-- **036 YAML write-guard tests inverted** (`tests/yaml_intelligence_tests.rs`,
-  `tests/cross_ide_release_tests.rs`): tests that asserted `ReadOnly` + empty rename
-  now assert `ReadWrite` + surgical byte-identical rename output.
-
-### Tests
-
-- **3,105 tests passing** (full suite across intents 036–040). Intent-038 added 46
-  tests in `tests/yaml_writes_tests.rs` covering: `SurgicalEdit` apply/identity/
-  text-edit/constructor (Unit 001), YAML span resolver for keys and values, capability
-  flip, rename (simple key, byte-identical, readonly gate, collision, same key, invalid
-  key, anchor doc, comments preserved, CRLF, no trailing newline), format no-op, and
-  round-trip / write-guard inversion. 036 non-regression tests confirm READ path and
-  properties/toml/.env handlers are unchanged.
-
----
-
-## [Unreleased] — Intent 037: TOML Support
-
-Adds a second full-feature ReadWrite format to the intent-036 `ConfigFormat`
-seam: the canonical TOML config files (`Cargo.toml`, `pyproject.toml`,
-`config.toml`, `.cargo/config.toml`), round-trip-safe via the format-preserving
-`toml_edit` CST — proving the seam carries a new format without touching any
-existing properties/`.env`/YAML handler. Recognition is scoped to the canonical
-names (no over-broad `*.toml`).
-
-### Added
-
-- **`TomlFormat` (`src/parser/toml_config_parser.rs`, `src/ops/config_format.rs`):**
-  `toml_edit` parse into the positioned entry model with dotted table-path keys
-  (`[dependencies].serde`), UTF-16-correct spans, and arrays-of-tables /
-  inline-table flattening; `write_capability` = `ReadWrite`. `${}` completion is
-  offered only where a value references an env var (TOML has no native
-  interpolation).
-- **Scoped recognition (`src/lsp/server.rs`, `config_file.rs`):**
-  `is_toml_config_file` exact-match predicate added alongside the existing
-  `is_*_file` predicates — no over-broad `*.toml`, no regression to `.env` /
-  schema / shell / properties / YAML.
-- **Read features + diagnostics + redaction (`src/lsp/config_features.rs`,
-  `security.rs`):** hover, completion, go-to-def, find-refs, semantic tokens;
-  duplicate-key, type-mismatch-vs-schema, and unknown-key-vs-schema diagnostics
-  (arrays-of-tables `[[bin]]` and distinct dotted paths not flagged); sensitive
-  values redacted at `.env` parity.
-- **Lossless rename/format:** `toml_edit` lossless mutate (or shared
-  `SurgicalEdit`) + tempfile + atomic rename; comments, ordering, and whitespace
-  preserved. Rename collisions in the same table are rejected with no partial
-  write.
-- **New dependency:** `toml_edit = "0.25"`.
-
-### Tests
-
-- **3,105 tests passing.** Adversarial review caught and fixed 9 bugs, including
-  3 Critical NFR9 round-trip defects (CRLF stripped on write; trailing newline
-  dropped on format + atomic rename; data-corruption rename-target collision),
-  text-search position bugs, and ahead-of-time false-positive diagnostics.
-  Coverage in `tests/toml_support_tests.rs`.
-
----
-
-## [Unreleased] — Intent 036: Framework Config Files (Phase 1)
-
-Extends EnvForge's LSP intelligence to Java/JVM framework config files and
-formalizes `.env` cascade semantics. Phase 1 delivers full Spring Boot /
-Quarkus / MicroProfile `.properties` coverage and read-only YAML language
-features (`application.yml`/`.yaml` + `application-{profile}.*`). The same
-AI-safety guarantees that protect `.env` — fencing, redaction, exposure
-tracking, canary detection, AI-guard diagnostics — now extend to all new
-config surfaces automatically (zero new configuration required).
-
-### Added
-
-- **Framework config LSP (Unit 001 — properties + `.env` cascade):**
-  `is_jvm_config_file` / `is_env_cascade_file` / `is_config_format_file`
-  predicates route `application.properties`, `application-{profile}.properties`,
-  `microprofile-config.properties`, and the `.env` cascade (`.env.local`,
-  `.env.{env}`) through a new `ConfigFormat` dispatch layer without altering
-  existing `is_env_file` / `is_schema_file` results. Full language features
-  (hover, completion, go-to-def, find-refs, highlight, diagnostics, rename,
-  format) over all `.properties` file types. Profile-layer resolution and
-  `${VAR:default}` interpolation implemented as format-independent engines
-  (`src/ops/config_resolution.rs`). Parser: `src/ops/properties_parser.rs`.
-- **YAML config LSP read-only (Unit 002):** `application.yml`, `application.yaml`,
-  and `application-{profile}.yml`/`.yaml` are recognized by `is_yaml_config_file`
-  and served with `WriteCapability::ReadOnly`. Hover/completion/go-to-def/
-  find-refs/highlight/diagnostics all work; rename and format return `None`/`[]`
-  (no write path — comment-preserving YAML serialization deferred). Parser:
-  `src/parser/yaml_config_parser.rs` via `yaml-rust2`.
-- **AI-safety parity across config surfaces (Unit 003):** fence classification,
-  exposure tracking (`compute_config_exposure_map`), value redaction, canary
-  scan, and AI-guard diagnostics all apply to the new file types at the same
-  fidelity as `.env`. `is_config_canary_target` extended to recognize
-  `.properties` and `application.*yaml` files. Zero new user configuration
-  required.
-- **Cross-IDE validation + no-regression gate (Unit 004):** 22 new tests in
-  `tests/cross_ide_release_tests.rs` proving (a) feature functions are
-  deterministic and client-independent — same input yields same output on VS
-  Code, IntelliJ, Neovim, and any generic LSP client (FR22, NFR13); (b) the
-  new routing predicates do not alter results for any pre-existing
-  `.env` / `.env.schema` / shell URI (FR23, NFR12).
-- **Docs updated:** `docs/integration-matrix.md` (config file × feature matrix,
-  AI-safety parity table, YAML read-only boundary), `docs/lsp-clients.md`
-  (new document types + per-client setup snippets), `docs/ide-behavior-contract.md`
-  (CF1 section: per-feature behavior for properties, YAML read-only, AI-safety
-  parity across config surfaces).
-
-### Tests
-
-- **2,815 tests passing** (up from 2,569 pre-intent-036; +246). Intent-036 added ~245 tests
-  across `tests/properties_env_intelligence_tests.rs` (118), `tests/yaml_intelligence_tests.rs` (57),
-  `tests/ai_safety_parity_config_tests.rs` (45), and `tests/cross_ide_release_tests.rs` (25).
-  Includes regression tests for all adversarial-review
-  findings: routing fix, FR3 scope-narrowing, M-A AI-guard on cascade, M-B republish_all,
-  M-C depth cap, M-D CLI scan-dir, BOM stripping, `KEY = value` off-by-one, col-0
-  unterminated-ref, UTF-16 key range, NFR9 round-trip idempotency, goto-def determinism,
-  FR9 goto-def across docs, and canary.plant workspace-containment security guard.
-
----
+- **2,569 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
+  builds clean.
 
 ## [0.8.3] - 2026-06-20
 

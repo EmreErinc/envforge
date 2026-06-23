@@ -12,10 +12,7 @@ pub mod v2;
 
 pub use hmac_store::{rotate_key, HmacKeyManager, HmacKeyRegistry};
 pub use migration::{MigrationPlan, MigrationReport, MigrationService};
-pub use scanner::{
-    is_config_canary_target, scan_config_dir, scan_reader, scan_text, ConfigFileMatch, TokenMatch,
-    TokenScanner,
-};
+pub use scanner::{scan_reader, scan_text, TokenMatch, TokenScanner};
 pub use v2::{decode_token, encode_token, DecodedCanary, V2Payload, V2_PREFIX, VERSION_BYTE_V2};
 
 const CANARY_FILE: &str = "canaries.toml";

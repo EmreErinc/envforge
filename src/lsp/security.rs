@@ -123,41 +123,6 @@ pub fn guard_workspace_containment(
     Ok(canonical)
 }
 
-/// Verify an **absolute** file path stays within the workspace root.
-///
-/// Unlike [`guard_workspace_containment`], which joins `workspace_root + file_name`,
-/// this variant treats `file_path` as an absolute path (caller-supplied, so it
-/// might be `../outside/file` or a symlink to `/etc/passwd`). We canonicalize it
-/// and require the result is still under the canonicalized workspace root.
-///
-/// Used by `canary.plant` (security fix: arbitrary-file-write guard).
-pub fn guard_workspace_containment_absolute(
-    workspace_root: Option<&Path>,
-    file_path: &str,
-) -> Result<std::path::PathBuf, String> {
-    let root =
-        workspace_root.ok_or_else(|| "workspace root required for file access".to_string())?;
-    let canonical_root =
-        std::fs::canonicalize(root).map_err(|e| format!("cannot resolve workspace root: {}", e))?;
-    let path = Path::new(file_path);
-    // For absolute paths: canonicalize directly.
-    // For relative paths: resolve relative to workspace root.
-    let resolved = if path.is_absolute() {
-        std::fs::canonicalize(path)
-            .map_err(|e| format!("cannot resolve path '{}': {}", file_path, e))?
-    } else {
-        std::fs::canonicalize(root.join(path))
-            .map_err(|e| format!("cannot resolve path '{}': {}", file_path, e))?
-    };
-    if !resolved.starts_with(&canonical_root) {
-        return Err(format!(
-            "file '{}' is outside the workspace root",
-            resolved.display()
-        ));
-    }
-    Ok(resolved)
-}
-
 /// Validate that an env-var key name contains only safe characters.
 /// Matches POSIX shell identifier rules: `[A-Za-z_][A-Za-z0-9_]*`.
 pub fn guard_key_pattern(key: &str) -> GuardResult {
@@ -249,7 +214,7 @@ pub fn guard_key_pattern_with_length(key: &str) -> GuardResult {
 pub fn guard_scan_extension(path: &Path) -> GuardResult {
     match path.extension().and_then(|e| e.to_str()) {
         Some("log") | Some("txt") | Some("md") | Some("json") | Some("jsonl") | Some("yml")
-        | Some("yaml") | Some("csv") | Some("toml") | Some("properties") => Ok(()),
+        | Some("yaml") | Some("csv") | Some("toml") => Ok(()),
         Some(other) => Err(format!(
             "file extension '{}' is not allowed for scanning",
             other

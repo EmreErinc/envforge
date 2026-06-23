@@ -199,23 +199,8 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             // always use the "bottom" placement strategy from
             // `place_canary_in_file` — it preserves user content and
             // appends a single marker line.
-            //
-            // Security: enforce workspace containment + extension allowlist on
-            // the caller-supplied `file` path before any write. Without this a
-            // hostile LSP client could direct us to overwrite arbitrary files
-            // (e.g. /etc/passwd) — canary.scan has the same guard; we match it.
             let placement: Option<bool> = if let Some(file_path) = file.as_deref() {
-                let canonical = match super::security::guard_workspace_containment_absolute(
-                    workspace_root,
-                    file_path,
-                ) {
-                    Ok(p) => p,
-                    Err(e) => return err(e),
-                };
-                if let Err(e) = super::security::guard_scan_extension(&canonical) {
-                    return err(e);
-                }
-                match place_canary_in_file(&key, &canonical, "bottom") {
+                match place_canary_in_file(&key, Path::new(file_path), "bottom") {
                     Ok(placed) => Some(placed),
                     Err(e) => {
                         return err(format!("place_canary_in_file failed: {}", e));

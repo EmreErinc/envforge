@@ -63,7 +63,13 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | IntelliJ render | Inlay chip via lsp4ij inlay client |
 | Test IDs | `test_inlay_hint_default_marker`, `test_inlay_hint_type_for_empty_value`, `test_inlay_hint_ref_resolution_redacted_for_sensitive`, `test_inlay_hint_ref_unresolved`, `test_inlay_hint_skips_comments_and_blanks`, `test_inlay_hint_sensitive_value_redacted`, `test_inlay_hint_respects_range_window` |
 
-### L4 — Go-to-definition (source code → schema)
+### L4 — Go-to-definition (source code → schema) — server capability, opt-in only
+
+> **Not delivered by first-party clients.** The VS Code, IntelliJ, and Neovim
+> clients no longer attach the LSP to source languages — they attach only to
+> EnvForge's own files (`.env*`, `.env.schema*`, MCP config). The server still
+> implements this capability for generic LSP clients that opt in by adding their
+> own source-language document selectors.
 
 | Field | Value |
 |---|---|
@@ -73,9 +79,8 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | Match rule | Identifier must exist as a top-level key in `.env.schema.toml` (or `.env.schema`) — looked up via `schema_line_map`. |
 | Result | `Location` pointing at the schema file URI, range `(line=N, char=0) .. (line=N, char=0)` where `N` is the schema entry line. |
 | Server file ingestion | Server reads the source file from disk, NOT from `did_open` state. Path must canonicalize successfully and stay inside the canonicalized workspace root. Allowed extensions: `.ts .tsx .js .jsx .mjs .cjs .py .rs .go .java .kt .rb .php .cs .sh`. Files larger than `MAX_DOCUMENT_BYTES` (1 MiB) are rejected. |
-| VS Code wiring | `documentSelector` in `editors/vscode/src/extension.ts` extended to include 13 source-language IDs. |
-| IntelliJ wiring | `languageMapping` entries in `plugin.xml` added for each common JetBrains language ID. Mappings without the corresponding language plugin installed (e.g. Python on IntelliJ Community) silently no-op via lsp4ij. |
-| Existing `.env` → schema dispatch | Unchanged: when URI is a `.env*` file, server still routes through `documents` map + `goto_definition`. |
+| First-party client wiring | **None.** The VS Code `documentSelector`, IntelliJ `languageMapping`, and Neovim filetype list no longer include source languages — first-party clients attach only to EnvForge's own files, so this lookup never fires there. A generic LSP client must add the source-language selectors itself to use it. |
+| `.env` → schema dispatch | Always available: when the URI is a `.env*` file, the server routes through the `documents` map + `goto_definition` (key in `.env` → `.env.schema` section). This is the goto-definition first-party clients do deliver. |
 | Test IDs | `test_source_goto_def_typescript_process_env_dot`, `test_source_goto_def_typescript_bracket_access`, `test_source_goto_def_python_os_environ`, `test_source_goto_def_rust_env_var`, `test_source_goto_def_go_getenv`, `test_source_goto_def_returns_none_on_lowercase_identifier`, `test_source_goto_def_returns_none_when_identifier_missing_from_schema`, `test_source_goto_def_returns_none_when_no_schema_uri`, `test_source_goto_def_clamped_cursor_past_eol`, `test_source_goto_def_unicode_line_safe` |
 
 ### L8 — Rename symbol
@@ -85,7 +90,7 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | LSP method | `textDocument/rename` |
 | Capability | `rename_provider: true` declared in `initialize` |
 | Trigger (env file) | Cursor inside `key_range` of an `EnvDocEntry` in a `.env*` file → invoke "Rename Symbol" |
-| Trigger (source file) | Cursor on an `UPPER_SNAKE_CASE` identifier in an allow-listed source file → invoke "Rename Symbol" |
+| Trigger (source file) | Cursor on an `UPPER_SNAKE_CASE` identifier in an allow-listed source file → invoke "Rename Symbol". **Server capability only — first-party clients no longer attach to source languages, so this does not fire there; opt-in for generic clients.** |
 | Identifier extraction | Reuses `definition::extract_upper_snake_identifier` (same gates as L4) |
 | New name validation | Must match `^[A-Za-z_][A-Za-z0-9_]*$`. Empty / invalid characters / leading-digit / no-op `NEW == OLD` → returns `None` (client surfaces error, no edit applied) |
 | Workspace edit scope | Schema file table header `[OLD]` → `[NEW]` on the line tracked in `schema_line_map`. Plus every currently-open `.env*` `documents` entry whose key equals `OLD`: `key_range` rewritten to `NEW`. |
@@ -135,7 +140,7 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | LSP method | `textDocument/references` |
 | Capability | `references_provider: true` declared in `initialize` |
 | Trigger (env file) | Cursor inside `key_range` of a `.env*` entry → invoke "Find Usages" / "Find All References" |
-| Trigger (source file) | Cursor on UPPER_SNAKE identifier in source file → invoke "Find Usages" |
+| Trigger (source file) | Cursor on UPPER_SNAKE identifier in source file → invoke "Find Usages". **Server capability only — first-party clients no longer attach to source languages, so this does not fire there; opt-in for generic clients.** |
 | Identifier extraction | Mirrors L4: `definition::extract_upper_snake_identifier` |
 | `includeDeclaration` honored | When `true` (default), schema header is included as declaration. When `false`, only `.env*` entry references are returned. |
 | Locations returned | Schema header line for the key (if schema declares it) PLUS every `key_range` in any currently-open `.env*` document whose entry key equals the target |
@@ -407,54 +412,5 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 |---|---|
 | VS Code wiring | **Shipped.** Dedicated "Profiles" view in the EnvForge activity bar container. Shows active/inactive profiles with their source files. Double-click to switch. |
 | IntelliJ wiring | **Shipped.** Dedicated "Profiles" tab in the EnvForge tool window. Replaces the old Gear-menu profile switcher with a first-class tree view. Double-click a node to switch active profile. |
-
-### CF1 — Framework config file support (Intent 036, Phase 1)
-
-| Field | Value |
-|---|---|
-| Document types | `application.properties`, `application-{profile}.properties`, `microprofile-config.properties`, `*.properties` (any Java properties file), `.env.local`, `.env.{environment}` cascade, `application.yml`/`.yaml`, `application-{profile}.yml`/`.yaml` |
-| Routing predicate | `is_config_format_file(uri)` — checked after existing `is_env_file`/`is_schema_file` predicates; does not alter their results for owned URIs |
-| Feature dispatch | All language features route through `config_features.rs` functions which accept `&[ConfigEntry]` — format-agnostic; identical output regardless of file type or calling client |
-| Cross-client parity | Feature functions carry no client-capability parameters; same input ⇒ same output on VS Code, IntelliJ, Neovim, and any generic LSP client (NFR13). Enforced by `tests/cross_ide_release_tests.rs` |
-
-**Properties files (`application.properties`, `application-{profile}.properties`, etc.):**
-
-| Feature | Behavior |
-|---|---|
-| Hover | Key + value + resolved value from profile stack + provenance layer. Sensitive values redacted via `redact::redact_for_label` — same rule as `.env` hover |
-| Completion | Schema-backed key completions at key position; value completions at value position; `${...}` ref completions. Sort order identical to `.env` completions |
-| Go-to-definition | `${VAR}` placeholder → schema entry; cross-file jump to base `application.properties` from a profile override |
-| Find-references | All uses of a key across open config documents |
-| Highlight / Semantic tokens | VARIABLE (key) + STRING (value) + READONLY modifier on sensitive keys |
-| Diagnostics | Schema validation (unknown key, type mismatch, missing required, duplicate key, unterminated `${` ref) |
-| Rename | Atomic `WorkspaceEdit` across schema + open config documents (same contract as `.env` rename) |
-| Format | Canonical `.properties` whitespace — `key=value`, no spaces around `=`, single trailing newline |
-
-**YAML files (`application.yml`, `application-{profile}.yaml`, etc.) — ReadWrite for rename, no-op format:**
-
-| Feature | Behavior |
-|---|---|
-| Hover | Key + value + resolved value + provenance. Sensitive values redacted |
-| Completion | Schema-backed key + `${...}` ref completions |
-| Go-to-definition | `${VAR}` → schema entry |
-| Find-references | Key usages across open config documents |
-| Highlight / Semantic tokens | Same rules as properties; READONLY on sensitive keys |
-| Diagnostics | Parse errors, unknown keys, unterminated refs |
-| Rename | **Surgical `WorkspaceEdit`** — `WriteCapability::ReadWrite` (Intent 038). Uses `SurgicalEdit` byte-range splice on the resolved key token span; every byte outside the span is identical by construction. Returns `None` for anchor/alias documents (documented gap — never silently mis-edits). |
-| Format | **Returns empty edit always** — format is a deliberate no-op (rename-only per Open decision 1 of Intent 038). File content never modified by format. |
-
-The YAML write boundary is enforced via `WriteCapability::ReadWrite` in `config_file.rs::YamlFormat` (upgraded from `ReadOnly` in Intent 038) and the `config_yaml_rename` / `config_yaml_format_text_edits` functions in `config_features.rs`. Clients receiving an empty `[]` from format should show "format not supported for YAML" rather than treating it as an error. Clients receiving `None` from rename on an anchor document should surface the "anchor/alias rename not supported" message. Tested in `tests/cross_ide_release_tests.rs::test_parity_yaml_readwrite_identical_on_all_clients` and `tests/yaml_writes_tests.rs` (46 tests).
-
-**AI-safety parity across config file types:**
-
-| Guarantee | Properties | YAML | Notes |
-|---|---|---|---|
-| Fence enforcement | ✓ | ✓ | Workspace fence classifies all entries green when active |
-| Exposure map | ✓ | ✓ | `envforge/exposureMap` accepts any config-format URI |
-| Hover/label redaction | ✓ | ✓ | `is_sensitive_key` + schema `sensitive: true` — same rule as `.env` |
-| Canary detection | ✓ | ✓ | `scan_text` runs on content; `is_config_canary_target` recognizes all config file types |
-| AI-guard diagnostics | ✓ | ✓ | `did_save` scan runs on all config-format documents |
-
-Test coverage: `tests/ai_safety_parity_config_tests.rs` (Unit 003).
 
 ### (future rows added here as each feature ships)

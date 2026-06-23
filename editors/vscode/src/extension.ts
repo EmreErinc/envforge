@@ -191,23 +191,13 @@ async function startLanguageServer(
             { scheme: 'file', pattern: '**/.env' },
             { scheme: 'file', pattern: '**/.env.*' },
             { scheme: 'file', pattern: '**/*.env' },
-            // Source-language selectors enable LSP requests (notably
-            // goto-definition) from code that reads env vars. The LSP
-            // server silently ignores did_open/did_change for these
-            // URIs; they only participate in definition lookups.
-            { scheme: 'file', language: 'typescript' },
-            { scheme: 'file', language: 'typescriptreact' },
-            { scheme: 'file', language: 'javascript' },
-            { scheme: 'file', language: 'javascriptreact' },
-            { scheme: 'file', language: 'python' },
-            { scheme: 'file', language: 'rust' },
-            { scheme: 'file', language: 'go' },
-            { scheme: 'file', language: 'java' },
-            { scheme: 'file', language: 'kotlin' },
-            { scheme: 'file', language: 'ruby' },
-            { scheme: 'file', language: 'php' },
-            { scheme: 'file', language: 'csharp' },
-            { scheme: 'file', language: 'shellscript' },
+            // NOTE: EnvForge does NOT attach to whole source languages
+            // (java/rust/python/…). Sending every source file to the LSP to
+            // provide one niche feature (goto from an env-var read back to
+            // .env.schema) degrades the editor and breaks native code
+            // intelligence in LSP4IJ-style clients. The LSP attaches only to
+            // EnvForge's own files (env/schema + mcp).
+            // The goto-from-source-code feature is intentionally dropped.
             // MCP config files — linted inline for hardcoded credentials.
             { scheme: 'file', pattern: '**/mcp.json' },
             { scheme: 'file', pattern: '**/.mcp.json' },
