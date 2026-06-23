@@ -5066,51 +5066,6 @@ fn cmd_canary(action: &super::CanaryAction, json: bool) -> Result<(), Box<dyn st
                 std::process::exit(1);
             }
         }
-        super::CanaryAction::ScanDir {
-            dir,
-            strict,
-            json: j,
-        } => {
-            // FR21: walk directory tree scanning recognized config files for canary tokens.
-            let root = std::path::Path::new(dir.as_str());
-            let file_matches = canary::scan_config_dir(root)?;
-            if *j {
-                let arr: Vec<_> = file_matches
-                    .iter()
-                    .map(|m| {
-                        serde_json::json!({
-                            "file": m.path.display().to_string(),
-                            "token": m.token_match.token,
-                            "byte_offset": m.token_match.byte_offset,
-                            "line_number": m.token_match.line_number,
-                            "unicode_bypass_suspected": m.token_match.unicode_bypass_suspected,
-                        })
-                    })
-                    .collect();
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "match_count": arr.len(),
-                        "matches": arr,
-                    }))?
-                );
-            } else {
-                for m in &file_matches {
-                    let line = m
-                        .token_match
-                        .line_number
-                        .map(|n| n.to_string())
-                        .unwrap_or_else(|| "-".into());
-                    println!("{}:{}: {}", m.path.display(), line, m.token_match.token);
-                }
-                if file_matches.is_empty() {
-                    println!("(no canary tokens found)");
-                }
-            }
-            if *strict && !file_matches.is_empty() {
-                std::process::exit(1);
-            }
-        }
         super::CanaryAction::RotateKey { dry_run } => {
             if *dry_run {
                 println!("dry-run: would rotate canary HMAC key (active version → +1; oldest retired key evicted if cap reached)");

@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
     <name>EnvForge - AI-Safe Environment Manager</name>
-    <version>0.1.8</version>
+    <version>0.1.9</version>
     <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[
@@ -38,25 +38,15 @@ AI coding agents.</p>
                          serverId="envforgeLsp"
                          fileNamePattern=".env.schema"/>
         <!--
-        Source-language mappings: enable goto-definition from code that
-        reads env vars (process.env.X, os.environ["X"], std::env::var,
-        os.Getenv, System.getenv, etc.) back to the .env.schema entry.
-        Each mapping is best-effort — if the IDE edition lacks the
-        language plugin (e.g. Python on IntelliJ Community), lsp4ij
-        silently skips that mapping.
+        NOTE: EnvForge does NOT map whole source languages (JAVA, Python,
+        Rust, …) to its LSP. Doing so routes EVERY source file through
+        lsp4ij → EnvForge, which breaks the IDE's native code intelligence
+        (goto-definition, completion) for those languages. The LSP attaches
+        ONLY to EnvForge's own files (env/schema + MCP config below),
+        always scoped by fileNamePattern. The previous goto-from-source-code
+        -to-schema feature is intentionally dropped — its cost (hijacking all
+        source files) far outweighed the niche benefit.
         -->
-        <languageMapping language="JAVA" serverId="envforgeLsp"/>
-        <languageMapping language="kotlin" serverId="envforgeLsp"/>
-        <languageMapping language="Python" serverId="envforgeLsp"/>
-        <languageMapping language="TypeScript" serverId="envforgeLsp"/>
-        <languageMapping language="JavaScript" serverId="envforgeLsp"/>
-        <languageMapping language="ECMAScript 6" serverId="envforgeLsp"/>
-        <languageMapping language="go" serverId="envforgeLsp"/>
-        <languageMapping language="Rust" serverId="envforgeLsp"/>
-        <languageMapping language="ruby" serverId="envforgeLsp"/>
-        <languageMapping language="PHP" serverId="envforgeLsp"/>
-        <languageMapping language="C#" serverId="envforgeLsp"/>
-        <languageMapping language="Shell Script" serverId="envforgeLsp"/>
         <!--
         MCP configuration files. Routed by filename only (JSON language
         binding picks up arbitrary JSON files; we filter to mcp/claude

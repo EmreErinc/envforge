@@ -1,6 +1,6 @@
 [package]
 name = "env-forge-tui"
-version = "0.8.3"
+version = "0.8.4"
 edition = "2021"
 rust-version = "1.75"
 description = "Terminal environment variable manager with TUI and CLI"
@@ -46,20 +46,6 @@ hex = "0.4"
 hostname = "0.4"
 rand = "0.10.1"
 serde_norway = "0.9.42"
-# Read-only YAML parser for application.yml/yaml config intelligence (unit 002).
-# yaml-rust2 exposes per-node marks (line/col) which is required for UTF-16-correct
-# LSP position ranges. Read-only: no yaml-rust2 serialization path is used.
-yaml-rust2 = "0.11"
-# YAML value-span resolution via tree-sitter for surgical rename (unit 038).
-# yamlpath resolves a dotted key to its exact byte-span; yamlpatch provides
-# the splice primitive. Both use tree-sitter-yaml internally and are the
-# crates recommended by docs/deferred-config-support-plan.md.
-yamlpath = "1.26.1"
-yamlpatch = "1.26.1"
-# Format-preserving TOML CST for canonical config file intelligence (unit 037).
-# toml_edit preserves comments, ordering, and whitespace on lossless mutation.
-# Cargo itself uses this crate, making it a mature and well-maintained choice.
-toml_edit = "0.22"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "process", "time", "io-util"] }
 dashmap = "6.2"
@@ -78,11 +64,6 @@ flate2 = "1"
 
 # Unicode NFKC normalization for MCP poisoning scanner canonicalization (Bolt 079)
 unicode-normalization = "0.1"
-# Comment-preserving JSONC CST for .NET appsettings.json intelligence (intent 039).
-# jsonc-parser preserves comments, trailing commas, and positions for round-trip-safe
-# rename via SurgicalEdit — the same approach used by toml_edit for TOML (intent 037).
-# The `cst` feature is required for positional span access.
-jsonc-parser = { version = "0.32", features = ["cst"] }
 
 # Masked password input for project wizard sensitive values
 rpassword = "7"

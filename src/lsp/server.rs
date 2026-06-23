@@ -6,34 +6,19 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use zeroize::Zeroize;
 
-use crate::ops::config_format::{ConfigEntry, SourceLayer, WriteCapability};
 use crate::ops::schema::{parse_schema_content, EnvSchema};
-use crate::ops::schema_unification::{
-    cross_format_diagnostics_to_lsp, cross_format_entry_diagnostics, cross_format_find_references,
-    cross_format_goto_definition, missing_required_diagnostics, UnifiedSchema,
-};
 
 use super::ai_guard_diagnostics::compute_ai_guard_diagnostics;
 use super::code_action::code_actions;
 use super::code_lens::code_lenses;
 use super::completion::completions;
-use super::config_features::{
-    config_diagnostics, config_format_text_edits, config_hover, config_jsonc_diagnostics,
-    config_jsonc_rename, config_semantic_tokens, config_toml_diagnostics,
-    config_toml_format_text_edits, config_toml_rename, config_yaml_diagnostics,
-    config_yaml_format_text_edits, config_yaml_rename,
-};
-use super::config_file::{
-    format_for_uri, is_appsettings_file, is_config_format_file, is_toml_config_file,
-    is_yaml_config_file,
-};
 use super::definition::{
     extract_upper_snake_identifier, goto_definition, goto_definition_from_source,
 };
 use super::diagnostics::compute_diagnostics;
 use super::document::{parse_env_document, schema_line_map, DocumentState};
 use super::document_symbol::document_symbols;
-use super::exposure::{compute_config_exposure_map, compute_exposure_map, ExposureEntry};
+use super::exposure::{compute_exposure_map, ExposureEntry};
 use super::folding_range::compute_folding_ranges;
 use super::format::format_text_edits;
 use super::hover::hover_info;
@@ -55,23 +40,9 @@ pub struct ManagedVar {
     pub source_file: String,
 }
 
-/// State for an open config-format document (`.properties`, `.env`-cascade).
-#[derive(Debug, Clone)]
-pub struct ConfigDocumentState {
-    pub content: String,
-    pub version: i32,
-    pub entries: Vec<ConfigEntry>,
-    pub source_layer: SourceLayer,
-    pub write_capability: WriteCapability,
-}
-
 pub struct Backend {
     client: Client,
     documents: RwLock<HashMap<Url, DocumentState>>,
-    /// Tracked open config-format documents (`.properties` / `.env`-cascade).
-    /// Kept separate from `documents` so existing env-file handlers are
-    /// completely unaffected.
-    config_documents: RwLock<HashMap<Url, ConfigDocumentState>>,
     schema: RwLock<Option<EnvSchema>>,
     schema_uri: RwLock<Option<Url>>,
     schema_lines: RwLock<HashMap<String, u32>>,
@@ -94,7 +65,6 @@ impl Backend {
         Self {
             client,
             documents: RwLock::new(HashMap::new()),
-            config_documents: RwLock::new(HashMap::new()),
             schema: RwLock::new(None),
             schema_uri: RwLock::new(None),
             schema_lines: RwLock::new(HashMap::new()),
@@ -395,16 +365,6 @@ impl Backend {
         std::fs::read_to_string(&canonical).ok()
     }
 
-    /// Zeroize and clear a `ConfigDocumentState` in place.
-    /// Used by both `did_close` and the fence-activation purge path (C-2).
-    fn zeroize_config_state(state: &mut ConfigDocumentState) {
-        state.content.zeroize();
-        for entry in &mut state.entries {
-            entry.key.zeroize();
-            entry.value.zeroize();
-        }
-    }
-
     /// Record the current LSP method for audit attribution. Called at
     /// the top of every handler so that security-relevant side effects
     /// (reveal, fence toggle, sync push) carry the originating endpoint
@@ -422,43 +382,6 @@ impl Backend {
     /// unknown URIs or non-env files rather than erroring so plugin
     /// clients can safely poll on every keystroke.
     pub fn exposure_for(&self, uri: &Url) -> Vec<ExposureEntry> {
-        // Resolve fence status once; shared by both the .env and config paths.
-        let fence_active = self
-            .workspace_root
-            .read()
-            .ok()
-            .and_then(|r| r.clone())
-            .and_then(|url| url.to_file_path().ok())
-            .and_then(|root| crate::ops::fence::check_fence_status(&root).ok())
-            .map(|status| status.all_fenced)
-            .unwrap_or(false);
-
-        // H-1: when the fence is active, return empty before reading any
-        // document store — exposure data must never leak key names or canary
-        // annotations to callers while the fence is up.
-        if fence_active {
-            return Vec::new();
-        }
-
-        // FR20: recognized config files (properties/.env-cascade/YAML) are
-        // counted in the exposure map alongside .env (AR7 — reuse engine).
-        if is_config_format_file(uri) {
-            let cfg_doc = self
-                .config_documents
-                .read()
-                .ok()
-                .and_then(|docs| docs.get(uri).cloned());
-            if let Some(cfg_doc) = cfg_doc {
-                let schema = self.schema.read().ok().and_then(|r| r.clone());
-                return compute_config_exposure_map(
-                    &cfg_doc.entries,
-                    schema.as_ref(),
-                    fence_active,
-                );
-            }
-            return Vec::new();
-        }
-
         if !Self::is_env_file(uri) {
             return Vec::new();
         }
@@ -470,6 +393,16 @@ impl Backend {
         let Some(doc) = doc else { return Vec::new() };
 
         let schema = self.schema.read().ok().and_then(|r| r.clone());
+        let fence_active = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|url| url.to_file_path().ok())
+            .and_then(|root| crate::ops::fence::check_fence_status(&root).ok())
+            .map(|status| status.all_fenced)
+            .unwrap_or(false);
+
         compute_exposure_map(&doc.entries, schema.as_ref(), fence_active)
     }
 
@@ -501,138 +434,16 @@ impl Backend {
         });
     }
 
-    /// Returns `true` when the document's source layer is a `.env`-cascade
-    /// variant (`.env.local` / `.env.{environment}`). Used by M-A to decide
-    /// whether to union in the AI-guard prompt-injection scan.
-    fn is_dotenv_cascade_doc(doc: &ConfigDocumentState) -> bool {
-        matches!(
-            doc.source_layer,
-            SourceLayer::DotEnvLocal | SourceLayer::DotEnvEnvironment(_)
-        )
-    }
-
-    /// Publish diagnostics for an open config-format document.
-    ///
-    /// For read-only YAML documents, uses the YAML-specific diagnostic pipeline
-    /// (which surfaces parse errors, duplicate keys, and unterminated `${}`).
-    /// For read-write formats (`.properties`, `.env`-cascade), uses the existing
-    /// flat-entry diagnostic pipeline.
-    ///
-    /// FR2 (Intent 040): also composes cross-format diagnostics (unknown-key,
-    /// type-mismatch, missing-required) from `UnifiedSchema`. Cross-format
-    /// diagnostics are deduplicated against per-format ones by (range, message)
-    /// so the same warning never appears twice.
-    ///
-    /// M-A: dotenv-cascade files also run the AI-guard prompt-injection scan
-    /// (they carry secrets too — same attack surface as plain `.env`).
-    fn publish_config_diagnostics_for(&self, uri: &Url, doc: &ConfigDocumentState) {
-        let schema = self.schema.read().ok().and_then(|r| r.clone());
-
-        // Dispatch diagnostics by format (H-1 fix: format-specific functions
-        // use canonical-key matching so JSONC/TOML keys aren't falsely flagged).
-        let mut diags = if is_yaml_config_file(uri) {
-            // YAML: use the YAML-specific diagnostic pipeline (parse errors,
-            // duplicate keys, unterminated ${}).
-            config_yaml_diagnostics(&doc.content, doc.source_layer.clone())
-        } else if is_toml_config_file(uri) {
-            // TOML: use the TOML-specific diagnostic pipeline (parse errors,
-            // AoT-aware duplicate keys, schema type-check with canonical matching).
-            config_toml_diagnostics(&doc.content, doc.source_layer.clone(), schema.as_ref())
-        } else if is_appsettings_file(uri) {
-            // JSONC: use the JSONC-specific diagnostic pipeline (parse errors,
-            // duplicate keys, schema with canonical matching).
-            config_jsonc_diagnostics(&doc.content, doc.source_layer.clone(), schema.as_ref())
-        } else {
-            // .properties / .env-cascade: flat-entry diagnostic pipeline.
-            config_diagnostics(&doc.entries, schema.as_ref())
-        };
-
-        // FR2 (Intent 040): cross-format diagnostics via UnifiedSchema.
-        // Build the schema once; skip if no schema is loaded.
-        if let Some(raw_schema) = schema {
-            let unified = UnifiedSchema::new(raw_schema);
-
-            // Per-entry cross-format diagnostics (unknown-key, type-mismatch).
-            let cross_entry_diags = cross_format_entry_diagnostics(&doc.entries, &unified);
-
-            // Gather all open config entries for missing-required check.
-            let all_open_entries: Vec<Vec<ConfigEntry>> = self
-                .config_documents
-                .read()
-                .ok()
-                .map(|m| m.values().map(|d| d.entries.clone()).collect())
-                .unwrap_or_default();
-            let all_refs: Vec<&[ConfigEntry]> =
-                all_open_entries.iter().map(Vec::as_slice).collect();
-            let missing_diags = missing_required_diagnostics(&all_refs, &unified);
-
-            // Convert and deduplicate: skip cross-format diag if per-format
-            // already emitted a diagnostic at the same (range, message prefix).
-            let existing_keys: std::collections::HashSet<(u32, u32, String)> = diags
-                .iter()
-                .map(|d| {
-                    (
-                        d.range.start.line,
-                        d.range.start.character,
-                        d.message.clone(),
-                    )
-                })
-                .collect();
-
-            let mut combined_cross: Vec<_> = cross_entry_diags;
-            combined_cross.extend(missing_diags);
-            let new_lsp = cross_format_diagnostics_to_lsp(&combined_cross);
-            for d in new_lsp {
-                let key = (
-                    d.range.start.line,
-                    d.range.start.character,
-                    d.message.clone(),
-                );
-                if !existing_keys.contains(&key) {
-                    diags.push(d);
-                }
-            }
-        }
-
-        // M-A: union AI-guard diagnostics for dotenv-cascade files.
-        if Self::is_dotenv_cascade_doc(doc) {
-            diags.extend(compute_ai_guard_diagnostics(&doc.content));
-        }
-        let client = self.client.clone();
-        let uri = uri.clone();
-        let version = doc.version;
-        tokio::spawn(async move {
-            client.publish_diagnostics(uri, diags, Some(version)).await;
-        });
-    }
-
-    /// Re-publish diagnostics for all open documents (plain `.env` files and
-    /// config-format documents). Called when the schema changes so editors see
-    /// updated unknown-key / type diagnostics without reopening files.
-    ///
-    /// M-B: also iterates `config_documents` so properties/yaml/.env.local files
-    /// get refreshed diagnostics when `.env.schema` is edited.
     fn republish_all(&self) {
-        // Plain .env documents.
         if let Ok(docs) = self.documents.read() {
+            // Collect URIs to avoid holding lock across publish calls
             let uris: Vec<Url> = docs.keys().cloned().collect();
             drop(docs);
+
             for uri in uris {
                 if let Ok(doc_map) = self.documents.read() {
                     if let Some(doc) = doc_map.get(&uri) {
                         self.publish_diagnostics_for(&uri, doc);
-                    }
-                }
-            }
-        }
-        // Config-format documents (.properties / .env-cascade / YAML) — M-B.
-        if let Ok(cfg_docs) = self.config_documents.read() {
-            let uris: Vec<Url> = cfg_docs.keys().cloned().collect();
-            drop(cfg_docs);
-            for uri in uris {
-                if let Ok(cfg_map) = self.config_documents.read() {
-                    if let Some(doc) = cfg_map.get(&uri) {
-                        self.publish_config_diagnostics_for(&uri, doc);
                     }
                 }
             }
@@ -710,39 +521,10 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "envforge LSP initialized")
             .await;
-
-        let managed_count = self.managed_vars.read().map(|m| m.len()).unwrap_or(0);
-        let root_path_opt = self
-            .workspace_root
-            .read()
-            .ok()
-            .and_then(|r| r.clone())
-            .and_then(|u| u.to_file_path().ok());
-        if managed_count > 0 {
-            if let Some(root_path) = root_path_opt {
-                match crate::ops::fence::check_fence_status(&root_path) {
-                    Ok(status) if !status.all_fenced => {
-                        match crate::ops::fence::create_fence(&root_path, false) {
-                            Ok(_) => {
-                                self.client
-                                    .log_message(
-                                        MessageType::INFO,
-                                        "envforge: auto-enabled AI secret fence",
-                                    )
-                                    .await;
-                            }
-                            Err(e) => {
-                                eprintln!("LSP: failed to auto-create fence: {}", e);
-                            }
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("LSP: fence status check failed: {}", e);
-                    }
-                }
-            }
-        }
+        // NOTE: the LSP never auto-creates a fence. Fencing writes files into the
+        // user's project (.envforgeignore, .cursorignore, .github/copilot-instructions.md,
+        // .claude/settings.json, …) and must only happen on an explicit user action
+        // (the `envforge.fenceToggle` command or the `envforge fence` CLI).
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -795,45 +577,6 @@ impl LanguageServer for Backend {
                 params.text_document.version,
             );
             return;
-        }
-
-        // Config-format files (.properties, .env-cascade) — new handler.
-        // Checked BEFORE is_env_file so cascade .env files get config
-        // features (FR4) while plain .env still falls through to the
-        // existing env handler when not matched.
-        if is_config_format_file(&uri) {
-            // FR18/NFR5: Fence enforcement at parity with .env files.
-            // Config files that carry secrets must be refused when the
-            // workspace fence is active — identical to the is_fenced_env_file
-            // guard that protects plain .env files below.
-            if self.is_fenced_env_file(&uri) {
-                eprintln!(
-                    "LSP: refusing did_open for {} — workspace is fenced (config file)",
-                    uri
-                );
-                return;
-            }
-            if let Some((fmt, layer)) = format_for_uri(&uri) {
-                let entries = fmt.parse(&params.text_document.text, layer.clone());
-                let doc = ConfigDocumentState {
-                    content: params.text_document.text.clone(),
-                    version: params.text_document.version,
-                    entries,
-                    source_layer: layer,
-                    write_capability: fmt.write_capability(),
-                };
-                self.publish_config_diagnostics_for(&uri, &doc);
-                if let Ok(mut w) = self.config_documents.write() {
-                    let max_docs = self.security_policy.max_tracked_documents;
-                    if w.len() >= max_docs {
-                        if let Some(oldest) = w.keys().next().cloned() {
-                            w.remove(&oldest);
-                        }
-                    }
-                    w.insert(uri, doc);
-                }
-                return;
-            }
         }
 
         if !Self::is_env_file(&uri) {
@@ -926,35 +669,6 @@ impl LanguageServer for Backend {
             return;
         }
 
-        // Config-format files (.properties, .env-cascade) — new handler (FR4).
-        if is_config_format_file(&uri) {
-            // FR18/NFR5: Fence enforcement at parity with .env files.
-            if self.is_fenced_env_file(&uri) {
-                eprintln!(
-                    "LSP: refusing did_change for {} — workspace is fenced (config file)",
-                    uri
-                );
-                return;
-            }
-            if let Some((fmt, layer)) = format_for_uri(&uri) {
-                if let Some(change) = params.content_changes.first() {
-                    let entries = fmt.parse(&change.text, layer.clone());
-                    let doc = ConfigDocumentState {
-                        content: change.text.clone(),
-                        version: params.text_document.version,
-                        entries,
-                        source_layer: layer,
-                        write_capability: fmt.write_capability(),
-                    };
-                    self.publish_config_diagnostics_for(&uri, &doc);
-                    if let Ok(mut w) = self.config_documents.write() {
-                        w.insert(uri, doc);
-                    }
-                }
-                return;
-            }
-        }
-
         if !Self::is_env_file(&uri) {
             return;
         }
@@ -992,25 +706,6 @@ impl LanguageServer for Backend {
             return;
         }
 
-        // Config-format files (.properties, .env-cascade, YAML) — re-publish
-        // diagnostics on save so editors see the current state even if the
-        // file was modified outside the editor (NFR12).
-        // M-1: skip publishing (which would leak key names) when the file is fenced.
-        if is_config_format_file(&uri) {
-            if self.is_fenced_env_file(&uri) {
-                return;
-            }
-            let cfg_doc = self
-                .config_documents
-                .read()
-                .ok()
-                .and_then(|docs| docs.get(&uri).cloned());
-            if let Some(doc) = cfg_doc {
-                self.publish_config_diagnostics_for(&uri, &doc);
-            }
-            return;
-        }
-
         if Self::is_env_file(&uri) {
             let doc = self
                 .documents
@@ -1033,12 +728,6 @@ impl LanguageServer for Backend {
                 }
             }
         }
-        // Also remove config-format document if present — zeroize secrets first (C-2).
-        if let Ok(mut w) = self.config_documents.write() {
-            if let Some(mut state) = w.remove(&params.text_document.uri) {
-                Self::zeroize_config_state(&mut state);
-            }
-        }
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -1057,43 +746,6 @@ impl LanguageServer for Backend {
         let _ = self
             .audit_logger
             .log_operation("hover", uri.as_str(), &keys_accessed, "success");
-
-        // Config-format hover (properties / .env-cascade) — FR15.
-        // C-1(b): per-request fence guard — refuse if fenced, regardless of
-        // whether the document is still in config_documents (stale-data defense).
-        if is_config_format_file(uri) && self.is_fenced_env_file(uri) {
-            return Ok(None);
-        }
-        if let Some(cfg_doc) = self
-            .config_documents
-            .read()
-            .ok()
-            .and_then(|docs| docs.get(uri).cloned())
-        {
-            let schema = self.schema.read().ok().and_then(|r| r.clone());
-            // Assemble all open config documents in the same workspace,
-            // sorted by source_layer precedence (base < profile;
-            // .env < .env.local < .env.{env}) so the resolution engine
-            // picks the correct winning layer (FR15).
-            let all_layers: Vec<Vec<crate::ops::config_format::ConfigEntry>> = {
-                let docs = self.config_documents.read();
-                let mut layer_docs: Vec<ConfigDocumentState> = docs
-                    .as_ref()
-                    .map(|m| m.values().cloned().collect())
-                    .unwrap_or_default();
-                layer_docs.sort_by_key(|d| d.source_layer.precedence());
-                layer_docs.into_iter().map(|d| d.entries).collect()
-            };
-            // FR4 (Intent 040): build UnifiedSchema for cross-format sensitivity.
-            let unified = schema.as_ref().map(|s| UnifiedSchema::new(s.clone()));
-            return Ok(config_hover(
-                pos,
-                &cfg_doc.entries,
-                &all_layers,
-                schema.as_ref(),
-                unified.as_ref(),
-            ));
-        }
 
         let doc = self
             .documents
@@ -1132,30 +784,6 @@ impl LanguageServer for Backend {
             super::rate_limit::timing_jitter_micros(),
         ))
         .await;
-
-        // Config-format completion (properties / .env-cascade).
-        // C-1(b): per-request fence guard.
-        if is_config_format_file(uri) && self.is_fenced_env_file(uri) {
-            return Ok(None);
-        }
-        if let Some(cfg_doc) = self
-            .config_documents
-            .read()
-            .ok()
-            .and_then(|docs| docs.get(uri).cloned())
-        {
-            let schema = self.schema.read().ok().and_then(|r| r.clone());
-            let items = super::config_features::config_completions(
-                pos,
-                &cfg_doc.content,
-                &cfg_doc.entries,
-                schema.as_ref(),
-            );
-            if items.is_empty() {
-                return Ok(None);
-            }
-            return Ok(Some(CompletionResponse::Array(items)));
-        }
 
         let doc = self
             .documents
@@ -1201,95 +829,6 @@ impl LanguageServer for Backend {
             .ok()
             .map(|lines| lines.clone())
             .unwrap_or_default();
-
-        // Config-format files (.properties / .env-cascade / YAML) — use the
-        // config_documents store so Unit-001/002 files retain goto-def (F6).
-        // C-1(b): per-request fence guard.
-        if is_config_format_file(uri) && self.is_fenced_env_file(uri) {
-            return Ok(None);
-        }
-        if is_config_format_file(uri) {
-            if let Some(cfg_doc) = self
-                .config_documents
-                .read()
-                .ok()
-                .and_then(|docs| docs.get(uri).cloned())
-            {
-                let open_config_docs: std::collections::HashMap<Url, Vec<ConfigEntry>> = self
-                    .config_documents
-                    .read()
-                    .ok()
-                    .map(|m| {
-                        m.iter()
-                            .map(|(u, d)| (u.clone(), d.entries.clone()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                // Per-format result (single-format, existing behaviour).
-                let per_format = super::config_features::config_goto_definition(
-                    pos,
-                    &cfg_doc.entries,
-                    schema_uri.as_ref(),
-                    &schema_lines,
-                    &open_config_docs,
-                );
-
-                // FR3 (Intent 040): union with cross-format goto-definition.
-                // Determine the key under cursor to pass to cross_format_goto_definition.
-                let key_under_cursor = cfg_doc
-                    .entries
-                    .iter()
-                    .find(|e| {
-                        !e.key.is_empty()
-                            && e.line == pos.line
-                            && pos.character >= e.key_range.start.character
-                            && pos.character <= e.key_range.end.character
-                    })
-                    .map(|e| e.key.clone());
-
-                if let Some(key) = key_under_cursor {
-                    let cross_locs = cross_format_goto_definition(
-                        &key,
-                        schema_uri.as_ref(),
-                        &schema_lines,
-                        &open_config_docs,
-                    );
-                    if cross_locs.is_empty() {
-                        return Ok(per_format);
-                    }
-                    // Merge: start with per-format scalar (if any), add cross locs.
-                    let mut merged: Vec<Location> = match per_format {
-                        Some(GotoDefinitionResponse::Scalar(loc)) => vec![loc],
-                        Some(GotoDefinitionResponse::Array(locs)) => locs,
-                        Some(GotoDefinitionResponse::Link(links)) => links
-                            .into_iter()
-                            .map(|l| Location {
-                                uri: l.target_uri,
-                                range: l.target_selection_range,
-                            })
-                            .collect(),
-                        None => Vec::new(),
-                    };
-                    for loc in cross_locs {
-                        merged.push(loc);
-                    }
-                    // Sort and dedup by (uri, line).
-                    merged.sort_by(|a, b| {
-                        a.uri
-                            .as_str()
-                            .cmp(b.uri.as_str())
-                            .then_with(|| a.range.start.line.cmp(&b.range.start.line))
-                    });
-                    merged.dedup_by(|a, b| {
-                        a.uri == b.uri && a.range.start.line == b.range.start.line
-                    });
-                    return Ok(Some(GotoDefinitionResponse::Array(merged)));
-                }
-
-                return Ok(per_format);
-            }
-        }
 
         // .env file → existing key → schema dispatch.
         if Self::is_env_file(uri) {
@@ -1338,24 +877,6 @@ impl LanguageServer for Backend {
 
         let uri = &params.text_document.uri;
 
-        // Config-format files (.properties / .env-cascade / YAML) — F6 fix.
-        // C-1(b): per-request fence guard.
-        if is_config_format_file(uri) && self.is_fenced_env_file(uri) {
-            return Ok(None);
-        }
-        if let Some(cfg_doc) = self
-            .config_documents
-            .read()
-            .ok()
-            .and_then(|docs| docs.get(uri).cloned())
-        {
-            let schema = self.schema.read().ok().and_then(|r| r.clone());
-            return Ok(super::document_symbol::config_document_symbols(
-                &cfg_doc.entries,
-                schema.as_ref(),
-            ));
-        }
-
         let doc = self
             .documents
             .read()
@@ -1403,13 +924,6 @@ impl LanguageServer for Backend {
 
         let uri = &params.text_document.uri;
 
-        // Config-format files (.properties / .env-cascade / YAML) — F6 fix.
-        // No code-lenses defined for config-format files yet; return None rather
-        // than crash on a missing doc lookup.
-        if is_config_format_file(uri) {
-            return Ok(None);
-        }
-
         let doc = self
             .documents
             .read()
@@ -1440,15 +954,6 @@ impl LanguageServer for Backend {
         self.set_request_method("textDocument/code_action");
 
         let uri = &params.text_document.uri;
-
-        // Config-format files (.properties / .env-cascade / YAML) — F6 fix.
-        // These are stored in config_documents, not documents.
-        if is_config_format_file(uri) {
-            // No code-actions defined for config-format files yet; return None.
-            // This preserves the feature parity baseline and avoids crashing on
-            // a missing doc lookup.
-            return Ok(None);
-        }
 
         let doc = self
             .documents
@@ -1563,26 +1068,6 @@ impl LanguageServer for Backend {
         .await;
 
         let uri = &params.text_document.uri;
-
-        // Config-format semantic tokens.
-        // C-1(b): per-request fence guard.
-        if is_config_format_file(uri) && self.is_fenced_env_file(uri) {
-            return Ok(None);
-        }
-        if let Some(cfg_doc) = self
-            .config_documents
-            .read()
-            .ok()
-            .and_then(|docs| docs.get(uri).cloned())
-        {
-            let schema = self.schema.read().ok().and_then(|r| r.clone());
-            let tokens = config_semantic_tokens(&cfg_doc.entries, schema.as_ref());
-            if tokens.data.is_empty() {
-                return Ok(None);
-            }
-            return Ok(Some(SemanticTokensResult::Tokens(tokens)));
-        }
-
         if !Self::is_env_file(uri) {
             return Ok(None);
         }
@@ -1610,39 +1095,6 @@ impl LanguageServer for Backend {
         }
 
         let uri = &params.text_document.uri;
-
-        // Config-format formatting.
-        // C-1(b): per-request fence guard.
-        if is_config_format_file(uri) && self.is_fenced_env_file(uri) {
-            return Ok(None);
-        }
-        if let Some(cfg_doc) = self
-            .config_documents
-            .read()
-            .ok()
-            .and_then(|docs| docs.get(uri).cloned())
-        {
-            // C-1: dispatch by format — never run the .properties KV-normalizing
-            // regex on YAML / TOML / JSONC content.
-            let edits = if is_yaml_config_file(uri) {
-                // YAML format is deliberately a no-op (Intent 038 Open decision 1).
-                config_yaml_format_text_edits(&cfg_doc.content)
-            } else if is_toml_config_file(uri) {
-                // TOML uses toml_edit lossless round-trip.
-                config_toml_format_text_edits(&cfg_doc.content)
-            } else if is_appsettings_file(uri) {
-                // JSONC: no formatter defined — return no edits (preserve content).
-                Vec::new()
-            } else {
-                // .properties / .env-cascade: existing KV-normalizing formatter.
-                config_format_text_edits(&cfg_doc.content, cfg_doc.write_capability)
-            };
-            if edits.is_empty() {
-                return Ok(None);
-            }
-            return Ok(Some(edits));
-        }
-
         if !Self::is_env_file(uri) {
             return Ok(None);
         }
@@ -1673,31 +1125,10 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
 
-        // C-1(b): per-request fence guard for config-format files.
-        if is_config_format_file(uri) && self.is_fenced_env_file(uri) {
-            return Ok(None);
-        }
-
-        // Resolve cursor → key. Config-format files checked first (F6),
-        // then env files, then source files.
-        let key = if is_config_format_file(uri) {
-            let cfg_docs = match self.config_documents.read() {
-                Ok(g) => g,
-                Err(_) => return Ok(None),
-            };
-            let Some(doc) = cfg_docs.get(uri) else {
-                return Ok(None);
-            };
-            doc.entries
-                .iter()
-                .find(|e| {
-                    !e.key.is_empty()
-                        && e.line == pos.line
-                        && pos.character >= e.key_range.start.character
-                        && pos.character <= e.key_range.end.character
-                })
-                .map(|e| e.key.clone())
-        } else if Self::is_env_file(uri) {
+        // Resolve cursor → key. Mirrors rename's resolution: env files
+        // use document entry hit-testing; source files use the same
+        // UPPER_SNAKE_CASE extraction as L4 go-to-def.
+        let key = if Self::is_env_file(uri) {
             let docs = match self.documents.read() {
                 Ok(g) => g,
                 Err(_) => return Ok(None),
@@ -1732,56 +1163,6 @@ impl LanguageServer for Backend {
             .ok()
             .map(|m| m.clone())
             .unwrap_or_default();
-
-        // For config-format files, search across config_documents (F6).
-        if is_config_format_file(uri) {
-            let open_config_docs: std::collections::HashMap<Url, Vec<ConfigEntry>> = self
-                .config_documents
-                .read()
-                .ok()
-                .map(|m| {
-                    m.iter()
-                        .map(|(u, d)| (u.clone(), d.entries.clone()))
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            // Per-format references (existing behaviour, exact-key match).
-            let mut locs = super::config_features::config_find_references(
-                &key,
-                schema_uri.as_ref(),
-                &schema_lines,
-                &open_config_docs,
-                include_declaration,
-            );
-
-            // FR3 (Intent 040): union with cross-format find-references.
-            let cross_locs = cross_format_find_references(
-                &key,
-                schema_uri.as_ref(),
-                &schema_lines,
-                &open_config_docs,
-                include_declaration,
-            );
-            for loc in cross_locs {
-                locs.push(loc);
-            }
-            // Sort and dedup by (uri, line).
-            locs.sort_by(|a, b| {
-                a.uri
-                    .as_str()
-                    .cmp(b.uri.as_str())
-                    .then_with(|| a.range.start.line.cmp(&b.range.start.line))
-            });
-            locs.dedup_by(|a, b| a.uri == b.uri && a.range.start.line == b.range.start.line);
-
-            return if locs.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(locs))
-            };
-        }
-
         let open_docs = self
             .documents
             .read()
@@ -1813,30 +1194,8 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
         let new_name = params.new_name;
 
-        // C-1(b): per-request fence guard for config-format files.
-        if is_config_format_file(uri) && self.is_fenced_env_file(uri) {
-            return Ok(None);
-        }
-
-        // Resolve the key at the cursor. Config-format files checked first (F6).
-        let old_key = if is_config_format_file(uri) {
-            let cfg_docs = match self.config_documents.read() {
-                Ok(g) => g,
-                Err(_) => return Ok(None),
-            };
-            let Some(doc) = cfg_docs.get(uri) else {
-                return Ok(None);
-            };
-            doc.entries
-                .iter()
-                .find(|e| {
-                    !e.key.is_empty()
-                        && e.line == pos.line
-                        && pos.character >= e.key_range.start.character
-                        && pos.character <= e.key_range.end.character
-                })
-                .map(|e| e.key.clone())
-        } else if Self::is_env_file(uri) {
+        // Resolve the key at the cursor.
+        let old_key = if Self::is_env_file(uri) {
             let docs = match self.documents.read() {
                 Ok(g) => g,
                 Err(_) => return Ok(None),
@@ -1873,122 +1232,6 @@ impl LanguageServer for Backend {
             .ok()
             .map(|m| m.clone())
             .unwrap_or_default();
-
-        // For config-format files, dispatch by format (C-2 fix).
-        // The generic config_rename writes the full new_name into a leaf key_range,
-        // causing data corruption for YAML/TOML/JSONC where the key_range spans
-        // only the leaf token. Use format-specific rename functions instead.
-        if is_config_format_file(uri) {
-            let write_cap = self
-                .config_documents
-                .read()
-                .ok()
-                .and_then(|docs| docs.get(uri).map(|d| d.write_capability))
-                .unwrap_or(WriteCapability::ReadOnly);
-
-            // Collect entries and content for all open config docs.
-            let (open_config_docs, doc_contents): (
-                std::collections::HashMap<Url, Vec<ConfigEntry>>,
-                std::collections::HashMap<Url, String>,
-            ) = self
-                .config_documents
-                .read()
-                .ok()
-                .map(|m| {
-                    let entries = m
-                        .iter()
-                        .map(|(u, d)| (u.clone(), d.entries.clone()))
-                        .collect();
-                    let contents = m
-                        .iter()
-                        .map(|(u, d)| (u.clone(), d.content.clone()))
-                        .collect();
-                    (entries, contents)
-                })
-                .unwrap_or_default();
-
-            // M-1 fix: scope collision check to same-format docs only.
-            // For YAML/TOML/JSONC renames we pass only same-format docs to
-            // the format-specific rename functions which do their own collision
-            // check scoped to their key namespace.
-
-            if is_yaml_config_file(uri) {
-                // C-2: YAML uses surgical byte-range splice via yamlpath.
-                // Scope to YAML docs only (M-1).
-                let yaml_docs: std::collections::HashMap<Url, Vec<ConfigEntry>> = open_config_docs
-                    .iter()
-                    .filter(|(u, _)| is_yaml_config_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                let yaml_contents: std::collections::HashMap<Url, String> = doc_contents
-                    .iter()
-                    .filter(|(u, _)| is_yaml_config_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                return Ok(config_yaml_rename(
-                    &old_key,
-                    &new_name,
-                    write_cap,
-                    &yaml_docs,
-                    &yaml_contents,
-                ));
-            }
-
-            if is_toml_config_file(uri) {
-                // C-2: TOML uses toml_edit lossless mutation.
-                // Scope to TOML docs only (M-1).
-                let toml_docs: std::collections::HashMap<Url, Vec<ConfigEntry>> = open_config_docs
-                    .iter()
-                    .filter(|(u, _)| is_toml_config_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                let toml_contents: std::collections::HashMap<Url, String> = doc_contents
-                    .iter()
-                    .filter(|(u, _)| is_toml_config_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                return Ok(config_toml_rename(
-                    &old_key,
-                    &new_name,
-                    write_cap,
-                    &toml_docs,
-                    &toml_contents,
-                ));
-            }
-
-            if is_appsettings_file(uri) {
-                // C-2: JSONC uses surgical byte-range splice.
-                // Scope to JSONC docs only (M-1).
-                let jsonc_docs: std::collections::HashMap<Url, Vec<ConfigEntry>> = open_config_docs
-                    .iter()
-                    .filter(|(u, _)| is_appsettings_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                let jsonc_contents: std::collections::HashMap<Url, String> = doc_contents
-                    .iter()
-                    .filter(|(u, _)| is_appsettings_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                return Ok(config_jsonc_rename(
-                    &old_key,
-                    &new_name,
-                    write_cap,
-                    &jsonc_docs,
-                    &jsonc_contents,
-                ));
-            }
-
-            // .properties / .env-cascade: use existing generic config_rename.
-            return Ok(super::config_features::config_rename(
-                &old_key,
-                &new_name,
-                write_cap,
-                schema_uri.as_ref(),
-                &schema_lines,
-                &open_config_docs,
-            ));
-        }
-
         let open_docs = self
             .documents
             .read()
@@ -2015,13 +1258,6 @@ impl LanguageServer for Backend {
         .await;
 
         let uri = &params.text_document.uri;
-
-        // Config-format files (.properties / .env-cascade / YAML) — F6 fix.
-        // No inlay-hints defined for config-format files yet; return None rather
-        // than crash on a missing doc lookup.
-        if is_config_format_file(uri) {
-            return Ok(None);
-        }
 
         let doc = self
             .documents
@@ -2174,36 +1410,7 @@ impl Backend {
 
     #[allow(clippy::unused_async)]
     pub async fn fence_toggle(&self, _params: serde_json::Value) -> Result<serde_json::Value> {
-        let result = self.ef_dispatch("envforge.fence.toggle", serde_json::Value::Null)?;
-        // C-1(a): if the fence was just activated, purge in-memory secret stores
-        // so stale data cannot be served by hover/completion/etc. after toggle.
-        let action = result
-            .get("result")
-            .and_then(|r| r.get("action"))
-            .and_then(|a| a.as_str())
-            .unwrap_or("");
-        if action == "enabled" {
-            // Zeroize and clear config documents.
-            if let Ok(mut w) = self.config_documents.write() {
-                for state in w.values_mut() {
-                    Self::zeroize_config_state(state);
-                }
-                w.clear();
-            }
-            // Zeroize and clear .env documents.
-            if let Ok(mut w) = self.documents.write() {
-                for state in w.values_mut() {
-                    state.content.zeroize();
-                    for entry in &mut state.entries {
-                        entry.key.zeroize();
-                        entry.value.zeroize();
-                    }
-                }
-                w.clear();
-            }
-            eprintln!("LSP: fence enabled — in-memory document stores purged (C-1)");
-        }
-        Ok(result)
+        self.ef_dispatch("envforge.fence.toggle", serde_json::Value::Null)
     }
 
     #[allow(clippy::unused_async)]
@@ -2239,27 +1446,6 @@ impl Backend {
     fn extract_keys_from_hover_position(&self, params: &HoverParams) -> Vec<String> {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
-
-        // M-3: consult config_documents first so config-file hover audits log
-        // the accessed key rather than an empty list.
-        if let Ok(docs) = self.config_documents.read() {
-            if let Some(doc) = docs.get(uri) {
-                let keys: Vec<String> = doc
-                    .entries
-                    .iter()
-                    .filter(|e| {
-                        !e.key.is_empty()
-                            && e.line == pos.line
-                            && pos.character >= e.key_range.start.character
-                            && pos.character <= e.value_range.end.character
-                    })
-                    .map(|e| e.key.clone())
-                    .collect();
-                if !keys.is_empty() {
-                    return keys;
-                }
-            }
-        }
 
         if let Ok(docs) = self.documents.read() {
             if let Some(doc) = docs.get(uri) {
@@ -2311,181 +1497,6 @@ pub async fn serve() {
         .custom_method("envforge/volatileExtend", Backend::volatile_extend)
         .finish();
     Server::new(stdin, stdout, socket).serve(service).await;
-}
-
-/// Test-only dispatch helpers. These functions mirror the exact dispatch
-/// logic used by the Backend handlers (formatting, rename, diagnostics).
-/// They accept the Backend's internal state directly so tests can exercise
-/// the routing code without instantiating a full LSP transport.
-///
-/// Tests in `tests/deferred_config_dispatch_tests.rs` use these to verify
-/// that C-1 / C-2 / H-1 / H-2 bugs are fixed at the dispatch level.
-///
-/// This module is compiled unconditionally so integration tests in `tests/`
-/// can import it. The `#[doc(hidden)]` attribute prevents it from appearing
-/// in rustdoc output — it is not part of the public API.
-#[doc(hidden)]
-pub mod test_dispatch {
-    use std::collections::HashMap;
-
-    use tower_lsp::lsp_types::{Diagnostic, TextEdit, Url, WorkspaceEdit};
-
-    use crate::lsp::config_features::{
-        config_diagnostics, config_format_text_edits, config_jsonc_diagnostics,
-        config_jsonc_rename, config_toml_diagnostics, config_toml_format_text_edits,
-        config_toml_rename, config_yaml_diagnostics, config_yaml_format_text_edits,
-        config_yaml_rename,
-    };
-    use crate::lsp::config_file::{
-        format_for_uri, is_appsettings_file, is_toml_config_file, is_yaml_config_file,
-    };
-    use crate::ops::config_format::{ConfigEntry, SourceLayer, WriteCapability};
-    use crate::ops::schema::EnvSchema;
-
-    /// A lightweight in-memory "Backend state" for dispatch tests.
-    /// Holds the same fields as the Backend's config_documents / schema stores
-    /// but without the RwLock overhead (tests are single-threaded).
-    pub struct TestBackend {
-        pub config_docs: HashMap<Url, (String, Vec<ConfigEntry>, SourceLayer, WriteCapability)>,
-        pub schema: Option<EnvSchema>,
-    }
-
-    impl Default for TestBackend {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl TestBackend {
-        /// Create an empty TestBackend.
-        pub fn new() -> Self {
-            Self {
-                config_docs: HashMap::new(),
-                schema: None,
-            }
-        }
-
-        /// Load a config document — mirrors `did_open` config path.
-        pub fn open_doc(&mut self, uri: Url, content: String) {
-            let (fmt, layer) = format_for_uri(&uri).expect("URI must be a recognized config file");
-            let entries = fmt.parse(&content, layer.clone());
-            let write_cap = fmt.write_capability();
-            self.config_docs
-                .insert(uri, (content, entries, layer, write_cap));
-        }
-
-        /// Set the schema.
-        pub fn set_schema(&mut self, schema: EnvSchema) {
-            self.schema = Some(schema);
-        }
-
-        /// Run the C-1 formatting dispatch — exact routing logic from Backend::formatting.
-        pub fn formatting_dispatch(&self, uri: &Url) -> Vec<TextEdit> {
-            let Some((content, _entries, _layer, write_cap)) = self.config_docs.get(uri) else {
-                return Vec::new();
-            };
-
-            if is_yaml_config_file(uri) {
-                config_yaml_format_text_edits(content)
-            } else if is_toml_config_file(uri) {
-                config_toml_format_text_edits(content)
-            } else if is_appsettings_file(uri) {
-                Vec::new()
-            } else {
-                config_format_text_edits(content, *write_cap)
-            }
-        }
-
-        /// Run the C-2 rename dispatch — exact routing logic from Backend::rename.
-        pub fn rename_dispatch(
-            &self,
-            uri: &Url,
-            old_key: &str,
-            new_name: &str,
-        ) -> Option<WorkspaceEdit> {
-            let write_cap = self
-                .config_docs
-                .get(uri)
-                .map(|(_, _, _, wc)| *wc)
-                .unwrap_or(WriteCapability::ReadOnly);
-
-            let open_docs: HashMap<Url, Vec<ConfigEntry>> = self
-                .config_docs
-                .iter()
-                .map(|(u, (_, entries, _, _))| (u.clone(), entries.clone()))
-                .collect();
-            let doc_contents: HashMap<Url, String> = self
-                .config_docs
-                .iter()
-                .map(|(u, (content, _, _, _))| (u.clone(), content.clone()))
-                .collect();
-
-            if is_yaml_config_file(uri) {
-                let yaml_docs: HashMap<Url, Vec<ConfigEntry>> = open_docs
-                    .iter()
-                    .filter(|(u, _)| is_yaml_config_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                let yaml_contents: HashMap<Url, String> = doc_contents
-                    .iter()
-                    .filter(|(u, _)| is_yaml_config_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                config_yaml_rename(old_key, new_name, write_cap, &yaml_docs, &yaml_contents)
-            } else if is_toml_config_file(uri) {
-                let toml_docs: HashMap<Url, Vec<ConfigEntry>> = open_docs
-                    .iter()
-                    .filter(|(u, _)| is_toml_config_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                let toml_contents: HashMap<Url, String> = doc_contents
-                    .iter()
-                    .filter(|(u, _)| is_toml_config_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                config_toml_rename(old_key, new_name, write_cap, &toml_docs, &toml_contents)
-            } else if is_appsettings_file(uri) {
-                let jsonc_docs: HashMap<Url, Vec<ConfigEntry>> = open_docs
-                    .iter()
-                    .filter(|(u, _)| is_appsettings_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                let jsonc_contents: HashMap<Url, String> = doc_contents
-                    .iter()
-                    .filter(|(u, _)| is_appsettings_file(u))
-                    .map(|(u, v)| (u.clone(), v.clone()))
-                    .collect();
-                config_jsonc_rename(old_key, new_name, write_cap, &jsonc_docs, &jsonc_contents)
-            } else {
-                crate::lsp::config_features::config_rename(
-                    old_key,
-                    new_name,
-                    write_cap,
-                    None,
-                    &HashMap::new(),
-                    &open_docs,
-                )
-            }
-        }
-
-        /// Run the H-1 diagnostics dispatch — exact routing from
-        /// Backend::publish_config_diagnostics_for.
-        pub fn diagnostics_dispatch(&self, uri: &Url) -> Vec<Diagnostic> {
-            let Some((content, entries, layer, _write_cap)) = self.config_docs.get(uri) else {
-                return Vec::new();
-            };
-
-            if is_yaml_config_file(uri) {
-                config_yaml_diagnostics(content, layer.clone())
-            } else if is_toml_config_file(uri) {
-                config_toml_diagnostics(content, layer.clone(), self.schema.as_ref())
-            } else if is_appsettings_file(uri) {
-                config_jsonc_diagnostics(content, layer.clone(), self.schema.as_ref())
-            } else {
-                config_diagnostics(entries, self.schema.as_ref())
-            }
-        }
-    }
 }
 
 #[cfg(test)]
