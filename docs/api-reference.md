@@ -407,6 +407,8 @@ envforge::ops::clipboard  →  clipboard integration
 envforge::ops::crud       →  add, edit, delete, move, toggle
 envforge::ops::dotenv     →  .env parsing, safe export
 envforge::ops::duplicates →  duplicate key detection
+envforge::ops::env_keyset →  unified key-set with per-environment values (IDE intelligence)
+envforge::ops::project    →  .envforge.project.toml manifest + env-set resolution (resolve_env_set)
 envforge::ops::encrypt    →  age encryption/decryption + EncryptError
 envforge::ops::fuzzy      →  fuzzy search with highlighting
 envforge::ops::grouping   →  variable grouping
@@ -436,10 +438,10 @@ Boots the tokio runtime and serves the language-server backend over stdin/stdout
 
 | Feature | LSP method | Notes |
 |---|---|---|
-| Diagnostics | `textDocument/publishDiagnostics` | Schema validation, unknown-key warnings (`envforge`), MCP credential findings (`envforge-mcp`), save-time AI-guard prompt-injection scan (`envforge-aiguard`) |
-| Hover | `textDocument/hover` | Schema info + provenance: source file, current value (redacted if sensitive), defined-by |
-| Completion | `textDocument/completion` | Schema-aware. Sensitive values redacted in `label`; raw value flows through `text_edit.new_text` only |
-| Go-to-definition | `textDocument/definition` | `.env` key → schema, source-language identifier (TS/JS/Py/Rust/Go/Java/Kotlin/Ruby/PHP/C#/Shell) → schema via UPPER_SNAKE extraction |
+| Diagnostics | `textDocument/publishDiagnostics` | Schema validation, unknown-key warnings (`envforge`), MCP credential findings (`envforge-mcp`), save-time AI-guard prompt-injection scan (`envforge-aiguard`), cross-environment missing-key warnings (`envforge-env`) |
+| Hover | `textDocument/hover` | Schema info + provenance: source file, current value (redacted if sensitive), defined-by. For manifest projects: which environments set the key (presence + `(sensitive)` marker; no raw values) |
+| Completion | `textDocument/completion` | Schema-aware + cross-environment: keys from the project key-set, a key's values from other environments. Sensitive values redacted in `label`; raw value flows through `text_edit.new_text` only (sensitive keys never offer a raw cross-env value) |
+| Go-to-definition | `textDocument/definition` | `.env` key → schema + the key's definitions across every recognized env file. (Source-language identifier → schema still implemented server-side; not attached by first-party clients.) |
 | Find references | `textDocument/references` | Schema declaration + every open `.env*` entry |
 | Rename | `textDocument/rename` | Atomic `WorkspaceEdit` across schema + open `.env*` docs |
 | Code actions | `textDocument/codeAction` | `Add to schema`, `Use secret reference`, `Mark as secret`, `Use default`, `Plant canary tripwire`, `Add all missing keys`, `Generate .env from schema` |

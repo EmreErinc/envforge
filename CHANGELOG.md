@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.4] - 2026-06-23
 
+### Added
+
+- **Environment-aware `.env` IDE support, driven by `.envforge.project.toml`.**
+  The project manifest's `[[environments]]` list is now the source of truth for
+  which env files a project has. The LSP resolves that into a recognized
+  env-file set (root-contained; absolute / `..`-escaping paths dropped),
+  reloads it live on manifest save, and falls back to the conventional `.env*`
+  set when no manifest is present. A malformed manifest surfaces an
+  `envforge-project` diagnostic and retains the last-good set.
+  - **Key & value completion across environments** — typing a key offers the
+    project's known keys (the union across all declared environments); typing a
+    value offers that key's values from other environments. Sensitive keys
+    never surface a raw cross-environment value (redaction parity). Project keys
+    rank above globally-managed shell vars so they are not buried in a project
+    env file.
+  - **Per-environment hover** — shows which environments set a key (with a
+    `(sensitive)` marker); never emits raw values, honoring the LSP's read-only
+    display boundary.
+  - **Cross-environment missing-key diagnostic** (`envforge-env`, Warning) —
+    flags a key set in another environment but absent from the one being edited.
+  - **Go-to-definition across environments** — jumps to a key's definitions in
+    every recognized env file plus the schema.
+  - **Schema sensitivity union** — a key marked `sensitive` in `.env.schema` is
+    redacted everywhere even when the key-name heuristic would miss it.
+  - Recognition + features are computed server-side and deterministic, so all
+    clients behave identically. (Client attach for non-`.env*` `extra_files`
+    names is a documented limitation — see `docs/envforge-project-toml.md`.)
+  - New: `docs/envforge-project-toml.md` (manifest schema + recognition +
+    precedence), `docs/prd.md`, `docs/epics.md`, `docs/architecture.md`.
+
 ### Changed
 
 - **LSP / IDE attach scope narrowed — attach only to EnvForge's own files.** The
@@ -23,8 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
-- **2,569 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
-  builds clean.
+- **2,601 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
+  builds clean. (+31 for the environment-aware `.env` IDE feature: manifest
+  resolution, unified key-set, cross-env completion/hover/diagnostics, schema
+  sensitivity union, cross-client conformance.)
 
 ## [0.8.3] - 2026-06-20
 

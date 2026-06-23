@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "zed_envforge"
-version = "0.1.0"
+version = "0.1.9"
 dependencies = [
  "zed_extension_api",
 ]

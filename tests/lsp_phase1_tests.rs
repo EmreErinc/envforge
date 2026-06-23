@@ -912,7 +912,7 @@ fn pos_on_key(entries: &[EnvDocEntry], key: &str) -> Position {
 fn test_hover_returns_none_for_unknown_key() {
     let entries = parse_entries("FOO=bar\n");
     let pos = pos_on_key(&entries, "FOO");
-    let result = hover::hover_info(pos, &entries, None, &[]);
+    let result = hover::hover_info(pos, &entries, None, &[], None);
     assert!(result.is_none());
 }
 
@@ -935,7 +935,7 @@ fn test_hover_includes_schema_info() {
     );
 
     let pos = pos_on_key(&entries, "DB_HOST");
-    let h = hover::hover_info(pos, &entries, Some(&schema), &[]).expect("hover");
+    let h = hover::hover_info(pos, &entries, Some(&schema), &[], None).expect("hover");
     let md = hover_markdown(h);
     assert!(md.contains("**DB_HOST**"));
     assert!(md.contains("Type: `string`"));
@@ -966,7 +966,7 @@ fn test_hover_provenance_managed_var() {
     );
 
     let pos = pos_on_key(&entries, "DB_HOST");
-    let h = hover::hover_info(pos, &entries, Some(&schema), &managed).expect("hover");
+    let h = hover::hover_info(pos, &entries, Some(&schema), &managed, None).expect("hover");
     let md = hover_markdown(h);
     assert!(md.contains("Defined by: `schema + local`"));
     // redact_for_label always returns "***" — full redaction, no prefix/char-count leak.
@@ -994,7 +994,7 @@ fn test_hover_provenance_redacts_sensitive() {
     );
 
     let pos = pos_on_key(&entries, "API_KEY");
-    let h = hover::hover_info(pos, &entries, Some(&schema), &managed).expect("hover");
+    let h = hover::hover_info(pos, &entries, Some(&schema), &managed, None).expect("hover");
     let md = hover_markdown(h);
     assert!(md.contains("Sensitive: **yes**"));
     assert!(!md.contains("supersecretvalue"));
@@ -1010,7 +1010,7 @@ fn test_hover_provenance_sensitive_by_key_name_without_schema_flag() {
     }];
 
     let pos = pos_on_key(&entries, "AWS_SECRET_ACCESS_KEY");
-    let h = hover::hover_info(pos, &entries, None, &managed).expect("hover");
+    let h = hover::hover_info(pos, &entries, None, &managed, None).expect("hover");
     let md = hover_markdown(h);
     assert!(!md.contains("AKIAEXAMPLEPAYLOAD"));
     assert!(md.contains("Defined by: `local (managed by envforge)`"));
@@ -1026,7 +1026,7 @@ fn test_hover_provenance_unset_managed_value() {
     }];
 
     let pos = pos_on_key(&entries, "OPTIONAL_VAR");
-    let h = hover::hover_info(pos, &entries, None, &managed).expect("hover");
+    let h = hover::hover_info(pos, &entries, None, &managed, None).expect("hover");
     let md = hover_markdown(h);
     assert!(md.contains("Current value: `not set`"));
 }
@@ -1593,7 +1593,7 @@ fn test_completion_key_position_lists_schema_keys() {
         line: 0,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
 
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"DB_HOST"));
@@ -1620,7 +1620,7 @@ fn test_completion_key_position_excludes_already_defined_keys() {
         line: 1,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(!labels.contains(&"DB_HOST"));
     assert!(labels.contains(&"DB_PORT"));
@@ -1648,7 +1648,7 @@ fn test_completion_value_position_enum_lists_allowed_values() {
         line: 0,
         character: 10,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"debug"));
     assert!(labels.contains(&"info"));
@@ -1671,7 +1671,7 @@ fn test_completion_value_position_bool_lists_true_false() {
         line: 0,
         character: 6,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"true"));
     assert!(labels.contains(&"false"));
@@ -1701,7 +1701,7 @@ fn test_completion_value_shows_managed_marker_instead_of_raw_value() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &managed);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &managed, None);
 
     let managed_item = items
         .iter()
@@ -1725,7 +1725,7 @@ fn test_completion_value_shows_managed_marker_for_non_sensitive_keys() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, None, &managed);
+    let items = completion::completions(pos, content, &entries, None, &managed, None);
 
     let managed_item = items
         .iter()
@@ -1746,7 +1746,7 @@ fn test_completion_ref_position_lists_other_entries() {
         line: 1,
         character: 1,
     };
-    let items = completion::completions(pos, content, &entries, None, &[]);
+    let items = completion::completions(pos, content, &entries, None, &[], None);
     assert!(items.iter().any(|i| i.label == "BASE"));
 }
 
@@ -1762,7 +1762,7 @@ fn test_completion_value_position_emits_dollar_refs_for_other_entries() {
         line: 1,
         character: 4,
     };
-    let items = completion::completions(pos, content, &entries, None, &[]);
+    let items = completion::completions(pos, content, &entries, None, &[], None);
     assert!(items.iter().any(|i| i.label == "${BASE}"));
 }
 
@@ -1779,7 +1779,7 @@ fn test_completion_includes_managed_vars_when_no_schema() {
         line: 0,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, None, &managed);
+    let items = completion::completions(pos, content, &entries, None, &managed, None);
     assert!(items.iter().any(|i| i.label == "GLOBAL_VAR"));
 }
 
@@ -1803,7 +1803,7 @@ fn test_completion_key_position_filters_by_prefix() {
         line: 0,
         character: 3,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"DB_HOST"));
     assert!(!labels.contains(&"API_KEY"));
@@ -1825,7 +1825,7 @@ fn test_completion_key_insert_text_includes_default_when_present() {
         line: 0,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let item = items
         .iter()
         .find(|i| i.label == "DB_PORT")
@@ -1858,7 +1858,7 @@ fn test_completion_command_dispatch_marker() {
         line: 0,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let item = items
         .iter()
         .find(|i| i.label == "CANONICAL")
@@ -3053,7 +3053,7 @@ fn test_completion_never_exposes_raw_secret_in_label() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, None, &managed);
+    let items = completion::completions(pos, content, &entries, None, &managed, None);
     // Must not contain any raw-secret-like labels (more than 8 chars of alphanum).
     for item in &items {
         let label = &item.label;
@@ -3094,7 +3094,7 @@ fn test_completion_sensitive_var_suppresses_default_example() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
 
     for item in &items {
         assert!(
@@ -3135,7 +3135,7 @@ fn test_completion_sensitive_var_no_text_edit_for_placeholder() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
 
     let sensitive_item = items
         .iter()

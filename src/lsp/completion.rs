@@ -4,6 +4,7 @@ use tower_lsp::lsp_types::{
 };
 
 use crate::ops::dotenv::is_sensitive_key;
+use crate::ops::env_keyset::EnvKeySet;
 use crate::ops::schema::{EnvSchema, VarType};
 
 use super::document::EnvDocEntry;
@@ -15,6 +16,7 @@ pub fn completions(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     managed_vars: &[ManagedVar],
+    env_keyset: Option<&EnvKeySet>,
 ) -> Vec<CompletionItem> {
     let line = content.lines().nth(position.line as usize).unwrap_or("");
     let col = position.character as usize;
@@ -40,7 +42,7 @@ pub fn completions(
             start: value_start,
             end: value_end,
         };
-        return value_completions(key, entries, schema, managed_vars, value_range);
+        return value_completions(key, entries, schema, managed_vars, env_keyset, value_range);
     }
 
     // $VAR reference
@@ -52,7 +54,14 @@ pub fn completions(
 
     // Key position
     let key_range = key_replace_range(line, before_cursor, position);
-    key_completions(before_cursor, entries, schema, managed_vars, key_range)
+    key_completions(
+        before_cursor,
+        entries,
+        schema,
+        managed_vars,
+        env_keyset,
+        key_range,
+    )
 }
 
 /// Compute the LSP range covering the partial KEY identifier currently being
@@ -110,6 +119,7 @@ fn key_completions(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     managed_vars: &[ManagedVar],
+    env_keyset: Option<&EnvKeySet>,
     replace_range: Range,
 ) -> Vec<CompletionItem> {
     let existing_keys: std::collections::HashSet<&str> =
@@ -164,7 +174,44 @@ fn key_completions(
         }
     }
 
-    // 2. From envforge managed vars
+    // 2. From the project key-set — keys declared in this project's other
+    //    environments (FR11). Ranked right after schema (0_) and ABOVE
+    //    globally-managed shell vars: in a project env file the project's own
+    //    keys are the most relevant, and must not be buried under the user's
+    //    whole shell environment. Runs before the managed loop so a key in both
+    //    is presented as a project key.
+    if let Some(ks) = env_keyset {
+        for name in ks.key_names() {
+            if existing_keys.contains(name) || !seen.insert(name.to_string()) {
+                continue;
+            }
+            if !prefix_lower.is_empty() && !name.to_lowercase().starts_with(&prefix_lower) {
+                continue;
+            }
+            let envs: Vec<&str> = ks
+                .entry(name)
+                .map(|e| e.environments().collect())
+                .unwrap_or_default();
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::VARIABLE),
+                detail: Some(if envs.is_empty() {
+                    "from project".to_string()
+                } else {
+                    format!("set in: {}", envs.join(", "))
+                }),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: format!("{}=", name),
+                })),
+                sort_text: Some(format!("1_{}", name)),
+                ..Default::default()
+            });
+        }
+    }
+
+    // 3. From envforge managed vars (global shell environment). Ranked last —
+    //    least relevant inside a project env file.
     for mv in managed_vars {
         if existing_keys.contains(mv.key.as_str()) || !seen.insert(mv.key.clone()) {
             continue;
@@ -192,7 +239,7 @@ fn key_completions(
                 range: replace_range,
                 new_text: format!("{}=", mv.key),
             })),
-            sort_text: Some(format!("1_{}", mv.key)),
+            sort_text: Some(format!("2_{}", mv.key)),
             ..Default::default()
         });
     }
@@ -211,6 +258,7 @@ fn value_completions(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     managed_vars: &[ManagedVar],
+    env_keyset: Option<&EnvKeySet>,
     value_range: Range,
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
@@ -311,6 +359,43 @@ fn value_completions(
                 });
             }
             break;
+        }
+    }
+
+    // Cross-environment values (FR12): values this key holds in other
+    // environments. Sensitive keys never surface a raw cross-env value — only
+    // a safe marker (redaction parity, NFR4); non-sensitive keys offer the
+    // real values for reuse.
+    if let Some(ks) = env_keyset {
+        if let Some(entry) = ks.entry(key) {
+            if entry.is_sensitive() {
+                let marker = "sensitive: set per environment";
+                if !items.iter().any(|i| i.detail.as_deref() == Some(marker)) {
+                    items.push(CompletionItem {
+                        label: "(sensitive — set per environment)".into(),
+                        kind: Some(CompletionItemKind::VALUE),
+                        detail: Some(marker.into()),
+                        filter_text: Some(String::new()),
+                        text_edit: None,
+                        sort_text: Some("0_xenv".into()),
+                        ..Default::default()
+                    });
+                }
+            } else {
+                for val in ks.distinct_values(key) {
+                    if items.iter().any(|i| i.label == val) {
+                        continue;
+                    }
+                    items.push(CompletionItem {
+                        label: val.to_string(),
+                        kind: Some(CompletionItemKind::VALUE),
+                        detail: Some("from other environments".into()),
+                        text_edit: value_edit(val.to_string()),
+                        sort_text: Some(format!("2_xenv_{}", val)),
+                        ..Default::default()
+                    });
+                }
+            }
         }
     }
 

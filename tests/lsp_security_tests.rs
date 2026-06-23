@@ -252,8 +252,8 @@ fn test_redact_sensitive_no_prefix_leak() {
 fn test_hover_never_leaks_raw_managed_value() {
     let (entries, managed) = make_managed_entries("DB_HOST=localhost\n");
     let schema = make_schema("DB_HOST", VarType::String, false);
-    let h =
-        hover_info(pos(0, 3), &entries, Some(&schema), &managed).expect("hover_info must succeed");
+    let h = hover_info(pos(0, 3), &entries, Some(&schema), &managed, None)
+        .expect("hover_info must succeed");
 
     if let tower_lsp::lsp_types::HoverContents::Markup(mc) = h.contents {
         assert!(
@@ -273,7 +273,7 @@ fn test_hover_never_leaks_raw_managed_value() {
 fn test_hover_redacts_sensitive_value() {
     let (entries, managed) = make_managed_entries("API_KEY=supersecretvalue\n");
     let schema = make_schema("API_KEY", VarType::String, true);
-    let h = hover_info(pos(0, 3), &entries, Some(&schema), &managed)
+    let h = hover_info(pos(0, 3), &entries, Some(&schema), &managed, None)
         .expect("hover_info must return Some for valid position");
 
     if let tower_lsp::lsp_types::HoverContents::Markup(mc) = h.contents {
@@ -288,7 +288,7 @@ fn test_hover_redacts_sensitive_value() {
 fn test_hover_missing_key_out_of_range_should_not_panic() {
     let (entries, managed) = make_managed_entries("VAR1=hello\n");
     // Position beyond last line must not panic — may return None.
-    let result = hover_info(pos(99, 0), &entries, None, &managed);
+    let result = hover_info(pos(99, 0), &entries, None, &managed, None);
     assert!(
         result.is_none() || result.is_some(),
         "hover_info must not panic for out-of-range position"

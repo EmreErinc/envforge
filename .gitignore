@@ -12,6 +12,7 @@ fuzz/target
 *.swo
 editors/intellij/.intellijPlatform/**
 editors/vscode/.vscode-test/
+editors/zed/target/**
 
 # OS
 .DS_Store
