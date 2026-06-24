@@ -61,7 +61,6 @@ pub fn completions(
         return reference_completions(entries, managed_vars, ref_range, &typed_prefix, schema);
     }
 
-    // Key position
     let key_range = key_replace_range(line, before_cursor, position);
     key_completions(
         before_cursor,

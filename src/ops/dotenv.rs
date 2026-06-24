@@ -37,12 +37,10 @@ pub fn parse_dotenv_content(content: &str) -> Vec<DotenvEntry> {
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Skip empty lines and comments
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
 
-        // Find the = separator
         if let Some(eq_pos) = trimmed.find('=') {
             let key = trimmed[..eq_pos].trim().to_string();
             let raw_value = trimmed[eq_pos + 1..].trim().to_string();
@@ -51,7 +49,6 @@ pub fn parse_dotenv_content(content: &str) -> Vec<DotenvEntry> {
                 continue;
             }
 
-            // Strip quotes from value
             let value = strip_quotes(&raw_value);
 
             entries.push(DotenvEntry { key, value });
@@ -76,7 +73,6 @@ pub fn import_entries(
     let mut overwritten = 0;
 
     for entry in entries {
-        // Check if key already exists
         let exists = shell_file.lines.iter().any(|node| match node {
             LineNode::EnvExport { key, .. } => key == &entry.key,
             _ => false,
@@ -84,7 +80,6 @@ pub fn import_entries(
 
         if exists {
             if force {
-                // Overwrite existing
                 if edit_entry(shell_file, &entry.key, &entry.value).is_ok() {
                     overwritten += 1;
                 } else {
@@ -149,12 +144,10 @@ pub fn export_entries(
     output.push('\n');
 
     for entry in &filtered {
-        // Skip commented/deleted entries
         if entry.location == EntryLocation::Commented {
             continue;
         }
 
-        // Skip sensitive if requested
         if exclude_sensitive && is_sensitive_key(&entry.key) {
             continue;
         }
@@ -227,7 +220,6 @@ pub fn export_env_example(schema: &crate::ops::schema::EnvSchema) -> String {
     vars.sort_by(|a, b| b.1.required.cmp(&a.1.required).then(a.0.cmp(b.0)));
 
     for (name, var) in &vars {
-        // Description as comment
         if let Some(ref desc) = var.description {
             output.push_str(&format!(
                 "# {} ({}{})\n",
@@ -237,7 +229,6 @@ pub fn export_env_example(schema: &crate::ops::schema::EnvSchema) -> String {
             ));
         }
 
-        // Placeholder value
         let placeholder = if let Some(ref example) = var.example {
             example.clone()
         } else if let Some(ref default) = var.default {

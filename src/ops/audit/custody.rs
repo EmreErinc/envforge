@@ -390,7 +390,6 @@ pub fn find_matching_secrets(events: &[AuditEvent], pattern: &str) -> Vec<String
         return keys;
     }
 
-    // Simple glob: * matches any substring
     if pattern.contains('*') {
         let parts: Vec<&str> = pattern.split('*').collect();
         keys.retain(|key| {

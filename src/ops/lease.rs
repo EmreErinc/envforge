@@ -594,12 +594,10 @@ fn spawn_watcher(lease_name: &str, pid: u32, expires_at: String) {
 
     let handle = rt.spawn(async move {
         loop {
-            // 1. TTL deadline?
             if Utc::now() >= deadline {
                 let _ = jit_revoke(&name, RevokeReason::TtlExpired);
                 break;
             }
-            // 2. PID still alive (and same start-time)?
             if !pid_alive_with_start(pid, pid_start) {
                 let _ = jit_revoke(&name, RevokeReason::PidExit);
                 break;
@@ -644,7 +642,6 @@ pub fn jit_grant(req: GrantRequest) -> Result<JitHandle, LeaseError> {
     // Secret redemption ticket — distinct from the (audit-logged) lease name.
     let ticket = uuid::Uuid::new_v4().to_string();
 
-    // Acquire lock once around create + extension + persist.
     let _guard = acquire_lease_lock();
 
     // Reuse existing TTL math from create_lease: build the record manually so

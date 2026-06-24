@@ -119,7 +119,6 @@ pub fn atomic_write(
         source: e,
     })?;
 
-    // Lock is released when lock_file (LockGuard) is dropped at end of scope
     Ok(())
 }
 

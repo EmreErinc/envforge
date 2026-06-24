@@ -106,7 +106,6 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
                     Style::default()
                 };
 
-                // Indent entries within groups
                 let indent = if app.grouping_enabled && app.search_query.is_empty() {
                     "  "
                 } else {
@@ -119,7 +118,6 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
                     Style::default().fg(Color::DarkGray)
                 };
 
-                // Build key spans with fuzzy highlight if searching
                 let fuzzy_results = app.fuzzy_results();
                 let matched_indices: Option<&Vec<usize>> = fuzzy_results
                     .iter()

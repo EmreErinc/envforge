@@ -506,7 +506,6 @@ pub fn sanitize_error_output(output: &str) -> String {
         .map(|line| {
             let lower = line.to_lowercase();
             if CREDENTIAL_PATTERNS.iter().any(|p| lower.contains(p)) {
-                // Redact the value portion after = or : delimiters
                 if let Some(pos) = line.find('=') {
                     format!("{}=[REDACTED]", &line[..pos])
                 } else if let Some(pos) = line.find(':') {

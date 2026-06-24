@@ -67,7 +67,6 @@ pub fn fuzzy_search(entries: &[EnvEntry], query: &str) -> Vec<FuzzyMatch> {
         }
     }
 
-    // Sort by score descending (best match first)
     results.sort_by_key(|a| std::cmp::Reverse(a.score));
     results
 }

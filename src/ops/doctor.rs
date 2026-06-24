@@ -63,7 +63,6 @@ impl HealthReport {
 pub fn run_doctor() -> HealthReport {
     let mut checks = Vec::new();
 
-    // 1. Config check
     let config_result = check_config();
     let config_ok = config_result.status == CheckStatus::Ok;
     checks.push(config_result);
@@ -73,32 +72,15 @@ pub fn run_doctor() -> HealthReport {
         let config = load_or_create_default().unwrap();
         let shell_files = load_shell_files(&config);
 
-        // 2. Encryption key
         checks.push(check_encryption_key());
-
-        // 3. Shell files
         checks.push(check_shell_files(&config, &shell_files));
-
-        // 4. Duplicates
         checks.push(check_duplicates(&shell_files));
-
-        // 5. Validation
         let entries = collect_entries(&shell_files);
         checks.push(check_validation(&config, &entries));
-
-        // 6. References
         checks.push(check_references(&entries));
-
-        // 7. AI safety
         checks.push(check_ai_safety());
-
-        // 8. Sync status
         checks.push(check_sync());
-
-        // 8. Provider binaries
         checks.push(check_provider_binaries());
-
-        // 9. Provider credentials
         checks.push(check_provider_credentials());
     }
 
@@ -539,7 +521,6 @@ fn check_provider_credentials() -> HealthCheck {
                 }
             }
 
-            // Check for credentials expiring within 24 hours
             let mut expiring_soon = Vec::new();
             let mut already_expired = Vec::new();
             for name in &ok_providers {
@@ -678,7 +659,6 @@ fn load_shell_files(config: &AppConfig) -> Vec<ShellFile> {
         }
     }
 
-    // Load active profile file if set
     if !config.profiles.active.is_empty() {
         if let Some(profile) = config.profiles.entries.get(&config.profiles.active) {
             let profile_path = shellexpand(&profile.file);
@@ -690,7 +670,6 @@ fn load_shell_files(config: &AppConfig) -> Vec<ShellFile> {
         }
     }
 
-    // Load shared file
     let shared = shellexpand(&config.profiles.shared_file);
     if shared.exists() {
         if let Ok(sf) = parse_shell_file(&shared) {

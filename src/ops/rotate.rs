@@ -63,7 +63,6 @@ pub fn plan_rotation(key: &str) -> Result<RotationPlan, OpError> {
         shell_files.push(parse_shell_file(&ref_path)?);
     }
 
-    // Load profile files
     if !config.profiles.active.is_empty() {
         if let Some(profile) = config.profiles.entries.get(&config.profiles.active) {
             let profile_path = shellexpand(&profile.file);
@@ -109,7 +108,6 @@ pub fn plan_rotation(key: &str) -> Result<RotationPlan, OpError> {
         .filter(|a| !a.path.is_empty())
         .map(|a| a.path.clone());
 
-    // Check sync status
     let is_synced = check_sync_status(key);
 
     let masked = mask_value(&current_value);
@@ -134,29 +132,23 @@ pub fn apply_rotation(
     new_value: &str,
     plan: &RotationPlan,
 ) -> Result<RotationResult, OpError> {
-    // Re-parse the source file fresh for safe_write
     let mut sf = parse_shell_file(&plan.source_file)?;
 
-    // Determine value to write
     let write_value = if plan.is_encrypted {
         encrypt_value(new_value)?
     } else {
         new_value.to_string()
     };
 
-    // Update entry
     edit_entry(&mut sf, key, &write_value)?;
 
-    // Write atomically
     let content = serialize_shell_file(&sf);
     safe_write(&sf.path, &content, Some(plan.source_hash))?;
 
-    // Reset age
     let provider = plan.provider_name.as_deref().unwrap_or("local");
     let path = plan.provider_path.as_deref().unwrap_or("");
     let age_reset = record_set(key, provider, path).is_ok();
 
-    // Log to changelog
     let config = load_or_create_default()?;
     let profile = &config.profiles.active;
     log_change(profile, "rotated", key, "secret rotated");

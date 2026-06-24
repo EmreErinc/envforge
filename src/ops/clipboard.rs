@@ -34,11 +34,9 @@ pub enum ClipboardError {
 ///
 /// Tries copypasta first, falls back to pbcopy on macOS.
 pub fn copy_to_clipboard(text: &str) -> Result<(), ClipboardError> {
-    // Try copypasta first
     match copy_via_copypasta(text) {
         Ok(()) => return Ok(()),
         Err(_) => {
-            // Fall back to pbcopy on macOS
             if cfg!(target_os = "macos") {
                 return copy_via_pbcopy(text);
             }

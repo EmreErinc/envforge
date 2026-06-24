@@ -107,7 +107,6 @@ fn scan_file(
     entries: &[EnvEntry],
     matches: &mut Vec<SecretMatch>,
 ) -> Result<(), std::io::Error> {
-    // Skip binary files by extension
     if is_binary_extension(path) {
         return Ok(());
     }

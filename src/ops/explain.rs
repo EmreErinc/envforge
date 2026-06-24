@@ -94,7 +94,6 @@ pub fn explain_key(key: &str) -> KeyExplanation {
         similar_keys: Vec::new(),
     };
 
-    // Load context (config + shell files)
     let (config, shell_files) = match load_context() {
         Ok(ctx) => ctx,
         Err(_) => return explanation,
@@ -102,11 +101,9 @@ pub fn explain_key(key: &str) -> KeyExplanation {
 
     let entries = collect_all_entries(&shell_files);
 
-    // 1. Source info — find all entries matching this key
     let matching: Vec<&EnvEntry> = entries.iter().filter(|e| e.key == key).collect();
 
     if matching.is_empty() {
-        // Suggest similar keys
         explanation.similar_keys = find_similar_keys(key, &entries);
         return explanation;
     }
@@ -147,16 +144,10 @@ pub fn explain_key(key: &str) -> KeyExplanation {
         .unwrap();
     let value = &active_entry.value;
 
-    // 2. Profile context
     explanation.profile = detect_profile_context(&config, active_entry);
-
-    // 3. Schema info
     explanation.schema = load_schema_info(key);
-
-    // 4. Encryption status
     explanation.encrypted = is_encrypted(value);
 
-    // 5. Secret reference
     if is_reference(value) {
         if let Some(secret_ref) = SecretRef::parse(value) {
             explanation.reference = Some(ReferenceInfo {
@@ -170,13 +161,9 @@ pub fn explain_key(key: &str) -> KeyExplanation {
         }
     }
 
-    // 6. Sync status
     explanation.sync_status = load_sync_status(key);
-
-    // 7. Age info
     explanation.age = load_age_info(key);
 
-    // 8. Value preview (mask if sensitive)
     let is_sensitive = explanation
         .schema
         .as_ref()
@@ -197,7 +184,6 @@ pub fn explain_key(key: &str) -> KeyExplanation {
 pub fn format_explanation(exp: &KeyExplanation) -> String {
     let mut out = String::new();
 
-    // Header
     let header = format!(" KEY: {} ", exp.key);
     let bar_len = 50usize.saturating_sub(header.len());
     out.push_str(&format!(
@@ -220,7 +206,6 @@ pub fn format_explanation(exp: &KeyExplanation) -> String {
         return out;
     }
 
-    // Source section
     out.push_str("\x1b[1mSource\x1b[0m\n");
     for (i, src) in exp.sources.iter().enumerate() {
         if exp.sources.len() > 1 {
@@ -238,7 +223,6 @@ pub fn format_explanation(exp: &KeyExplanation) -> String {
         out.push_str(&format!("  Status:   {}\n", src.status));
     }
 
-    // Profile section
     if let Some(ref profile) = exp.profile {
         out.push_str(&format!(
             "\n\x1b[1mProfile\x1b[0m\n  Profile:  {} ({})\n",
@@ -246,7 +230,6 @@ pub fn format_explanation(exp: &KeyExplanation) -> String {
         ));
     }
 
-    // Schema section
     if let Some(ref schema) = exp.schema {
         out.push_str(&format!(
             "\n\x1b[1mSchema\x1b[0m\n  Type:     {}\n  Required: {}\n",
@@ -273,7 +256,6 @@ pub fn format_explanation(exp: &KeyExplanation) -> String {
         }
     }
 
-    // Encryption
     let enc_label = if exp.encrypted {
         "\x1b[33mencrypted (age)\x1b[0m"
     } else {
@@ -281,7 +263,6 @@ pub fn format_explanation(exp: &KeyExplanation) -> String {
     };
     out.push_str(&format!("\n\x1b[1mEncryption:\x1b[0m {}\n", enc_label));
 
-    // Reference
     let ref_label = if let Some(ref r) = exp.reference {
         format!("{} ({})", r.provider, r.path)
     } else {
@@ -289,11 +270,9 @@ pub fn format_explanation(exp: &KeyExplanation) -> String {
     };
     out.push_str(&format!("\x1b[1mReference:\x1b[0m  {}\n", ref_label));
 
-    // Sync status
     let sync_label = exp.sync_status.as_deref().unwrap_or("N/A");
     out.push_str(&format!("\x1b[1mSync:\x1b[0m       {}\n", sync_label));
 
-    // Age info
     if let Some(ref age) = exp.age {
         let stale_marker = if age.stale {
             "\x1b[31m(stale)\x1b[0m"
@@ -306,7 +285,6 @@ pub fn format_explanation(exp: &KeyExplanation) -> String {
         ));
     }
 
-    // Value preview
     out.push_str(&format!(
         "\n\x1b[1mValue:\x1b[0m      {}\n",
         exp.value_preview
@@ -428,7 +406,6 @@ fn load_context() -> Result<(AppConfig, Vec<crate::model::ShellFile>), super::Op
         shell_files.push(parse_shell_file(&ref_path)?);
     }
 
-    // Also load profile-specific and shared files
     let shared_path = shellexpand(&config.profiles.shared_file);
     if shared_path.exists() && shared_path != primary && shared_path != ref_path {
         if let Ok(sf) = parse_shell_file(&shared_path) {
@@ -471,7 +448,6 @@ fn detect_profile_context(config: &AppConfig, entry: &EnvEntry) -> Option<Profil
         });
     }
 
-    // Check each profile's file
     for (name, profile_entry) in &config.profiles.entries {
         let profile_path = shellexpand(&profile_entry.file);
         if entry.source_file == profile_path {

@@ -90,7 +90,6 @@ pub fn collect_env(run_config: &RunConfig) -> Result<HashMap<String, String>, Ru
             }
         }
     } else {
-        // Multi-profile mode: iterate each profile, last wins
         for profile_name in &run_config.profiles {
             let profile = config.profiles.entries.get(profile_name).ok_or_else(|| {
                 let available = config.profiles.profile_names().join(", ");

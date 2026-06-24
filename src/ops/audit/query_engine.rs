@@ -613,7 +613,6 @@ mod tests {
                 direction: SortDirection::Asc,
             },
         );
-        // Should be sorted alphabetically by event type
         for i in 0..events.len().saturating_sub(1) {
             assert!(
                 format!("{:?}", events[i].event_type) <= format!("{:?}", events[i + 1].event_type)

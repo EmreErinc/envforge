@@ -18,9 +18,7 @@ pub fn mark_sync(
             warnings.push(format!("Key '{}' not found in environment", key));
             continue;
         }
-        // Remove from local_keys if present
         config.manifest.local_keys.retain(|k| k != key);
-        // Add to sync_keys if not already there
         if !config.manifest.sync_keys.contains(key) {
             config.manifest.sync_keys.push(key.clone());
         }
@@ -51,9 +49,7 @@ pub fn mark_local(
             warnings.push(format!("Key '{}' not found in environment", key));
             continue;
         }
-        // Remove from sync_keys if present
         config.manifest.sync_keys.retain(|k| k != key);
-        // Add to local_keys if not already there
         if !config.manifest.local_keys.contains(key) {
             config.manifest.local_keys.push(key.clone());
         }
@@ -88,13 +84,11 @@ pub fn mark_by_pattern(
         });
     }
 
-    // Also store the pattern in config
     let mut config = read_config(config_path)?;
     let glob = GlobPattern {
         pattern: pattern.to_string(),
         sync,
     };
-    // Replace existing pattern if same, else add
     config.manifest.patterns.retain(|p| p.pattern != pattern);
     config.manifest.patterns.push(glob);
     write_config(config_path, &config)?;

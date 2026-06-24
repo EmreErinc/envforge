@@ -68,7 +68,6 @@ pub fn run_guard(
 ) -> GuardResult {
     let mut warnings = Vec::new();
 
-    // Build the list of strings to scan for secrets
     let mut scan_strings: Vec<String> = Vec::new();
     if let Some(input) = tool_input {
         scan_strings.push(input.to_string());
@@ -84,7 +83,6 @@ pub fn run_guard(
 
     match stage {
         GuardStage::PreTool => {
-            // 1. Sensitive file access alert
             if tool_name == "Read" {
                 if let Some(input) = tool_input {
                     // tool_input is JSON; try to extract file_path, fall back to raw string
@@ -98,7 +96,6 @@ pub fn run_guard(
                 }
             }
 
-            // 2. Secret value in Bash command input (scan original + hardened inputs)
             if tool_name == "Bash" {
                 for scan_input in &scan_strings {
                     for (key, value) in known_secrets {
@@ -119,7 +116,6 @@ pub fn run_guard(
             }
         }
         GuardStage::PostTool => {
-            // 1. Secret value in tool output (scan original + hardened inputs)
             for scan_input in &scan_strings {
                 for (key, value) in known_secrets {
                     if value.len() >= 8 && scan_input.contains(value.as_str()) {
@@ -137,7 +133,6 @@ pub fn run_guard(
                 }
             }
 
-            // 2. Canary value detection in tool output
             if let Some(input) = tool_input {
                 if let Ok(canaries) = super::canary::load_canaries() {
                     for (canary_key, canary) in &canaries.canaries {
@@ -159,7 +154,6 @@ pub fn run_guard(
         }
     }
 
-    // External scanner findings (from new scanner pipeline)
     if let Some(findings) = scanner_findings {
         for finding in findings {
             for line in &finding.findings {
@@ -182,7 +176,6 @@ pub fn run_guard(
         }
     }
 
-    // Emit monitor event if warnings were generated
     if !warnings.is_empty() {
         crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
             source: crate::ops::monitor::EventSource::AiGuard,

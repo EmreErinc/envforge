@@ -30,7 +30,6 @@ pub struct InitResult {
 
 /// Initialize a new project. Creates config file and default environment .env file.
 pub fn init_project(opts: &InitOptions) -> Result<InitResult, ProjectError> {
-    // Check if already initialized (unless --force)
     if !opts.force {
         if let Some(detected) = detect_project_config(&opts.root) {
             return Err(ProjectError::AlreadyInitialized {
@@ -39,7 +38,6 @@ pub fn init_project(opts: &InitOptions) -> Result<InitResult, ProjectError> {
         }
     }
 
-    // Build config
     let config = ProjectConfig {
         project: ProjectMeta {
             name: opts.project_name.clone(),
@@ -57,11 +55,9 @@ pub fn init_project(opts: &InitOptions) -> Result<InitResult, ProjectError> {
         ai_guard: crate::ops::project::config::AiGuardConfig::default(),
     };
 
-    // Write config file
     let config_path = opts.root.join(opts.format.default_filename());
     save_project_config(&config, &config_path, opts.format)?;
 
-    // Create .env file if it doesn't exist
     let env_path = opts.root.join(&opts.env_file_path);
     if !env_path.exists() {
         let stub = env_file_template(&opts.default_env_name);
@@ -98,7 +94,6 @@ pub fn import_existing_env(source: &Path, target: &Path) -> Result<usize, Projec
         })
         .count();
 
-    // Copy content to target
     std::fs::write(target, &content).map_err(|e| ProjectError::IoError {
         path: target.to_path_buf(),
         source: e,

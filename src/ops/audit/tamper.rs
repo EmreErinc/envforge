@@ -316,7 +316,6 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityResult, TamperError> {
 
         total_events += 1;
 
-        // Check that prev_hash matches what we expect
         if let Some(ref expected_prev) = prev_hash {
             if event.prev_hash.as_deref() != Some(expected_prev) {
                 breaks.push(ChainBreak {
@@ -327,7 +326,6 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityResult, TamperError> {
                 });
             }
         } else if event.prev_hash.is_some() {
-            // First event should have no prev_hash
             breaks.push(ChainBreak {
                 line_number: line_num_u64,
                 expected_hash: String::new(),
@@ -336,7 +334,6 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityResult, TamperError> {
             });
         }
 
-        // Recompute the entry hash and verify
         let expected_hash = event.compute_entry_hash();
         if event.entry_hash != expected_hash {
             breaks.push(ChainBreak {

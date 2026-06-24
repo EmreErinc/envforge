@@ -33,7 +33,6 @@ pub fn detect_conflicts(
 
     let mut conflicts = Vec::new();
 
-    // Collect all unique keys across all three sets
     let mut all_keys: Vec<&str> = Vec::new();
     for k in base_map.keys() {
         if !all_keys.contains(k) {
@@ -59,7 +58,6 @@ pub fn detect_conflicts(
         let local_changed = local_val != base_val;
         let remote_changed = remote_val != base_val;
 
-        // Only a conflict if both sides changed AND they differ from each other
         if local_changed && remote_changed && local_val != remote_val {
             conflicts.push(ConflictEntry {
                 key: (*key).to_string(),

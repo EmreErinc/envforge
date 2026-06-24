@@ -91,7 +91,6 @@ pub struct CanaryAlert {
 
 /// Generate a fake but plausible credential value for a given pattern.
 pub fn generate_fake_value(pattern: &str) -> String {
-    // Generate deterministic-looking but fake values
     let suffix: String = (0..20)
         .map(|i| {
             let chars = b"abcdefghijklmnopqrstuvwxyz0123456789";
@@ -446,7 +445,6 @@ pub fn place_canary_in_file(
         String::new()
     };
 
-    // Check if already placed
     if content.contains(&marker) {
         return Ok(false);
     }

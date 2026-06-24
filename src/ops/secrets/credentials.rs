@@ -409,10 +409,8 @@ pub fn store_credential_with_ttl(
     value: &str,
     ttl: Option<&str>,
 ) -> Result<(), SecretsError> {
-    // Store the encrypted credential as usual.
     store_credential(provider, key, value)?;
 
-    // If a TTL is provided, write the expiry to the _meta section.
     if let Some(ttl_str) = ttl {
         let seconds = parse_duration(ttl_str).map_err(SecretsError::CredentialError)?;
         let expires_at = Utc::now() + chrono::Duration::seconds(seconds);
@@ -721,12 +719,10 @@ mod tests {
 
         let mut store = CredentialStore::default();
 
-        // Credential section
         let mut creds = HashMap::new();
         creds.insert("token".to_string(), "ENC[age:test123]".to_string());
         store.providers.insert("vault".to_string(), creds);
 
-        // Meta section
         let mut meta = HashMap::new();
         meta.insert(
             "token_expires".to_string(),

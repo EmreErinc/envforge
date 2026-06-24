@@ -164,7 +164,6 @@ pub fn read_cache(provider: &str, key: &str) -> Result<Option<String>, SecretsEr
         return Ok(None);
     };
 
-    // Check TTL
     if let Ok(fetched) = chrono::DateTime::parse_from_rfc3339(&entry.fetched_at) {
         let now = chrono::Utc::now();
         let elapsed = now.signed_duration_since(fetched).num_seconds() as u64;
@@ -441,7 +440,6 @@ pub fn resolve_reference(
         return Ok(cached);
     }
 
-    // Try provider
     match provider.get(credentials, &secret_ref.path, &secret_ref.key) {
         Ok(value) => {
             // Caching is best-effort: a failure to encrypt/write (e.g. the age
@@ -456,7 +454,6 @@ pub fn resolve_reference(
             Ok(value)
         }
         Err(e) => {
-            // Fallback to stale cache
             if let Some(stale) = read_cache_stale(&secret_ref.provider, &secret_ref.key)? {
                 // L8: do not interpolate the provider error here — it can carry
                 // upstream detail; the stale-fallback notice only needs the key.

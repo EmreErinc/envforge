@@ -80,9 +80,7 @@ fn parse_git_log(
     let mut removed_keys: HashMap<String, String> = HashMap::new();
 
     for line in log_output.lines() {
-        // Check if this is a commit header line (contains | separators)
         if let Some(info) = try_parse_commit_line(line) {
-            // Flush previous commit
             if let Some(ref commit) = current_commit {
                 flush_commit(
                     commit,
@@ -99,7 +97,6 @@ fn parse_git_log(
             continue;
         }
 
-        // Parse diff lines for key changes
         if current_commit.is_some() {
             if let Some(stripped) = line.strip_prefix('+') {
                 if !stripped.starts_with("++") {
@@ -117,7 +114,6 @@ fn parse_git_log(
         }
     }
 
-    // Flush last commit
     if let Some(ref commit) = current_commit {
         flush_commit(
             commit,
