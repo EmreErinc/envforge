@@ -13,7 +13,6 @@ pub fn is_valid_email(email: &str) -> bool {
 
 /// Validate a URL. Supports http, https, and common DB protocols.
 pub fn is_valid_url(url: &str) -> bool {
-    // Simple check first
     if url.is_empty() {
         return false;
     }
@@ -35,7 +34,6 @@ pub fn is_valid_url(url: &str) -> bool {
         return false;
     }
 
-    // Basic regex for the rest of the URL
     let re = URL_REGEX.get_or_init(|| Regex::new(r"^[a-z0-9]+://[^\s/$.?#].[^\s]*$").unwrap());
     re.is_match(url)
 }

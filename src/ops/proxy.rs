@@ -34,7 +34,6 @@ const AUDIT_MAX_ENTRIES: usize = 10_000;
 fn log_audit(entry: &AuditEntry) {
     if let Ok(dir) = crate::config::config_dir() {
         let path = dir.join("access-audit.jsonl");
-        // Rotate if needed
         rotate_audit_log(&path);
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
@@ -57,11 +56,9 @@ fn rotate_audit_log(path: &std::path::Path) {
             let keep = &lines[lines.len() - (AUDIT_MAX_ENTRIES - 1)..];
             let new_contents = keep.join("\n") + "\n";
 
-            // Use atomic write pattern: tempfile + rename
             if let Ok(parent) = path.parent().ok_or(()) {
                 if let Ok(mut tmp) = tempfile::NamedTempFile::new_in(parent) {
                     if std::io::Write::write_all(&mut tmp, new_contents.as_bytes()).is_ok() {
-                        // Atomically replace the original file
                         let _ = tmp.persist(path);
                     }
                 }
@@ -542,7 +539,6 @@ pub fn start_proxy(
                     continue;
                 }
 
-                // Origin check
                 let origin = extract_origin(&request);
                 if !is_origin_allowed(origin.as_deref(), allowed_origins) {
                     let body = r#"{"error":"origin not allowed"}"#;
@@ -564,7 +560,6 @@ pub fn start_proxy(
                     continue;
                 }
 
-                // Lease check
                 if let Some((lease_status, lease_body)) =
                     check_lease_for_request(path, require_lease)
                 {
@@ -586,7 +581,6 @@ pub fn start_proxy(
                     continue;
                 }
 
-                // Approval check
                 if require_approval && (path == "/env" || path.starts_with("/env/")) {
                     let description = if path == "/env" {
                         let count = if let Some(keys) = allowed_keys {
@@ -621,7 +615,6 @@ pub fn start_proxy(
                         continue;
                     }
 
-                    // Log approval
                     let entry = AuditEntry {
                         timestamp: chrono::Local::now()
                             .format("%Y-%m-%dT%H:%M:%S%z")

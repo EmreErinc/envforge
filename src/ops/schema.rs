@@ -279,7 +279,6 @@ pub fn validate_against_schema(
 ) -> Vec<SchemaValidationError> {
     let mut errors = Vec::new();
 
-    // Check schema variables
     for (var_name, var_def) in &schema.variables {
         let effective = resolve_effective(var_def, environment);
 
@@ -639,7 +638,6 @@ pub fn detect_drift(
     env_files: &[(String, HashMap<String, String>)],
     schema: Option<&EnvSchema>,
 ) -> Vec<DriftEntry> {
-    // Collect all keys
     let mut all_keys: Vec<String> = Vec::new();
     for (_, env) in env_files {
         for key in env.keys() {
@@ -727,7 +725,6 @@ pub fn emit_ai_context(schema: Option<&EnvSchema>, entries: &[(String, String)])
     // Collect all variable names, schema first then inferred
     let mut seen = std::collections::HashSet::new();
 
-    // Schema-defined variables
     if let Some(s) = schema {
         let mut schema_keys: Vec<&String> = s.variables.keys().collect();
         schema_keys.sort();
@@ -793,10 +790,8 @@ pub fn auto_update_ai_context() {
         return; // Only update if file already exists
     }
 
-    // Load schema if available
     let schema = find_schema().and_then(|p| parse_schema(&p).ok());
 
-    // Load entries for inference
     if let Ok(config) = crate::config::load_or_create_default() {
         let mut shell_files = Vec::new();
         let primary = shellexpand_path(&config.files.primary);

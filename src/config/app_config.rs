@@ -300,7 +300,6 @@ pub fn load_or_create_default() -> Result<AppConfig, ConfigError> {
 
     if path.exists() {
         let mut config = load_config(&path)?;
-        // Migration: if profiles section is empty/default and old reference file exists
         migrate_if_needed(&mut config)?;
         Ok(config)
     } else {
@@ -324,15 +323,12 @@ fn migrate_if_needed(config: &mut AppConfig) -> Result<(), ConfigError> {
             .unwrap_or("~/.env_managed.default"),
     );
 
-    // Only migrate if old file exists and new profile file doesn't
     if old_ref.exists() && !default_profile_file.exists() && old_ref != default_profile_file {
-        // Rename old → default profile
         std::fs::rename(&old_ref, &default_profile_file).map_err(|e| ConfigError::IoError {
             path: old_ref.clone(),
             source: e,
         })?;
 
-        // Save updated config
         let config_path = config_file_path().map_err(|_| ConfigError::HomeDirNotFound)?;
         save_config(config, &config_path)?;
     }

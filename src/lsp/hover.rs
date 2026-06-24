@@ -1,5 +1,6 @@
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
+use crate::ops::env_keyset::EnvKeySet;
 use crate::ops::schema::{EnvSchema, VarType};
 
 use super::document::EnvDocEntry;
@@ -11,6 +12,7 @@ pub fn hover_info(
     entries: &[EnvDocEntry],
     schema: Option<&EnvSchema>,
     managed_vars: &[ManagedVar],
+    env_keyset: Option<&EnvKeySet>,
 ) -> Option<Hover> {
     let entry = entries.iter().find(|e| {
         e.line == position.line
@@ -20,8 +22,9 @@ pub fn hover_info(
 
     let schema_var = schema.and_then(|s| s.variables.get(&entry.key));
     let managed_match = managed_vars.iter().find(|m| m.key == entry.key);
+    let keyset_entry = env_keyset.and_then(|ks| ks.entry(&entry.key));
 
-    if schema_var.is_none() && managed_match.is_none() {
+    if schema_var.is_none() && managed_match.is_none() && keyset_entry.is_none() {
         return None;
     }
 
@@ -83,7 +86,8 @@ pub fn hover_info(
         (true, true) => "schema + local",
         (true, false) => "schema",
         (false, true) => "local (managed by envforge)",
-        (false, false) => unreachable!(),
+        // Reached only via the project key-set (key defined in other envs).
+        (false, false) => "project environments",
     };
     lines.push(format!("- Defined by: `{}`", defined_by));
 
@@ -106,6 +110,19 @@ pub fn hover_info(
         if !mv.source_file.is_empty() {
             let fname = mv.source_file.rsplit('/').next().unwrap_or(&mv.source_file);
             lines.push(format!("- Source file: `{}`", fname));
+        }
+    }
+
+    // Per-environment presence (FR15): which environments set this key. Raw
+    // values are NOT shown — the LSP is a read-only security boundary that
+    // never emits values in display surfaces (see `redact_for_label`); only
+    // presence and sensitivity are surfaced here.
+    if let Some(ke) = keyset_entry {
+        lines.push(String::new());
+        lines.push("**Set in environments:**".into());
+        for (env, occ) in &ke.values {
+            let note = if occ.sensitive { " (sensitive)" } else { "" };
+            lines.push(format!("- `{}`{}", env, note));
         }
     }
 

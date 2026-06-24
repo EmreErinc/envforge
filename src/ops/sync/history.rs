@@ -33,14 +33,11 @@ pub fn list_history(sync_path: &Path, limit: usize) -> Result<Vec<GitCommitInfo>
 pub fn rollback_to(sync_path: &Path, commit_hash: &str) -> Result<PathBuf, SyncError> {
     let snapshot_path = sync_path.join(SNAPSHOT_FILE);
 
-    // Backup current snapshot
     let backup_path = backup_current_snapshot(sync_path)?;
 
-    // Read snapshot content at target commit (may be encrypted)
     let git = GitCommandRunner::new(sync_path.to_path_buf());
     let old_content = git.show(commit_hash, SNAPSHOT_FILE)?;
 
-    // Decrypt if needed, then verify it's valid TOML before writing
     let toml_content = super::encryption::decrypt_snapshot(
         &old_content,
         &crate::ops::sync::model::SyncEncryptionPolicy::MigrationUntil(
@@ -63,7 +60,6 @@ pub fn rollback_to(sync_path: &Path, commit_hash: &str) -> Result<PathBuf, SyncE
         source: e,
     })?;
 
-    // Commit the rollback
     let short_hash = if commit_hash.len() > 7 {
         &commit_hash[..7]
     } else {
@@ -156,7 +152,6 @@ pub fn append_sync_log(sync_path: &Path, operation: &str, summary: &str) -> Resu
         summary: summary.to_string(),
     });
 
-    // Rotate: keep only last MAX_LOG_ENTRIES
     if log.entries.len() > MAX_LOG_ENTRIES {
         let start = log.entries.len() - MAX_LOG_ENTRIES;
         log.entries = log.entries[start..].to_vec();

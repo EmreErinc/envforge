@@ -307,7 +307,6 @@ fn cmd_list(
     let (config, shell_files) = load_context()?;
     let mut entries = collect_all_entries(&shell_files);
 
-    // Include shared file entries
     let shared_path = shellexpand_path(&config.profiles.shared_file);
     if shared_path.exists() {
         if let Ok(shared_sf) = parse_shell_file(&shared_path) {
@@ -315,7 +314,6 @@ fn cmd_list(
         }
     }
 
-    // Include active profile entries
     if let Some(profile_file) = config.profiles.active_file() {
         let profile_path = shellexpand_path(&profile_file);
         if profile_path.exists() {
@@ -412,7 +410,6 @@ fn cmd_search(
     let (config, shell_files) = load_context()?;
     let mut entries = collect_all_entries(&shell_files);
 
-    // Include shared file entries
     let shared_path = shellexpand_path(&config.profiles.shared_file);
     if shared_path.exists() {
         if let Ok(shared_sf) = parse_shell_file(&shared_path) {
@@ -420,7 +417,6 @@ fn cmd_search(
         }
     }
 
-    // Include active profile entries
     if let Some(profile_file) = config.profiles.active_file() {
         let profile_path = shellexpand_path(&profile_file);
         if profile_path.exists() {
@@ -1067,13 +1063,11 @@ fn cmd_git(action: &super::GitAction) -> Result<(), Box<dyn std::error::Error>> 
         }
 
         super::GitAction::RemoveMergeDriver => {
-            // Remove from gitconfig
             let _ = std::process::Command::new("git")
                 .args(["config", "--global", "--remove-section", "merge.envforge"])
                 .output();
             println!("✓ Merge driver removed from ~/.gitconfig");
 
-            // Remove from .gitattributes
             let gitattributes = std::path::Path::new(".gitattributes");
             if gitattributes.exists() {
                 let content = std::fs::read_to_string(gitattributes)?;
@@ -1093,7 +1087,6 @@ fn cmd_git(action: &super::GitAction) -> Result<(), Box<dyn std::error::Error>> 
         }
 
         super::GitAction::Merge { base, ours, theirs } => {
-            // Three-way merge for .env files
             let exit_code = merge_env_files(base, ours, theirs)?;
             if exit_code != 0 {
                 std::process::exit(exit_code);
@@ -1113,7 +1106,6 @@ fn merge_env_files(
     let ours = parse_env_file(ours_path);
     let theirs = parse_env_file(theirs_path);
 
-    // Collect all keys
     let mut all_keys: Vec<String> = Vec::new();
     for key in base.keys().chain(ours.keys()).chain(theirs.keys()) {
         if !all_keys.contains(key) {
@@ -1328,7 +1320,6 @@ fn cmd_scan_mcp(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Group findings by file
     let mut by_file: std::collections::BTreeMap<String, Vec<&crate::ops::mcp_scan::McpFinding>> =
         std::collections::BTreeMap::new();
     for f in &findings {
@@ -1755,7 +1746,6 @@ fn cmd_encrypt(key: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error
         return Ok(());
     }
 
-    // Find and update in shell file
     let source = entry.source_file.clone();
     if let Some(sf) = shell_files.iter_mut().find(|sf| sf.path == source) {
         edit_entry(sf, key, &encrypted)?;
@@ -1799,7 +1789,6 @@ fn cmd_decrypt(key: &str, dry_run: bool) -> Result<(), Box<dyn std::error::Error
         return Ok(());
     }
 
-    // Find and update in shell file
     let source = entry.source_file.clone();
     if let Some(sf) = shell_files.iter_mut().find(|sf| sf.path == source) {
         edit_entry(sf, key, &decrypted)?;
@@ -2397,7 +2386,6 @@ fn cmd_validate_enhanced(
 
     let mut all_errors = Vec::new();
 
-    // Run value-rule validation if --rules provided
     if !extra_rules.is_empty() {
         let env_entries: Vec<crate::ops::EnvEntry> = env
             .iter()
@@ -2432,7 +2420,6 @@ fn cmd_validate_enhanced(
         }
     }
 
-    // Try to load schema
     let schema_file = schema_path
         .map(std::path::PathBuf::from)
         .or_else(find_schema);
@@ -2574,10 +2561,8 @@ fn cmd_drift(
         return Ok(());
     }
 
-    // Matrix display
     let env_names: Vec<&str> = envs.iter().map(|(n, _)| n.as_str()).collect();
 
-    // Header
     print!("{:<30}", "Variable");
     for name in &env_names {
         print!(" {:<20}", name);
@@ -3212,7 +3197,6 @@ fn cmd_rotate(
         return Ok(());
     }
 
-    // Single key rotation
     let plan = plan_rotation(key)?;
 
     println!("Rotating: {}", key);
@@ -3248,7 +3232,6 @@ fn cmd_rotate(
         return Ok(());
     }
 
-    // Confirm
     eprint!("Replace {}? [y/N]: ", key);
     io::stderr().flush()?;
     let mut confirm = String::new();
@@ -3309,7 +3292,6 @@ fn cmd_rotate(
         }
     }
 
-    // Summary
     println!("\nRotation complete:");
     println!("  Key:           {}", result.key);
     println!("  New value:     {}", mask_value(new_value));
@@ -3803,7 +3785,6 @@ fn cmd_share(action: &ShareAction, dry_run: bool) -> Result<(), Box<dyn std::err
                 safe_write(&sf.path, &content, Some(sf.hash))?;
                 println!("\nImported {} key(s)", imported);
             } else {
-                // Print keys as KEY=VALUE
                 for (key, value) in &package.entries {
                     println!("{}={}", key, value);
                 }

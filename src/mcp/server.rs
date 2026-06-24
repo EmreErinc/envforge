@@ -29,8 +29,6 @@ use crate::ops::{
     schema::parse_schema,
 };
 
-// ── Audit helper ──────────────────────────────────────────────────────────────
-
 /// Build an audit message for an MCP tool invocation.
 ///
 /// The message contains ONLY the static tool name — no env data, no key values,
@@ -159,8 +157,6 @@ pub fn describe(dir: &Path) -> Vec<VarDesc> {
     vars.sort_by(|a, b| a.key.cmp(&b.key));
     vars
 }
-
-// ── MCP handler ──────────────────────────────────────────────────────────────
 
 /// Handler struct for the EnvForge MCP server.
 ///

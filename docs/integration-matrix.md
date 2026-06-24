@@ -56,6 +56,14 @@ Cursor, VS Code, Windsurf, Cline: see `mcp-server.md`.
 | Exposure classification | ✓ | ✓ | ✓ gutter | ✓ gutter | ✓ signs | — |
 | MCP-config credential lint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | MCP server (read-safe egress) | ✓ | — | ✓ client | ✓ client | ✓ client | ✓ extension |
+| Env-aware `.env` intelligence¹ | — | ✓ | ✓ | ✓ | ✓ | ✓ (LSP) |
+
+¹ Manifest-driven (`.envforge.project.toml`): recognizes a project's env files
+incl. profile variants, cross-environment key/value completion, per-environment
+hover, cross-env missing-key diagnostics, goto across env files. Computed
+server-side (deterministic across clients). Profile variants attach via existing
+`.env.*` selectors; non-`.env*` `extra_files` client attach is a documented
+limitation — see `docs/envforge-project-toml.md`.
 
 ## Deferred to Vision (not in 0.8.3)
 

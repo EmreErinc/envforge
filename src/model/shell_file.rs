@@ -189,8 +189,6 @@ impl ShellFile {
 mod tests {
     use super::*;
 
-    // ─── LineNode::line_number ─────────────────────────────────
-
     #[test]
     fn test_line_number_all_variants() {
         let blank = LineNode::Blank {
@@ -224,8 +222,6 @@ mod tests {
         assert_eq!(other.line_number(), 20);
     }
 
-    // ─── LineNode::original_text ──────────────────────────────
-
     #[test]
     fn test_original_text_returns_stored_text() {
         let node = LineNode::Comment {
@@ -235,8 +231,6 @@ mod tests {
         };
         assert_eq!(node.original_text(), "# my comment");
     }
-
-    // ─── LineNode::serialize ──────────────────────────────────
 
     #[test]
     fn test_serialize_unmodified_returns_original() {
@@ -291,8 +285,6 @@ mod tests {
         assert_eq!(node.serialize(true), "# a comment");
         assert_eq!(node.serialize(false), "# a comment");
     }
-
-    // ─── ShellFile::serialize ─────────────────────────────────
 
     #[test]
     fn test_shellfile_serialize_roundtrip() {

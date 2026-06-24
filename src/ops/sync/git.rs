@@ -172,7 +172,6 @@ impl GitCommandRunner {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             let command = format!("git {}", args.join(" "));
 
-            // Classify error by stderr content
             if stderr.contains("Authentication")
                 || stderr.contains("Permission denied")
                 || stderr.contains("could not read Username")
@@ -290,7 +289,6 @@ impl GitOps for GitCommandRunner {
     }
 
     fn push(&self) -> Result<PushResult, SyncError> {
-        // Check if remote exists first
         if self.remote_url()?.is_none() {
             return Ok(PushResult::NoRemote);
         }

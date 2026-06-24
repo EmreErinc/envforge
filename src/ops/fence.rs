@@ -354,7 +354,6 @@ pub fn create_fence_with(
     dry_run: bool,
     cfg: &FenceConfig,
 ) -> Result<FenceResult, OpError> {
-    // Emit monitor event
     crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
         source: crate::ops::monitor::EventSource::Fence,
         key: None,
@@ -524,7 +523,6 @@ fn write_deny_rule(
             ))
         })?;
 
-        // Check which deny rules are already present
         let existing_deny = json
             .pointer("/permissions/deny")
             .and_then(|v| v.as_array())
@@ -549,7 +547,6 @@ fn write_deny_rule(
         }
 
         if !dry_run {
-            // Merge deny rules into existing JSON
             let permissions = json
                 .as_object_mut()
                 .ok_or_else(|| OpError::Other("settings.json is not a JSON object".into()))?
@@ -1148,7 +1145,6 @@ pub fn apply_tool(project_dir: &Path, tool: &str, dry_run: bool) -> Result<PathB
         return Ok(target);
     }
 
-    // Create parent directories if needed
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }

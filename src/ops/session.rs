@@ -117,7 +117,6 @@ impl Default for SessionManager {
 
 /// Detect which AI tool is running in the current process context.
 pub fn detect_ai_tool() -> AiTool {
-    // Check well-known environment variables set by AI tools.
     let env = std::env::vars().collect::<HashMap<String, String>>();
 
     if env.contains_key("CLAUDE_CODE") || env.contains_key("ANTHROPIC_API_KEY") {

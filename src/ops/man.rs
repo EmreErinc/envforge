@@ -34,7 +34,6 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
     let mut in_flags_table = false;
 
     for line in CLI_REFERENCE.lines() {
-        // Track code blocks
         if line.starts_with("```") {
             if in_code_block {
                 // Closing code block
@@ -63,9 +62,7 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
             continue;
         }
 
-        // Category heading (## )
         if line.starts_with("## ") {
-            // Save previous command if any
             flush_command(
                 &mut pages,
                 &current_command,
@@ -90,9 +87,7 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
             continue;
         }
 
-        // Command heading (### envforge xxx)
         if line.starts_with("### envforge ") {
-            // Save previous command
             flush_command(
                 &mut pages,
                 &current_command,
@@ -113,7 +108,6 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
             continue;
         }
 
-        // Skip if no current command
         if current_command.is_empty() {
             continue;
         }
@@ -130,14 +124,12 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
             continue;
         }
 
-        // Examples section
         if line.starts_with("**Examples") || line.starts_with("**Example") {
             in_examples = true;
             in_flags_table = false;
             continue;
         }
 
-        // Flags table
         if line.starts_with("| Flag")
             || line.starts_with("| Argument")
             || line.starts_with("| Option")
@@ -147,12 +139,10 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
             continue;
         }
 
-        // Table separator
         if line.starts_with("|---") || line.starts_with("| ---") {
             continue;
         }
 
-        // Parse table rows for flags
         if in_flags_table && line.starts_with('|') {
             let cols: Vec<&str> = line
                 .split('|')
@@ -172,14 +162,12 @@ pub fn load_man_pages() -> BTreeMap<String, ManPage> {
             in_flags_table = false;
         }
 
-        // Horizontal rule = section break
         if line.starts_with("---") {
             in_examples = false;
             in_flags_table = false;
         }
     }
 
-    // Flush last command
     flush_command(
         &mut pages,
         &current_command,
@@ -215,7 +203,6 @@ fn flush_command(
         examples: examples.to_vec(),
     };
 
-    // Store with full command name
     pages.insert(command.to_string(), page.clone());
 
     // Also store with short name (e.g., "list" for "envforge list", "sync push" for "envforge sync push")
@@ -227,21 +214,18 @@ fn flush_command(
 pub fn format_man_page(page: &ManPage) -> String {
     let mut out = String::new();
 
-    // Header
     out.push_str(&format!(
         "\x1b[1m{}\x1b[0m(1)                  EnvForge Manual                  \x1b[1m{}\x1b[0m(1)\n\n",
         page.command.replace("envforge ", ""),
         page.command.replace("envforge ", ""),
     ));
 
-    // NAME
     out.push_str("\x1b[1mNAME\x1b[0m\n");
     out.push_str(&format!(
         "       {} - {}\n\n",
         page.command, page.description
     ));
 
-    // SYNOPSIS
     if !page.usage.is_empty() {
         out.push_str("\x1b[1mSYNOPSIS\x1b[0m\n");
         for line in page.usage.lines() {
@@ -250,13 +234,11 @@ pub fn format_man_page(page: &ManPage) -> String {
         out.push('\n');
     }
 
-    // DESCRIPTION
     if !page.description.is_empty() {
         out.push_str("\x1b[1mDESCRIPTION\x1b[0m\n");
         out.push_str(&format!("       {}\n\n", page.description));
     }
 
-    // OPTIONS
     if !page.flags.is_empty() {
         out.push_str("\x1b[1mOPTIONS\x1b[0m\n");
         for (flag, desc) in &page.flags {
@@ -267,7 +249,6 @@ pub fn format_man_page(page: &ManPage) -> String {
         }
     }
 
-    // EXAMPLES
     if !page.examples.is_empty() {
         out.push_str("\x1b[1mEXAMPLES\x1b[0m\n");
         for example in &page.examples {
@@ -283,15 +264,12 @@ pub fn format_man_page(page: &ManPage) -> String {
         }
     }
 
-    // CATEGORY
     out.push_str("\x1b[1mCATEGORY\x1b[0m\n");
     out.push_str(&format!("       {}\n\n", page.category));
 
-    // SEE ALSO
     out.push_str("\x1b[1mSEE ALSO\x1b[0m\n");
     out.push_str("       envforge(1), envforge-check(1), envforge-doctor(1)\n\n");
 
-    // Footer
     out.push_str(&format!(
         "EnvForge {}                                          {}\n",
         env!("CARGO_PKG_VERSION"),

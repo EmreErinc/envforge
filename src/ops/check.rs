@@ -190,7 +190,6 @@ fn check_prerequisites(cat: &CheckCategory) -> Result<(), String> {
             if find_schema().is_none() {
                 return Err("No .env.schema found for drift detection".into());
             }
-            // Check for .env.* files in cwd
             let cwd = std::env::current_dir().unwrap_or_default();
             let has_env_files = std::fs::read_dir(&cwd)
                 .map(|entries| {
@@ -259,7 +258,6 @@ fn run_validate_checks() -> Vec<CheckResult> {
         }
     };
 
-    // Load env from shell files
     let env: HashMap<String, String> = match load_env_map() {
         Ok(e) => e,
         Err(e) => {
@@ -403,7 +401,6 @@ fn run_drift_checks() -> Vec<CheckResult> {
         Err(_) => return vec![],
     };
 
-    // Find .env.* files in cwd
     let cwd = std::env::current_dir().unwrap_or_default();
     let env_files: Vec<String> = std::fs::read_dir(&cwd)
         .map(|entries| {
@@ -429,7 +426,6 @@ fn run_drift_checks() -> Vec<CheckResult> {
         return vec![];
     }
 
-    // Load env files
     let mut envs: Vec<(String, HashMap<String, String>)> = Vec::new();
     for path in &env_files {
         if let Ok(entries) = crate::ops::dotenv::parse_dotenv(Path::new(path)) {
@@ -524,7 +520,6 @@ pub fn print_report(report: &CheckReport) {
         }
     }
 
-    // Summary
     let total = report.results.len();
     let cats_run = CheckCategory::all()
         .iter()

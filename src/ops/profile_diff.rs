@@ -98,7 +98,6 @@ pub fn diff_profiles(
 
     let mut diff_entries = Vec::new();
 
-    // Keys only in A or modified
     for (key, value_a) in &map_a {
         match map_b.get(key) {
             Some(value_b) if value_a != value_b => {
@@ -123,7 +122,6 @@ pub fn diff_profiles(
         }
     }
 
-    // Keys only in B
     for (key, value_b) in &map_b {
         if !map_a.contains_key(key) {
             diff_entries.push(DiffEntry {

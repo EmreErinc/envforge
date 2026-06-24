@@ -59,7 +59,6 @@ pub fn set_override(
 ) -> Result<Vec<String>, SyncError> {
     let mut warnings = Vec::new();
 
-    // Check if key is synced
     let config_path = sync_path.join(CONFIG_FILE);
     let config = read_config(&config_path)?;
     if get_key_status(key, &config) != KeyStatus::Synced {

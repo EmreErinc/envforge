@@ -223,7 +223,6 @@ pub fn init_fresh(base_path: &Path, machine_id: &str) -> Result<(), SyncError> {
         });
     }
 
-    // Create directory structure
     std::fs::create_dir_all(base_path).map_err(|e| SyncError::IoError {
         path: base_path.to_path_buf(),
         source: e,
@@ -235,12 +234,10 @@ pub fn init_fresh(base_path: &Path, machine_id: &str) -> Result<(), SyncError> {
         source: e,
     })?;
 
-    // Initialize git repo
     let git = GitCommandRunner::new(base_path.to_path_buf());
     git.init(DEFAULT_BRANCH)?;
     git.ensure_user_config()?;
 
-    // Write .gitignore
     std::fs::write(base_path.join(".gitignore"), GITIGNORE_CONTENT).map_err(|e| {
         SyncError::IoError {
             path: base_path.join(".gitignore"),
@@ -248,7 +245,6 @@ pub fn init_fresh(base_path: &Path, machine_id: &str) -> Result<(), SyncError> {
         }
     })?;
 
-    // Write default config
     let config = SyncConfig::new(machine_id, None);
     write_config(&base_path.join(CONFIG_FILE), &config)?;
 
@@ -256,7 +252,6 @@ pub fn init_fresh(base_path: &Path, machine_id: &str) -> Result<(), SyncError> {
     let snapshot = SyncSnapshot::empty(machine_id);
     write_snapshot_encrypted(&base_path.join(SNAPSHOT_FILE), &snapshot)?;
 
-    // Initial commit
     git.add_all()?;
     git.commit("init: envforge sync repository")?;
 
@@ -277,7 +272,6 @@ pub fn init_from_remote(
         });
     }
 
-    // Ensure parent directory exists
     if let Some(parent) = base_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| SyncError::IoError {
             path: parent.to_path_buf(),
@@ -299,7 +293,6 @@ pub fn init_from_remote(
         })?;
     }
 
-    // Update or create config with local machine_id
     let config_path = base_path.join(CONFIG_FILE);
     let config = if config_path.is_file() {
         let mut existing = read_config(&config_path)?;
@@ -313,13 +306,11 @@ pub fn init_from_remote(
     };
     write_config(&config_path, &config)?;
 
-    // Create empty snapshot if none exists
     if !has_existing_snapshot {
         let snapshot = SyncSnapshot::empty(machine_id);
         write_snapshot_encrypted(&base_path.join(SNAPSHOT_FILE), &snapshot)?;
     }
 
-    // Ensure .gitignore exists
     let gitignore_path = base_path.join(".gitignore");
     if !gitignore_path.is_file() {
         std::fs::write(&gitignore_path, GITIGNORE_CONTENT).map_err(|e| SyncError::IoError {
@@ -328,7 +319,6 @@ pub fn init_from_remote(
         })?;
     }
 
-    // Commit any changes made during setup
     let git = GitCommandRunner::new(base_path.to_path_buf());
     git.ensure_user_config()?;
     if git.has_changes()? {

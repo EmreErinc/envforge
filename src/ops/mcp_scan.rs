@@ -199,7 +199,6 @@ fn extract_key_from_path(path: &str) -> String {
 /// Check if a JSON string value looks like a hardcoded credential.
 /// Returns the pattern name if a match is found.
 fn detect_credential(json_path: &str, value: &str) -> Option<String> {
-    // Skip empty, very short, or env var reference values
     if value.is_empty() || value.len() < 4 {
         return None;
     }
@@ -303,7 +302,6 @@ fn is_secret_key_name(path_lower: &str) -> bool {
 
 /// Heuristic: does this value look like an actual secret (not a placeholder)?
 fn looks_like_secret_value(value: &str) -> bool {
-    // Skip common placeholders / non-secrets
     if value == "true" || value == "false" || value == "null" {
         return false;
     }
@@ -355,7 +353,6 @@ pub fn mask_value(value: &str) -> String {
 
 /// Build a suggestion for fixing a finding.
 pub fn suggestion_for(finding: &McpFinding) -> String {
-    // If the finding is in an args array, suggest moving to env section
     if finding.path.contains("[") {
         format!(
             "Move to env section: \"{}\": \"${{{}}}\"",
@@ -454,7 +451,6 @@ fn replace_in_json(json: &mut serde_json::Value, json_path: &str, key: &str) -> 
                 return false;
             }
 
-            // Regular object key
             if let Some(obj) = current.as_object_mut() {
                 if obj.contains_key(*part) {
                     let ref_value = format!("${{{}}}", key.to_uppercase());
@@ -464,7 +460,6 @@ fn replace_in_json(json: &mut serde_json::Value, json_path: &str, key: &str) -> 
             }
             return false;
         }
-        // Navigate deeper
         if let Some(next) = current.get_mut(*part) {
             current = next;
         } else {
@@ -549,7 +544,6 @@ pub fn harden_mcp_config(
         std::fs::copy(file_path, &backup)?;
     }
 
-    // Write hardened config
     let hardened = serde_json::to_string_pretty(&json)?;
     std::fs::write(file_path, hardened)?;
 

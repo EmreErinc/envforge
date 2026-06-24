@@ -53,12 +53,10 @@ pub fn pull_secrets(
 
     let mut secrets = provider.pull(&credentials, path)?;
 
-    // Apply filter if provided
     if let Some(pattern) = filter {
         secrets.retain(|(k, _)| glob_match(pattern, k));
     }
 
-    // Print progress for large pulls
     let total = secrets.len();
     if total > 50 {
         eprintln!("Fetching {} secrets from {}...", total, provider_name);
@@ -72,7 +70,6 @@ pub fn pull_secrets(
     let now = chrono::Utc::now().to_rfc3339();
 
     for (key, value) in &secrets {
-        // Track source
         sources.push(KeySource {
             key: key.clone(),
             provider: provider_name.to_string(),
@@ -144,7 +141,6 @@ pub fn push_secrets(
         });
     }
 
-    // Print progress for large pushes
     if filtered.len() > 50 {
         eprintln!("Pushing {} secrets to {}...", filtered.len(), provider_name);
     }

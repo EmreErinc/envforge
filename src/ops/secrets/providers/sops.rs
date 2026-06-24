@@ -111,7 +111,6 @@ impl SecretProvider for SopsProvider {
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
-        // Step 1: Decrypt existing file
         let existing_output = run_cli(
             "sops",
             &["decrypt", "--output-type", "json", "--", path],
@@ -124,12 +123,10 @@ impl SecretProvider for SopsProvider {
             Err(_) => HashMap::new(),
         };
 
-        // Step 2: Merge new secrets
         for (key, value) in secrets {
             existing.insert(key.clone(), value.clone());
         }
 
-        // Step 3: Write merged JSON to temp file and encrypt
         // Use a secure temp file with restrictive permissions to prevent
         // other users from reading decrypted secrets via /tmp
         let temp = tempfile::NamedTempFile::new().map_err(|e| SecretsError::IoError {
@@ -160,7 +157,6 @@ impl SecretProvider for SopsProvider {
             source: e,
         })?;
 
-        // Encrypt the temp file
         let temp_path_str = temp.path().to_string_lossy().to_string();
 
         let encryption_type = credentials

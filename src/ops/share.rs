@@ -54,7 +54,6 @@ pub fn create_share(
     recipient_pubkey: &str,
     expire_hours: Option<u64>,
 ) -> Result<Vec<u8>, ShareError> {
-    // Build metadata
     let now = chrono::Local::now();
     let created_at = now.format("%Y-%m-%dT%H:%M:%S%z").to_string();
 
@@ -82,11 +81,9 @@ pub fn create_share(
         entries: entry_map,
     };
 
-    // Serialize to TOML
     let toml_str = toml::to_string_pretty(&package)
         .map_err(|e| ShareError::EncryptFailed(format!("TOML serialization failed: {}", e)))?;
 
-    // Parse recipient public key
     let recipient: age::x25519::Recipient = recipient_pubkey.parse().map_err(|_| {
         ShareError::EncryptFailed(format!(
             "Invalid recipient public key: {}",
@@ -94,7 +91,6 @@ pub fn create_share(
         ))
     })?;
 
-    // Encrypt with age
     let recipients: Vec<&dyn age::Recipient> = vec![&recipient];
     let encryptor = age::Encryptor::with_recipients(recipients.into_iter())
         .map_err(|_| ShareError::EncryptFailed("No recipients".into()))?;
@@ -140,11 +136,9 @@ pub fn receive_share_with(
         )));
     }
 
-    // Load local age identity
     let key_content = ensure_age_key()?;
     let identity = get_identity(&key_content)?;
 
-    // Decrypt
     let decryptor = age::Decryptor::new(encrypted_data)
         .map_err(|e| ShareError::DecryptFailed(e.to_string()))?;
 
@@ -158,7 +152,6 @@ pub fn receive_share_with(
         .read_to_string(&mut decrypted)
         .map_err(|e| ShareError::DecryptFailed(e.to_string()))?;
 
-    // Parse TOML
     let package: SharePackage = toml::from_str(&decrypted)
         .map_err(|e| ShareError::InvalidFormat(format!("TOML parse failed: {}", e)))?;
 

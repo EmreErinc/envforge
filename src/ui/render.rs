@@ -23,7 +23,6 @@ pub fn render(f: &mut Frame, app: &App) {
     render_table(f, app, chunks[1]);
     render_footer(f, app, chunks[2]);
 
-    // Render overlays based on mode
     match &app.mode {
         ViewMode::Editing => dialogs::render_edit_popup(f, app),
         ViewMode::Adding(field) => dialogs::render_add_popup(f, app, field),
@@ -181,7 +180,6 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         }
     }
 
-    // Unsaved changes indicator
     if app.has_unsaved_changes {
         spans.push(Span::styled(
             " [unsaved] ",
@@ -191,7 +189,6 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         ));
     }
 
-    // Undo count
     if !app.undo_stack.is_empty() {
         spans.push(Span::styled(
             format!(" {} undoable ", app.undo_stack.len()),
@@ -213,7 +210,6 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         spans.push(Span::raw(" │ "));
     }
 
-    // Entry count
     if app.search_query.is_empty() {
         spans.push(Span::styled(
             format!("{} vars", total_count),

@@ -280,7 +280,7 @@ pub fn rotate_key() -> Result<(u8, Vec<u8>), OpError> {
     new_retired.push(prev);
     new_retired.append(&mut registry.retired);
     while new_retired.len() > MAX_RETIRED_KEYS {
-        new_retired.pop(); // drop oldest
+        new_retired.pop();
     }
     let kept: Vec<u8> = new_retired.iter().map(|k| k.version).collect();
 

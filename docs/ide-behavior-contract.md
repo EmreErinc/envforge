@@ -413,4 +413,22 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | VS Code wiring | **Shipped.** Dedicated "Profiles" view in the EnvForge activity bar container. Shows active/inactive profiles with their source files. Double-click to switch. |
 | IntelliJ wiring | **Shipped.** Dedicated "Profiles" tab in the EnvForge tool window. Replaces the old Gear-menu profile switcher with a first-class tree view. Double-click a node to switch active profile. |
 
+### E1 — Environment-aware `.env` intelligence (project manifest)
+
+Driven by `.envforge.project.toml` (its `[[environments]]` list). All logic is
+server-side and deterministic, so every client renders identically. See
+`docs/envforge-project-toml.md` for the schema, recognition, and precedence.
+
+| Field | Value |
+|---|---|
+| Recognition | `.envforge.project.toml` resolves to a concrete env-file set; the LSP recognizes those + the conventional `.env*` set. Absolute / `..`-escaping paths dropped. Reloaded live on manifest save; malformed manifest → `envforge-project` diagnostic + last-good fallback. |
+| Key completion | Offers the project's known keys (union across declared environments) not already in the current file. `detail: "set in: <envs>"`. |
+| Value completion | Offers a key's values from other environments via `text_edit.new_text`. **Sensitive keys never offer a raw cross-env value** — only a `(sensitive — set per environment)` marker. |
+| Hover | Adds a "Set in environments" section listing which environments set the key (+ `(sensitive)` marker). **Never shows raw values** — the LSP is a read-only display boundary. |
+| Missing-key diagnostic | `textDocument/publishDiagnostics`, source `envforge-env`, severity `Warning`, anchored at end-of-file. Fires for a key set in ≥1 other recognized environment but absent here. No false positives on non-manifest projects. |
+| Go-to-definition | Env key → schema location **plus** the key's assignment in every other recognized env file (excludes the cursor's own occurrence). Returned as a `Location` array. |
+| Sensitivity | A key is sensitive if the key-name heuristic flags it OR `.env.schema` marks it sensitive (union); applied uniformly across the key-set. |
+| Client coverage | Profile variants attach via existing `.env.*` selectors on all four first-party clients. Non-`.env*` `extra_files` names: recognized server-side; client attach is a documented limitation (Growth). |
+| Test IDs | `tests/project_resolve_tests.rs`, `tests/env_keyset_tests.rs`, `tests/completion_cross_env_tests.rs`, `tests/hover_cross_env_tests.rs`, `tests/cross_ide_conformance_tests.rs` |
+
 ### (future rows added here as each feature ships)
