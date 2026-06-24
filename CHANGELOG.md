@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     never surface a raw cross-environment value (redaction parity). Project keys
     rank above globally-managed shell vars so they are not buried in a project
     env file.
+  - **Value `${KEY}` references to machine & profile vars** — the value popup
+    now lists, at the bottom (below the managed marker and concrete values),
+    `${KEY}` reference suggestions sourced from this machine's envforge-managed
+    shell vars ("machine env") and the project's other environments ("profile:
+    …"). Surfaced without first typing `$`; inserts the braced `${KEY}` form.
+    Sensitive keys are excluded so secret names cannot be enumerated through
+    reference completion, machine refs are capped at 20, and a key already
+    offered here is not repeated by the `$`-triggered file-ref list. When the
+    key being edited is itself a managed shell var, a dedicated "inherit from
+    shell env" `${KEY}` self-reference is offered just under the managed
+    marker — even for sensitive keys (the name is already typed, so the ref
+    leaks nothing and the value is still never inserted).
   - **Per-environment hover** — shows which environments set a key (with a
     `(sensitive)` marker); never emits raw values, honoring the LSP's read-only
     display boundary.
@@ -51,12 +63,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it for generic LSP clients that opt in via their own source-language document
   selectors.
 
+### Fixed
+
+- **`.env` value completion no longer floods the popup with `${VAR}`
+  references.** When editing a value (after `=`), the completer emitted a
+  `${OTHER}` reference for every other key in the file on every keystroke,
+  burying the real value suggestions under a wall of identical-looking
+  `${...}` entries. References are now surfaced only once the user starts a
+  `$` reference, and are prefix-filtered by the identifier typed after the
+  `$`/`${`. Blank lines, comments and keyless lines (parsed as entries with
+  an empty key to keep positions aligned) no longer leak in as empty `${}`
+  suggestions, and a key declared more than once in the file is offered as a
+  single reference.
+- **Accepting an informational value marker no longer wipes the line.** The
+  "(managed by envforge)", "(sensitive, use your secret)" and
+  "(sensitive — set per environment)" placeholders carried `text_edit: None`
+  plus an empty `filter_text`; clients (lsp4ij / Zed) fell back to a
+  destructive replace, clearing the whole value on accept and filtering the
+  rest of the popup to nothing. Markers now carry an explicit no-op empty
+  edit and no `filter_text` — accept is harmless and the raw secret still
+  never reaches the buffer.
+
 ### Tests
 
-- **2,601 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
+- **2,606 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
   builds clean. (+31 for the environment-aware `.env` IDE feature: manifest
   resolution, unified key-set, cross-env completion/hover/diagnostics, schema
-  sensitivity union, cross-client conformance.)
+  sensitivity union, cross-client conformance; +2 for value-position `$VAR`
+  reference gating and blank/duplicate-line ref filtering; +2 for always-on
+  machine/profile `${KEY}` value references; +1 for the self-inherit
+  `${KEY}` shell-reference.)
 
 ## [0.8.3] - 2026-06-20
 

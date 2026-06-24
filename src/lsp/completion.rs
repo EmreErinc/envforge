@@ -30,6 +30,7 @@ pub fn completions(
     if let Some(eq_idx) = before_cursor.find('=') {
         let key = before_cursor[..eq_idx].trim();
         let key = key.strip_prefix("export ").unwrap_or(key);
+        let typed_value = &before_cursor[eq_idx + 1..];
         let value_start = Position {
             line: position.line,
             character: (eq_idx + 1) as u32,
@@ -42,7 +43,15 @@ pub fn completions(
             start: value_start,
             end: value_end,
         };
-        return value_completions(key, entries, schema, managed_vars, env_keyset, value_range);
+        return value_completions(
+            key,
+            entries,
+            schema,
+            managed_vars,
+            env_keyset,
+            value_range,
+            typed_value,
+        );
     }
 
     // $VAR reference
@@ -260,6 +269,7 @@ fn value_completions(
     managed_vars: &[ManagedVar],
     env_keyset: Option<&EnvKeySet>,
     value_range: Range,
+    typed_value: &str,
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
 
@@ -267,6 +277,23 @@ fn value_completions(
         Some(CompletionTextEdit::Edit(TextEdit {
             range: value_range,
             new_text,
+        }))
+    };
+
+    // Informational marker items ("(managed by envforge)", "(sensitive…)")
+    // must not mutate the buffer when accepted. A `text_edit: None` item with
+    // an empty `filter_text` made clients (lsp4ij / Zed) fall back to a
+    // destructive replace — accepting wiped the whole value line. Give markers
+    // an explicit no-op edit (insert "" at a zero-width range at the value
+    // start) so accept does nothing, and drop the empty `filter_text` so the
+    // client doesn't filter the item — and the rest of the list — to nothing.
+    let noop_edit = || {
+        Some(CompletionTextEdit::Edit(TextEdit {
+            range: Range {
+                start: value_range.start,
+                end: value_range.start,
+            },
+            new_text: String::new(),
         }))
     };
 
@@ -303,8 +330,7 @@ fn value_completions(
                                 label: "(sensitive, use your secret)".into(),
                                 kind: Some(CompletionItemKind::VALUE),
                                 detail: Some("sensitive: do not use schema default".into()),
-                                filter_text: Some(String::new()),
-                                text_edit: None,
+                                text_edit: noop_edit(),
                                 ..Default::default()
                             });
                             let _ = def;
@@ -352,8 +378,7 @@ fn value_completions(
                     label: "(managed by envforge)".into(),
                     kind: Some(CompletionItemKind::VALUE),
                     detail: Some("managed by envforge".into()),
-                    filter_text: Some(String::new()),
-                    text_edit: None,
+                    text_edit: noop_edit(),
                     sort_text: Some("0_current".into()),
                     ..Default::default()
                 });
@@ -375,8 +400,7 @@ fn value_completions(
                         label: "(sensitive — set per environment)".into(),
                         kind: Some(CompletionItemKind::VALUE),
                         detail: Some(marker.into()),
-                        filter_text: Some(String::new()),
-                        text_edit: None,
+                        text_edit: noop_edit(),
                         sort_text: Some("0_xenv".into()),
                         ..Default::default()
                     });
@@ -399,21 +423,141 @@ fn value_completions(
         }
     }
 
-    // $VAR references
-    for entry in entries {
-        if entry.key == key {
-            continue;
-        }
-        let new_text = format!("${{{}}}", entry.key);
+    // `${KEY}` references the value can point at, ranked at the bottom of the
+    // popup (below the managed marker, schema values and cross-env values).
+    // Two always-on sources so a value can reference another var without the
+    // user first typing `$`:
+    //   * machine env  — this machine's envforge-managed shell vars
+    //   * profile env  — keys declared in the project's other environments
+    // Sensitive keys are excluded from BOTH: never let secret names be
+    // enumerated through value-reference completion (parity with the
+    // `$`-trigger reference path). `seen` is shared with the file-ref loop
+    // below so a key surfaced here is not repeated once the user types `$`.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Self-reference "inherit from shell env": when the key being edited also
+    // exists as a managed shell var, offer `${KEY}` so the `.env` value can
+    // inherit the live shell value (e.g. `AKBANK_SERVICE_PASSWORD=${AKBANK_SERVICE_PASSWORD}`).
+    // This deliberately bypasses the self-skip AND the sensitive-key filter
+    // applied to the general ref lists below: the user has already typed the
+    // full key name, so surfacing `${KEY}` leaks no new name and never the
+    // value. Ranked just under the managed marker (`0_inherit`). Added to
+    // `seen` so the machine/file ref loops don't repeat it.
+    if !key.is_empty() && managed_vars.iter().any(|mv| mv.key == key) {
+        seen.insert(key.to_string());
+        let new_text = format!("${{{}}}", key);
         items.push(CompletionItem {
             label: new_text.clone(),
             filter_text: Some(new_text.clone()),
             kind: Some(CompletionItemKind::REFERENCE),
-            detail: Some("variable reference".into()),
+            detail: Some("inherit from shell env".into()),
             text_edit: value_edit(new_text),
-            sort_text: Some(format!("z_{}", entry.key)),
+            sort_text: Some("0_inherit".into()),
             ..Default::default()
         });
+    }
+
+    // Cap machine refs: the global shell environment can be large and a value
+    // popup must stay quick to read. Profile keys are project-scoped (small)
+    // and left uncapped.
+    const MAX_MACHINE_REFS: usize = 20;
+    let mut machine_added = 0usize;
+    for mv in managed_vars {
+        if machine_added >= MAX_MACHINE_REFS {
+            break;
+        }
+        if mv.key == key {
+            continue;
+        }
+        let sensitive = schema
+            .and_then(|s| s.variables.get(&mv.key))
+            .map(|v| v.sensitive)
+            .unwrap_or(false)
+            || is_sensitive_key(&mv.key);
+        if sensitive {
+            continue;
+        }
+        if !seen.insert(mv.key.clone()) {
+            continue;
+        }
+        let new_text = format!("${{{}}}", mv.key);
+        items.push(CompletionItem {
+            label: new_text.clone(),
+            filter_text: Some(new_text.clone()),
+            kind: Some(CompletionItemKind::REFERENCE),
+            detail: Some("machine env".into()),
+            text_edit: value_edit(new_text),
+            sort_text: Some(format!("y0_{}", mv.key)),
+            ..Default::default()
+        });
+        machine_added += 1;
+    }
+
+    if let Some(ks) = env_keyset {
+        for name in ks.key_names() {
+            if name == key {
+                continue;
+            }
+            let entry = ks.entry(name);
+            if entry.map(|e| e.is_sensitive()).unwrap_or(false) || is_sensitive_key(name) {
+                continue;
+            }
+            if !seen.insert(name.to_string()) {
+                continue;
+            }
+            let envs: Vec<&str> = entry
+                .map(|e| e.environments().collect())
+                .unwrap_or_default();
+            let detail = if envs.is_empty() {
+                "profile env".to_string()
+            } else {
+                format!("profile: {}", envs.join(", "))
+            };
+            let new_text = format!("${{{}}}", name);
+            items.push(CompletionItem {
+                label: new_text.clone(),
+                filter_text: Some(new_text.clone()),
+                kind: Some(CompletionItemKind::REFERENCE),
+                detail: Some(detail),
+                text_edit: value_edit(new_text),
+                sort_text: Some(format!("y1_{}", name)),
+                ..Default::default()
+            });
+        }
+    }
+
+    // $VAR references from THIS file — only surfaced once the user has started
+    // a `$` reference. Without this gate the loop dumped a `${KEY}` item for
+    // every other key in the file on every value edit, burying the real
+    // value suggestions under a wall of references. Prefix-filtered by
+    // whatever identifier has been typed after the `$`/`${`.
+    if typed_value.contains('$') {
+        let ref_prefix = ref_typed_prefix(typed_value);
+        for entry in entries {
+            // Blank lines, comments and keyless lines are kept as entries
+            // (with an empty key) so positions stay aligned — they must
+            // never become `${}` reference suggestions. Dedup real keys too:
+            // a key repeated in the file would otherwise appear N times.
+            if entry.key.is_empty() || entry.key == key {
+                continue;
+            }
+            if !seen.insert(entry.key.clone()) {
+                continue;
+            }
+            if !ref_prefix.is_empty() && !entry.key.to_lowercase().starts_with(&ref_prefix) {
+                continue;
+            }
+            let new_text = format!("${{{}}}", entry.key);
+            items.push(CompletionItem {
+                label: new_text.clone(),
+                filter_text: Some(new_text.clone()),
+                kind: Some(CompletionItemKind::REFERENCE),
+                detail: Some("variable reference".into()),
+                text_edit: value_edit(new_text),
+                sort_text: Some(format!("z_{}", entry.key)),
+                ..Default::default()
+            });
+        }
     }
 
     items
