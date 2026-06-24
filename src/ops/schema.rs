@@ -136,16 +136,29 @@ pub fn parse_schema_content(content: &str) -> Result<EnvSchema, SchemaError> {
 
     for (key, value) in &table {
         if let Some(tbl) = value.as_table() {
-            // Check if this is an env override like [DB_URL.production]
+            // Check if this is an env override expressed as a quoted dotted
+            // top-level key like ["DB_URL.production"]. Handled in the loop below.
             if key.contains('.') {
-                continue; // Handled below with parent
+                continue;
             }
-            let var = parse_variable(key, tbl)?;
+            let mut var = parse_variable(key, tbl)?;
+            // Idiomatic `[VAR.environment]` parses as a *sub-table* of VAR rather
+            // than a dotted top-level key, so any nested table here is a
+            // per-environment override (the variable's own fields are scalars /
+            // arrays, never tables).
+            for (sub_key, sub_value) in tbl {
+                if let Some(sub_tbl) = sub_value.as_table() {
+                    var.env_overrides
+                        .insert(sub_key.clone(), parse_override(sub_tbl));
+                }
+            }
             variables.insert(key.clone(), var);
         }
     }
 
-    // Parse env overrides [VAR.environment]
+    // Parse env overrides written as quoted dotted top-level keys
+    // (["VAR.environment"]). The idiomatic nested `[VAR.environment]` form is
+    // handled above; this preserves backward compatibility with the literal form.
     for (key, value) in &table {
         if let Some(dot_pos) = key.find('.') {
             let var_name = &key[..dot_pos];

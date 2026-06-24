@@ -83,11 +83,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rest of the popup to nothing. Markers now carry an explicit no-op empty
   edit and no `filter_text` — accept is harmless and the raw secret still
   never reaches the buffer.
+- **Schema per-environment overrides (`[VAR.environment]`) now apply.** The
+  idiomatic TOML form parses as a *sub-table* of `VAR`, but
+  `parse_schema_content` only scanned for dotted top-level keys, so
+  `env_overrides` stayed empty and `validate`/`resolve_effective` silently
+  ignored every environment-specific rule. The parser now lifts nested
+  sub-tables into `env_overrides` (the quoted `["VAR.environment"]` literal form
+  still works for backward compatibility).
 
 ### Tests
 
-- **2,606 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
-  builds clean. (+31 for the environment-aware `.env` IDE feature: manifest
+- **2,662 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
+  builds clean. (+60 edge-case coverage tests for `ops` units — +43 pure units:
+  `validation_utils` validators, `sanitize` UTF-8 slicing / secret heuristic /
+  diff-aware redaction, `redact` message masking, `uri_resolve` URI + content
+  parsing, `export_format` format/extension mapping; +17 for `schema`
+  (`generate_docs`, numeric min/max, nested + quoted env-override parsing &
+  resolution, url/port/regex validation, drift) and the `fence`
+  create/status/remove/apply lifecycle
+  (destructive `remove_fence` dry-run guarantee, idempotency, config-gated
+  skipping, `apply_tool` error paths); +31 for the
+  environment-aware `.env` IDE feature: manifest
   resolution, unified key-set, cross-env completion/hover/diagnostics, schema
   sensitivity union, cross-client conformance; +2 for value-position `$VAR`
   reference gating and blank/duplicate-line ref filtering; +2 for always-on
