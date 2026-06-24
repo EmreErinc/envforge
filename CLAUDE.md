@@ -38,7 +38,7 @@ src/
 │   ├── sync/     # Git-based cross-machine sync
 │   └── secrets/  # 13 secret provider integrations
 ├── ui/       # Ratatui TUI (app state, rendering, dialogs)
-├── cli/      # Clap CLI (80+ subcommands)
+├── cli/      # Clap CLI (130+ subcommands)
 ├── lsp/      # Language Server Protocol for IDE extensions
 └── mcp/      # MCP server (`envforge mcp serve`) — read-safe, gated on `mcp-server` feature
 ```
@@ -47,7 +47,7 @@ src/
 
 ```bash
 envforge              # Launch TUI
-envforge <cmd>        # Run CLI command (80+ subcommands)
+envforge <cmd>        # Run CLI command (130+ subcommands)
 envforge lsp          # Start LSP server for IDE extensions
 ```
 

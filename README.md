@@ -2,7 +2,7 @@
 
 The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
 
-EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **25 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 100+ commands. Ships with a Language Server (`envforge lsp`) and first-party VS Code, IntelliJ, Neovim + Zed integrations that surface the AI-safety story directly in the editor — gutter/sign-column exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs, and environment-aware `.env` intelligence (recognizes a project's env files via `.envforge.project.toml`, completes keys/values across environments, and flags keys missing from an environment). Fences 11 AI-tool targets (Cursor, Copilot, Claude Code, Windsurf, Cline, Aider, Gemini CLI, Amazon Q, the `AGENTS.md` standard, and more), individually configurable via `envforge fence config`, with honest per-tool coverage status. Also ships a read-safe MCP server (`envforge mcp serve`) that gives AI agents env metadata without exposing raw secrets. **2,606 tests passing.**
+EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **25 AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 130+ commands. Ships with a Language Server (`envforge lsp`) and first-party editor integrations: native in-editor UI (gutter/sign-column exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs) in VS Code, IntelliJ, and Neovim, plus LSP + MCP integration for Zed (diagnostics, hover, completion — Zed's extension API does not yet expose gutter or status-bar UI). These surface the AI-safety story directly in the editor, along with environment-aware `.env` intelligence (recognizes a project's env files via `.envforge.project.toml`, completes keys/values across environments, and flags keys missing from an environment). Fences 11 AI-tool targets (Cursor, Copilot, Claude Code, Windsurf, Cline, Aider, Gemini CLI, Amazon Q, the `AGENTS.md` standard, and more), individually configurable via `envforge fence config`, with honest per-tool coverage status. Also ships a read-safe MCP server (`envforge mcp serve`) that gives AI agents env metadata without exposing raw secrets. **2,608 tests passing.**
 
 ![License: ELv2](https://img.shields.io/badge/License-ELv2-blue.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
@@ -111,7 +111,7 @@ envforge revoke --all
 | **Encryption** | Age (X25519) encryption at rest, encrypted sync, per-value encrypt/decrypt |
 | **Remote Sync** | Git-based cross-machine sync, age-encrypted, selective keys, rollback |
 | **Secret Managers** | 13 providers, URI refs (`vault://`), TTL, offline fallback, cache — [Provider Guides](docs/cli-reference.md#provider-integration-guides) |
-| **IDE Extensions** | VS Code, IntelliJ, Neovim, Zed — LSP diagnostics, hover, completions, go-to-definition, exposure heatmap |
+| **IDE Extensions** | VS Code, IntelliJ, Neovim — LSP diagnostics, hover, completions, go-to-definition + native exposure heatmap/status bar. Zed — LSP core (diagnostics, hover, completions); no native UI |
 | **Git Merge** | Custom merge driver for `.env` files — semantic three-way merge |
 | **Health Check** | `envforge doctor` + `envforge check` — 15+ checks with fix suggestions |
 | **Lifecycle** | Automated secret create/rotate/decommission with state machine, trigger engine, rollback |
@@ -422,7 +422,7 @@ Additional TUI features:
 
 All commands support `--json` for machine-readable output and `--dry-run` for preview.
 
-Full documentation: [CLI Reference](docs/cli-reference.md) (100+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [LSP Client Setup](docs/lsp-clients.md) (Neovim, Zed first-party; Helix, Emacs, Sublime, Kakoune, Lapce via LSP) &middot; [IDE Behavior Contract](docs/ide-behavior-contract.md) (per-feature parity spec) &middot; [Integration Matrix](docs/integration-matrix.md) (tools × editors) &middot; [MCP Server](docs/mcp-server.md) &middot; [CI Gating](docs/ci-gating.md) &middot; [Scanner Recipes](docs/scanner-recipes.md)
+Full documentation: [CLI Reference](docs/cli-reference.md) (130+ commands) &middot; [API Reference](docs/api-reference.md) (library consumers) &middot; [LSP Client Setup](docs/lsp-clients.md) (Neovim, Zed first-party; Helix, Emacs, Sublime, Kakoune, Lapce via LSP) &middot; [IDE Behavior Contract](docs/ide-behavior-contract.md) (per-feature parity spec) &middot; [Integration Matrix](docs/integration-matrix.md) (tools × editors) &middot; [MCP Server](docs/mcp-server.md) &middot; [CI Gating](docs/ci-gating.md) &middot; [Scanner Recipes](docs/scanner-recipes.md)
 
 ```bash
 # Variable management
@@ -1474,7 +1474,7 @@ For project-level validation, create a `.env.schema` file (see [ENV Schema](#env
 
 ### Shell Completions
 
-Tab completion for all 100+ commands and flags. Use `--install` for automatic setup:
+Tab completion for all 130+ commands and flags. Use `--install` for automatic setup:
 
 ```bash
 # Zsh — auto-install to ~/.zfunc/_envforge
@@ -1561,7 +1561,7 @@ envforge man fenc
 
 ### IDE Extensions
 
-EnvForge includes a built-in Language Server (`envforge lsp`) and first-party plugins for VS Code, IntelliJ, Neovim, and Zed.
+EnvForge includes a built-in Language Server (`envforge lsp`). VS Code and IntelliJ ship as full Marketplace plugins with native UI; Neovim has a first-party config-based plugin (also native UI). Zed integrates over LSP + MCP — diagnostics, hover, and completion only; Zed's extension API does not yet expose gutter decorations or a status-bar widget.
 
 **VS Code** — [Marketplace](https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager)
 
