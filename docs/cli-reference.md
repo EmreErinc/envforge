@@ -1,6 +1,6 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.8.3
+> Generated for EnvForge v0.8.4
 
 ## Quick Recipes
 
@@ -78,7 +78,7 @@ envforge fence config --disable copilot
 
 ### envforge exposure
 
-Compute AI-exposure classification for an .env file (red/amber/green per line).
+Show which lines in a .env file an AI agent could read (red / amber / green per line).
 
 ```
 Usage: envforge exposure [OPTIONS] --file <FILE>
@@ -93,6 +93,31 @@ Usage: envforge exposure [OPTIONS] --file <FILE>
 ```bash
 envforge exposure --file .env
 envforge exposure --file .env.production --json
+```
+
+---
+
+### envforge sanitize
+
+Replace secret values in a file with `${KEY}` placeholders so it is safe to share.
+
+```
+Usage: envforge sanitize [OPTIONS] <FILE>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<FILE>` | File to sanitize |
+| `--output <OUTPUT>` | Output file (default: stdout) |
+
+**Examples:**
+
+```bash
+# Print a sanitized copy to the screen
+envforge sanitize config.yaml
+
+# Write the sanitized copy to a new file
+envforge sanitize config.yaml --output config.shareable.yaml
 ```
 
 ---
@@ -2321,6 +2346,164 @@ envforge mcp harden --dry-run
 
 ---
 
+### envforge mcp pin
+
+Record the MCP servers you trust in a lockfile, so you are warned if any of them change.
+
+```
+Usage: envforge mcp pin [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--strict` | Require a known-good reputation for every server |
+| `--inspect` | Connect to each server and record its tool list |
+| `--refresh` | Re-check every server and update the lockfile |
+| `--accept` | Apply a refresh after reviewing the changes |
+| `--lockfile <PATH>` | Use a lockfile other than `.envforge/mcp.lock` |
+
+**Examples:**
+
+```bash
+# Pin the servers in your config
+envforge mcp pin
+
+# Update the lockfile after adding a server
+envforge mcp pin --refresh --accept
+```
+
+---
+
+### envforge mcp verify
+
+Check that your MCP servers still match the trusted lockfile. Exits non-zero if anything changed.
+
+```
+Usage: envforge mcp verify [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output a machine-readable report |
+| `--strict` | Also fail on servers with an unknown reputation |
+| `--lockfile <PATH>` | Use a lockfile other than `.envforge/mcp.lock` |
+
+**Examples:**
+
+```bash
+envforge mcp verify
+envforge mcp verify --strict --json
+```
+
+---
+
+### envforge mcp diff
+
+Show what changed between the trusted lockfile and your current MCP servers.
+
+```
+Usage: envforge mcp diff [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--server <NAME>` | Show changes for one server only |
+| `--lockfile <PATH>` | Use a lockfile other than `.envforge/mcp.lock` |
+
+**Examples:**
+
+```bash
+envforge mcp diff
+envforge mcp diff --server my-server
+```
+
+---
+
+### envforge mcp explain
+
+Print the lockfile in a readable, annotated form for review (for example, in a pull request).
+
+```
+Usage: envforge mcp explain [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--lock` | Render the lockfile (the only mode today) |
+| `--format <FORMAT>` | Output format: `text` or `markdown` (default: `text`) |
+
+**Examples:**
+
+```bash
+envforge mcp explain --lock
+envforge mcp explain --lock --format markdown
+```
+
+---
+
+### envforge mcp trust
+
+Mark a server as trusted by you, even if its reputation is unknown. A reason is required.
+
+```
+Usage: envforge mcp trust <NAME> --reason <REASON>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Server name (npm package or alias) |
+| `--reason <REASON>` | Why you trust this server (recorded for the audit log) |
+
+**Examples:**
+
+```bash
+envforge mcp trust my-internal-server --reason "built and reviewed in-house"
+```
+
+---
+
+### envforge mcp untrust
+
+Remove a trust override you previously recorded for a server.
+
+```
+Usage: envforge mcp untrust <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Server name |
+
+**Examples:**
+
+```bash
+envforge mcp untrust my-internal-server
+```
+
+---
+
+### envforge mcp launch
+
+Verify the lockfile and, only if it passes, start your editor. One safe step instead of two.
+
+```
+Usage: envforge mcp launch <IDE> [-- <ARGS>...]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<IDE>` | Editor to start: `claude-code`, `claude`, or `cursor` |
+| `[ARGS]` | Extra arguments passed straight to the editor |
+
+**Examples:**
+
+```bash
+envforge mcp launch claude-code
+envforge mcp launch cursor -- .
+```
+
+---
+
 ## AI Safety
 
 ### envforge fence
@@ -2369,31 +2552,6 @@ envforge fence config --list --json
 envforge fence config --disable copilot
 envforge fence config --enable copilot
 ```
-
-### envforge fence apply
-
-Propagate fence rules to a specific AI tool's ignore file. Uses symlinks on Unix (auto-updating when the source changes) and file copies on Windows.
-
-```
-Usage: envforge fence apply --tool <TOOL> [--dry-run]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--tool <TOOL>` | AI tool name: `cursor`, `claude`, `copilot`, `aider`, `windsurf`, `continue` |
-| `--dry-run` | Show what would be created without writing files |
-
-**Examples:**
-
-```bash
-envforge fence                       # create base .envforgeignore first
-envforge fence apply --tool aider    # propagate to Aider
-envforge fence apply --tool cursor   # propagate to Cursor
-envforge fence apply --tool copilot  # propagate to Copilot
-envforge fence apply --tool windsurf --dry-run
-```
-
----
 
 ### envforge ai-guard
 
@@ -2528,6 +2686,74 @@ envforge lease renew deploy-lease --ttl 30m --json
 ```
 
 Rejects revoked or already-expired leases — create a fresh lease instead.
+
+---
+
+### envforge lease grant
+
+Give one running command short-lived access to a single secret, then auto-expire it. Tied to a specific process, so nothing else can use it.
+
+```
+Usage: envforge lease grant <KEY> --pid <PID> --ttl <TTL> [OPTIONS]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<KEY>` | Secret name (e.g. `STRIPE_KEY`) |
+| `--pid <PID>` | The process that is allowed to use the secret |
+| `--ttl <TTL>` | How long the access lasts (e.g. `30s`, `5m`, `1h`) |
+| `--tool <TOOL>` | Tool or agent name, recorded in the audit log |
+| `--multi-redeem` | Allow the secret to be read more than once |
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+envforge lease grant STRIPE_KEY --pid 4821 --ttl 30s
+envforge lease grant DB_URL --pid 4821 --ttl 5m --tool claude-code --json
+```
+
+---
+
+### envforge lease revoke
+
+Cancel an active lease right away by name.
+
+```
+Usage: envforge lease revoke <NAME>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Lease name |
+
+**Examples:**
+
+```bash
+envforge lease revoke debug-session
+```
+
+---
+
+### envforge lease status
+
+Show the details of one lease: what it covers, who it is for, and how long is left.
+
+```
+Usage: envforge lease status <NAME> [--json]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<NAME>` | Lease name |
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+envforge lease status deploy-lease
+envforge lease status deploy-lease --json
+```
 
 ---
 
@@ -2785,6 +3011,119 @@ Usage: envforge canary place [OPTIONS] <KEY> <FILE>
 ```bash
 envforge canary place HONEYPOT_API_KEY ./src/config.ts
 envforge canary place AWS_SECRET ./src/index.ts --position top
+```
+
+---
+
+### envforge canary mint-v2
+
+Create a trackable fake secret. If it ever leaks, you can decode it to learn which tool and process leaked it.
+
+```
+Usage: envforge canary mint-v2 <KEY> [OPTIONS]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<KEY>` | Canary key (e.g. `STRIPE_KEY`) |
+| `--tool <TOOL>` | Tool name to embed (e.g. `claude-code`, `cursor`) |
+| `--pid <PID>` | Process ID to embed (defaults to the current process) |
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+envforge canary mint-v2 STRIPE_KEY --tool claude-code
+envforge canary mint-v2 AWS_SECRET --json
+```
+
+---
+
+### envforge canary decode
+
+Read a tracked fake secret (a v2 canary) to find out where and when it leaked.
+
+```
+Usage: envforge canary decode <TOKEN> [--json]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<TOKEN>` | The token string to decode |
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+envforge canary decode ef_v2_8a3f...
+envforge canary decode ef_v2_8a3f... --json
+```
+
+---
+
+### envforge canary scan
+
+Search a file (or piped input) for any tracked fake secrets that leaked into it.
+
+```
+Usage: envforge canary scan <INPUT> [OPTIONS]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<INPUT>` | File path, or `-` to read from standard input |
+| `--strict` | Exit non-zero if any token is found |
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+envforge canary scan ./logs/app.log
+cat output.txt | envforge canary scan - --strict
+```
+
+---
+
+### envforge canary rotate-key
+
+Change the secret key used to sign new canary tokens. Older keys are kept so existing tokens still decode.
+
+```
+Usage: envforge canary rotate-key [--dry-run]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Show what would happen without making changes |
+
+**Examples:**
+
+```bash
+envforge canary rotate-key --dry-run
+envforge canary rotate-key
+```
+
+---
+
+### envforge canary migrate
+
+Upgrade older (v1) canaries to the trackable v2 format.
+
+```
+Usage: envforge canary migrate [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--bulk` | Migrate every eligible v1 canary |
+| `--replace <KEY>` | Migrate one specific canary by key |
+| `--dry-run` | Show what would be migrated without making changes |
+
+**Examples:**
+
+```bash
+envforge canary migrate --dry-run
+envforge canary migrate --bulk
 ```
 
 ---
@@ -3291,7 +3630,7 @@ envforge ci-trust classify push --actor admin --json
 
 ### envforge ci-trust quarantine
 
-Scrub environment variables for untrusted CI runs.
+Remove risky variables from an untrusted CI run.
 
 ```
 Usage: envforge ci-trust quarantine [OPTIONS]
@@ -5780,7 +6119,7 @@ Usage: envforge lease [OPTIONS] <COMMAND>
 - `list`: List all active and expired leases
 - `revoke <NAME>`: Revoke an active lease immediately
 - `renew <NAME> --ttl <TTL>`: Extend an existing lease's TTL
-- `grant`: Mint a JIT lease bound to a single subprocess PID
+- `grant`: Give one running command short-lived access to a secret, then auto-expire it
 
 **Examples:**
 
@@ -5857,7 +6196,7 @@ envforge canary scan --input /var/log/app.log
 
 ### envforge hardening
 
-Manage adversarial input hardening layers for AI agents.
+Turn on extra checks that catch hidden or disguised secrets in AI agent input.
 
 ```
 Usage: envforge hardening [OPTIONS] <COMMAND>

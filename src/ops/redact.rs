@@ -1,4 +1,4 @@
-//! Shared redaction routine (Story 2.2 / Architecture D5).
+//! Shared redaction routine.
 //!
 //! Relocated from `lsp::redact` so every surface — CLI, LSP, and the MCP
 //! server — funnels secret-bearing output through one choke point. The LSP

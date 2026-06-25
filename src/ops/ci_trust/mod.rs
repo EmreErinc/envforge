@@ -1,7 +1,6 @@
 //! CI trigger trust classification + secret quarantine.
 //!
-//! See `memory-bank/bolts/071-comment-control-guard/` for the design docs and ADR-010
-//! (why this lives in the Rust binary instead of inline bash).
+//! This lives in the Rust binary instead of inline bash.
 //!
 //! Usage flow:
 //! 1. `envforge ci-trust classify --json` — emits a `TrustVerdict` JSON to stdout

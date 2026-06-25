@@ -169,7 +169,7 @@ pub fn read_cache(provider: &str, key: &str) -> Result<Option<String>, SecretsEr
         let elapsed = now.signed_duration_since(fetched).num_seconds() as u64;
         if elapsed <= entry.ttl_secs {
             // Take the ciphertext out of `entry` (cannot move-destructure: it
-            // implements Drop) and decrypt at read (H1). A legacy plaintext
+            // implements Drop) and decrypt at read. A legacy plaintext
             // cache (written before encryption) or any undecryptable file fails
             // here → treat as a miss and remove it. Graceful migration; no
             // version field needed.
@@ -205,7 +205,7 @@ pub fn read_cache_stale(provider: &str, key: &str) -> Result<Option<String>, Sec
         Err(_) => return Ok(None),
     };
 
-    // Decrypt at read (H1); legacy/undecryptable → miss + remove.
+    // Decrypt at read; legacy/undecryptable → miss + remove.
     let ciphertext = std::mem::take(&mut entry.value);
     match crate::ops::encrypt::decrypt_value(&ciphertext) {
         Ok(plain) => Ok(Some(plain)),
@@ -232,7 +232,7 @@ pub fn write_cache(
         })?;
     }
 
-    // H1/NFR2: encrypt the value at rest with the same age scheme used for
+    // Encrypt the value at rest with the same age scheme used for
     // credentials and sync snapshots. The cache file must never hold cleartext.
     let stored_value = crate::ops::encrypt::encrypt_value(value)
         .map_err(|e| SecretsError::CacheError(format!("cache encryption failed: {e}")))?;
@@ -455,7 +455,7 @@ pub fn resolve_reference(
         }
         Err(e) => {
             if let Some(stale) = read_cache_stale(&secret_ref.provider, &secret_ref.key)? {
-                // L8: do not interpolate the provider error here — it can carry
+                // Do not interpolate the provider error here — it can carry
                 // upstream detail; the stale-fallback notice only needs the key.
                 eprintln!(
                     "warning: using cached value for {} (provider unreachable)",

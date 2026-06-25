@@ -25,7 +25,7 @@ pub use wizard::*;
 #[command(
     name = "envforge",
     version,
-    about = "Terminal environment variable manager"
+    about = "Manage environment variables safely — and keep them away from AI agents."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -509,7 +509,7 @@ pub enum Commands {
         action: Option<FenceAction>,
     },
 
-    /// Compute AI-exposure classification for an .env file (red/amber/green per line)
+    /// Show which lines in a .env file an AI agent could read (red / amber / green)
     Exposure {
         /// Path to the .env file to classify
         #[arg(long)]
@@ -576,7 +576,7 @@ pub enum Commands {
         action: CanaryAction,
     },
 
-    /// Manage adversarial input hardening layers
+    /// Turn on extra checks that catch hidden or disguised secrets
     Hardening {
         #[command(subcommand)]
         action: HardeningAction,
@@ -588,12 +588,14 @@ pub enum Commands {
         action: ScannerAction,
     },
 
+    /// Check whether the current CI run can be trusted, and strip risky variables
     #[command(name = "ci-trust")]
     CiTrust {
         #[command(subcommand)]
         action: CiTrustAction,
     },
 
+    /// List every environment variable your project uses (an "ENV bill of materials")
     Envbom {
         #[command(subcommand)]
         action: EnvbomAction,
@@ -983,7 +985,7 @@ pub enum LeaseAction {
         #[arg(long)]
         ttl: String,
     },
-    /// Mint a JIT lease bound to a single subprocess PID + TTL
+    /// Give one running command short-lived access to a secret, then auto-expire it
     Grant {
         /// Key name (e.g. STRIPE_KEY)
         key: String,
@@ -1056,7 +1058,7 @@ pub enum CanaryAction {
         #[arg(long, default_value = "bottom")]
         position: String,
     },
-    /// Mint a v2 forensic canary token (HMAC-encoded, decodable)
+    /// Create a trackable fake secret that reveals which tool leaked it
     MintV2 {
         /// Canary registry key (e.g. STRIPE_KEY)
         key: String,
@@ -1070,7 +1072,7 @@ pub enum CanaryAction {
         #[arg(long)]
         json: bool,
     },
-    /// Decode a v2 canary token; returns origin tuple
+    /// Read a tracked fake secret to find out where and when it leaked
     Decode {
         /// Token string
         token: String,
@@ -1191,14 +1193,14 @@ pub enum EnvbomAction {
 
 #[derive(Subcommand)]
 pub enum CiTrustAction {
-    /// Print the trust verdict for the current GitHub Actions invocation
+    /// Say whether the current GitHub Actions run is trusted or not
     Classify {
         /// JSON output (one object)
         #[arg(long)]
         json: bool,
     },
-    /// Scrub the current environment per quarantine rules; emits `KEY=VALUE`
-    /// lines suitable for `eval` in a parent shell
+    /// Remove risky variables from an untrusted CI run. Prints `KEY=VALUE`
+    /// lines you can load into the parent shell with `eval`.
     Quarantine {
         /// Force apply regardless of verdict
         #[arg(long)]
@@ -1213,7 +1215,7 @@ pub enum CiTrustAction {
         #[arg(long)]
         json: bool,
     },
-    /// Render Step Summary markdown for the latest verdict + last scrub report
+    /// Write a summary of the last trust check and cleanup to the CI job page
     Summary,
 }
 

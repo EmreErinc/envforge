@@ -1,6 +1,4 @@
 //! CLI handlers for `mcp pin / verify / diff / trust / untrust / explain`.
-//!
-//! Plugs Unit 003 `TierLookup` into Unit 002 `Resolver` (ADR-016 wire-up).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -103,7 +101,7 @@ fn artifact_to_server_pin(artifact: ResolvedArtifact, strict: bool) -> ServerPin
         url,
         package_manager: Some(artifact.package_manager),
         package_integrity: artifact.package_integrity,
-        config_hash: "0".repeat(64), // placeholder — Unit 005 / future bolt will populate
+        config_hash: "0".repeat(64), // placeholder — a future bolt will populate
         tool_list_hash: artifact.initialize_response_hash.map(|d| hex::encode(d.0)),
         tool_list_captured_at: artifact.initialize_response_hash.map(|_| Utc::now()),
         dynamic_tools: false,

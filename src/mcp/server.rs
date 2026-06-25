@@ -1,4 +1,4 @@
-//! EnvForge MCP server — Story 2.1 skeleton + Story 2.3 read-safe tools.
+//! EnvForge MCP server — read-safe tools.
 //!
 //! Boots an MCP server over stdio, completes the initialize handshake, and
 //! serves two read-safe tools that expose env-var metadata to AI agents without

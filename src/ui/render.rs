@@ -162,7 +162,7 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 
     let mut spans = vec![];
 
-    // Fence status + read-only target summary (Story 3.2 / FR16)
+    // Fence status + read-only target summary
     if app.fence_enabled {
         spans.push(Span::styled(
             " [fence:on] ",
@@ -196,7 +196,6 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         ));
     }
 
-    // Notification
     if let Some(notif) = &app.notification {
         let color = match notif.level {
             NotificationLevel::Success => Color::Green,

@@ -278,7 +278,7 @@ impl SecretProvider for ConjurProvider {
 impl ConjurProvider {
     /// Validate the Conjur appliance URL (if present): must be http(s), have a
     /// host, and carry no control characters. Conservative SSRF/scheme guard
-    /// (L7) — the URL flows into `CONJUR_APPLIANCE_URL` and `conjur init -u`.
+    /// The URL flows into `CONJUR_APPLIANCE_URL` and `conjur init -u`.
     fn validate_appliance_url(credentials: &HashMap<String, String>) -> Result<(), SecretsError> {
         let Some(url) = credentials.get("url") else {
             return Ok(());

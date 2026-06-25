@@ -113,7 +113,7 @@ pub fn hover_info(
         }
     }
 
-    // Per-environment presence (FR15): which environments set this key. Raw
+    // Per-environment presence: which environments set this key. Raw
     // values are NOT shown — the LSP is a read-only security boundary that
     // never emits values in display surfaces (see `redact_for_label`); only
     // presence and sensitivity are surfaced here.

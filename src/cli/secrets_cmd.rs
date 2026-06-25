@@ -616,7 +616,7 @@ fn cmd_secrets_config(
 
         credentials::store_credential_with_ttl(provider, key, &value, ttl)?;
 
-        // L3: wipe the plaintext credential from memory after storing, matching
+        // Wipe the plaintext credential from memory after storing, matching
         // `cmd_set`'s zeroize-on-finish behavior (was asymmetric before).
         {
             use zeroize::Zeroize;
@@ -1303,6 +1303,6 @@ fn is_unsafe_argv_allowed(provider: &str) -> bool {
 }
 
 fn is_likely_secret(value: &str) -> bool {
-    // Canonical detection (incl. M1 entropy path) lives in ops::sanitize.
+    // Canonical detection (incl. entropy path) lives in ops::sanitize.
     crate::ops::sanitize::value_looks_like_secret(value)
 }

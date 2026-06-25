@@ -58,12 +58,12 @@ pub struct Backend {
     request_method: RwLock<String>,
     /// Env-file set resolved from the project manifest (`.envforge.project.toml`).
     /// `None` when no manifest exists — recognition then falls back to the
-    /// conventional `.env*` set (Story 1.5 / FR6). On a malformed manifest the
-    /// last successfully resolved set is retained (Story 1.4).
+    /// conventional `.env*` set. On a malformed manifest the
+    /// last successfully resolved set is retained.
     project_env_set: RwLock<Option<crate::ops::project::ResolvedEnvSet>>,
-    /// Unified key-set with per-environment values (AR2), rebuilt from
+    /// Unified key-set with per-environment values, rebuilt from
     /// `project_env_set` on manifest change and from a recognized env file on
-    /// save. Feeds key/value completion (FR11/FR12) and later hover/diagnostics.
+    /// save. Feeds key/value completion and later hover/diagnostics.
     env_keyset: RwLock<crate::ops::env_keyset::EnvKeySet>,
 }
 
@@ -115,9 +115,9 @@ impl Backend {
         )
     }
 
-    /// Recognition predicate (Epic 2): an EnvForge-owned env file is either a
-    /// conventional `.env*` file (FR6 fallback) OR a file declared by the
-    /// project manifest's resolved set (FR7). This is a strict superset of
+    /// Recognition predicate: an EnvForge-owned env file is either a
+    /// conventional `.env*` file (fallback) OR a file declared by the
+    /// project manifest's resolved set. This is a strict superset of
     /// [`Self::is_env_file`] — conventional files are always recognized, so
     /// projects without a manifest behave exactly as before.
     fn is_recognized_env_file(&self, uri: &Url) -> bool {
@@ -137,11 +137,11 @@ impl Backend {
     /// Load (or reload) the project manifest and resolve its env-file set.
     ///
     /// - No manifest found → clear the set; recognition falls back to
-    ///   conventional `.env*` (Story 1.5 / FR6).
+    ///   conventional `.env*`.
     /// - Valid manifest → store the resolved set and clear any prior manifest
     ///   diagnostic.
     /// - Malformed manifest → publish a diagnostic on the manifest file and
-    ///   **retain** the last good set (Story 1.4 / FR5) — never crash, never
+    ///   **retain** the last good set — never crash, never
     ///   silently drop recognition.
     fn load_project_manifest(&self) {
         let root = self
@@ -199,7 +199,7 @@ impl Backend {
             Some(s) => crate::ops::env_keyset::build_env_keyset(&s),
             None => crate::ops::env_keyset::EnvKeySet::default(),
         };
-        // Union schema-declared sensitivity into the key-set (FR19) so a key
+        // Union schema-declared sensitivity into the key-set so a key
         // marked sensitive in `.env.schema` is redacted across every variant
         // even when the key-name heuristic would not flag it.
         if let Some(schema) = self.schema.read().ok().and_then(|r| r.clone()) {
@@ -281,7 +281,7 @@ impl Backend {
         let fname = path.rsplit('/').next().unwrap_or("");
         // Cross-tool MCP/agent config filenames (matches `mcp.json` in any
         // dir, so `.vscode/mcp.json` and `.cursor/mcp.json` are covered).
-        // Story 3.1 (FR18) widens coverage to Windsurf, Cline, Claude Code.
+        // Coverage extends to Windsurf, Cline, Claude Code.
         if matches!(
             fname,
             "mcp.json"
@@ -556,7 +556,7 @@ impl Backend {
         compute_exposure_map(&doc.entries, schema.as_ref(), fence_active)
     }
 
-    /// Cross-environment "key missing in this environment" diagnostics (FR17).
+    /// Cross-environment "key missing in this environment" diagnostics.
     ///
     /// For a recognized env file that maps to a project environment, flag every
     /// key present in at least one *other* environment but absent here. Anchored
@@ -596,7 +596,7 @@ impl Backend {
             .collect()
     }
 
-    /// Locations of a key's assignment across recognized env files (FR18),
+    /// Locations of a key's assignment across recognized env files,
     /// from the unified key-set. Excludes the cursor's own occurrence so
     /// goto-definition jumps to the *other* environments' definitions.
     fn cross_env_definition_locations(
@@ -925,7 +925,7 @@ impl LanguageServer for Backend {
         }
         self.set_request_method("textDocument/did_save");
 
-        // Story 1.3: a manifest save re-resolves the recognized env-file set
+        // A manifest save re-resolves the recognized env-file set
         // live (no restart). Republish so recognition changes take effect.
         if Self::is_project_manifest_file(&uri) {
             self.load_project_manifest();
@@ -1084,7 +1084,7 @@ impl LanguageServer for Backend {
             .unwrap_or_default();
 
         // .env file → key → schema definition PLUS the key's definitions in
-        // other recognized environments (FR18).
+        // other recognized environments.
         if self.is_recognized_env_file(uri) {
             let doc = self
                 .documents
@@ -1240,7 +1240,7 @@ impl LanguageServer for Backend {
         };
 
         // MCP config files: offer quick-fixes that replace hardcoded credentials
-        // with `${ENV_VAR}` references (FR19 / Story 3.2). Skip the env/schema
+        // with `${ENV_VAR}` references. Skip the env/schema
         // code-action path for these files — it does not apply to JSON configs.
         if Self::is_mcp_config_file(uri) {
             let actions = mcp_config_code_actions(uri, &doc.content, &params.context.diagnostics);
@@ -1401,7 +1401,7 @@ impl LanguageServer for Backend {
 
         // Resolve cursor → key. Mirrors rename's resolution: env files
         // use document entry hit-testing; source files use the same
-        // UPPER_SNAKE_CASE extraction as L4 go-to-def.
+        // UPPER_SNAKE_CASE extraction as go-to-def.
         let key = if self.is_recognized_env_file(uri) {
             let docs = match self.documents.read() {
                 Ok(g) => g,
@@ -1654,7 +1654,7 @@ impl Backend {
         })
     }
 
-    // ── EnvForge custom LSP requests (H4) ──────────────────────────────
+    // ── EnvForge custom LSP requests ───────────────────────────────────
     // Constrained, *named* security operations. The generic
     // `workspace/executeCommand` is permanently disabled (arbitrary-command
     // surface); each method below instead maps to exactly ONE fixed command
@@ -1760,7 +1760,7 @@ pub async fn serve() {
 
     let (service, socket) = LspService::build(Backend::new)
         .custom_method("envforge/exposureMap", Backend::exposure_map)
-        // H4: constrained, named security requests (NOT generic executeCommand).
+        // Constrained, named security requests (NOT generic executeCommand).
         .custom_method("envforge/fenceStatus", Backend::fence_status)
         .custom_method("envforge/fenceToggle", Backend::fence_toggle)
         .custom_method("envforge/canaryScan", Backend::canary_scan)
@@ -1781,7 +1781,7 @@ mod mcp_config_match_tests {
         Backend::is_mcp_config_file(&Url::parse(&format!("file://{p}")).unwrap())
     }
 
-    /// Story 3.1 (FR18): the widened MCP/agent config filename set is recognized.
+    /// The widened MCP/agent config filename set is recognized.
     #[test]
     fn test_mcp_config_recognized_paths() {
         // Pre-existing coverage.

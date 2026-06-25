@@ -3,7 +3,7 @@
 //! Foundation primitives for the MCP pin subsystem.
 //!
 //! - `CanonicalJsonHasher` strips JSONC comments via a hand-rolled byte-level
-//!   state machine (per ADR-013), recursively sorts object keys, re-emits in
+//!   state machine, recursively sorts object keys, re-emits in
 //!   compact form, and SHA-256s the result.
 //! - `BinaryHasher` streams SHA-256 over a binary file, canonicalizes its
 //!   realpath, and records the symlink-target (if any).
@@ -91,7 +91,7 @@ impl CanonicalJsonHasher {
     pub const MAX_DEPTH: usize = 100;
     pub const TIME_BUDGET_MS: u128 = 50;
 
-    /// Strip JSONC comments using a byte-level state machine (ADR-013).
+    /// Strip JSONC comments using a byte-level state machine.
     ///
     /// Preserves string contents byte-for-byte. Discards `//` line comments
     /// and `/* */` block comments outside string literals. Unterminated block

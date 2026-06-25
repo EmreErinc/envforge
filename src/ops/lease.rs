@@ -35,7 +35,7 @@ pub struct Lease {
     pub expires_at: String,
     pub keys: Option<Vec<String>>, // None = all keys
     pub revoked: bool,
-    // ─── JIT extension (additive; serde-default for backward compat). See ADR-009. ───
+    // ─── JIT extension (additive; serde-default for backward compat). ───
     #[serde(default)]
     pub pid: Option<u32>,
     #[serde(default)]

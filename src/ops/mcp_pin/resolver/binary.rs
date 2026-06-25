@@ -1,4 +1,4 @@
-//! PATH lookup + binary hashing (composes Unit 001 `BinaryHasher`).
+//! PATH lookup + binary hashing (composes `BinaryHasher`).
 
 use std::path::{Path, PathBuf};
 
@@ -45,7 +45,7 @@ impl BinaryPathResolver {
         })
     }
 
-    /// PATH lookup + Unit 001 `BinaryHasher::hash_binary`.
+    /// PATH lookup + `BinaryHasher::hash_binary`.
     pub fn hash_binary_command(command: &str) -> Result<HashedBinary, ResolverError> {
         let path = Self::resolve_path(command)?;
         BinaryHasher::hash_binary(&path).map_err(ResolverError::from)

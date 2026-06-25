@@ -50,7 +50,7 @@ const CLAUDE_PRE_TOOL_COMMAND: &str =
 const CLAUDE_POST_TOOL_MATCHER: &str = "Write|Edit|Bash|MultiEdit";
 const CLAUDE_POST_TOOL_COMMAND: &str =
     "envforge ai-guard post-tool \"$TOOL_NAME\" \"$TOOL_INPUT\" 2>/dev/null; true";
-// MCP supply-chain verification at session start (Bolt 080)
+// MCP supply-chain verification at session start
 const CLAUDE_SESSION_START_MATCHER: &str = "";
 const CLAUDE_SESSION_START_COMMAND: &str = "envforge mcp verify --json 2>/dev/null; true";
 
@@ -143,7 +143,7 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
         "hook": CLAUDE_POST_TOOL_COMMAND,
     }));
 
-    // Install SessionStart hook for MCP pin verification (Bolt 080)
+    // Install SessionStart hook for MCP pin verification
     let session_start = hooks_obj
         .entry("SessionStart")
         .or_insert_with(|| serde_json::json!([]));
@@ -484,7 +484,7 @@ mod tests {
             "Write|Edit|Bash|MultiEdit"
         );
 
-        // SessionStart hook for MCP pin verification (Bolt 080)
+        // SessionStart hook for MCP pin verification
         let session = &content["hooks"]["SessionStart"];
         assert!(session.is_array());
         assert_eq!(session.as_array().unwrap().len(), 1);

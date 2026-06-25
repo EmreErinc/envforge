@@ -1,5 +1,5 @@
 //! Safe-by-construction finding emission. Terminal, JSON, and
-//! audit-event views never expose raw matched text (ADR-020).
+//! audit-event views never expose raw matched text.
 
 use serde_json::{json, Value as JsonValue};
 
@@ -9,8 +9,8 @@ pub struct FindingsEmitter;
 
 impl FindingsEmitter {
     /// Render findings as a multi-line terminal report. The
-    /// `unsafe_show_payload` flag has no raw-text path to expose
-    /// (per ADR-020); it only toggles whether the redacted marker is
+    /// `unsafe_show_payload` flag has no raw-text path to expose;
+    /// it only toggles whether the redacted marker is
     /// shown alongside additional canonicalization metadata.
     pub fn emit_terminal(findings: &[PoisonFinding], unsafe_show_payload: bool) -> String {
         let mut out = String::new();
@@ -60,7 +60,7 @@ impl FindingsEmitter {
     }
 
     /// Per-finding audit-event payload. Explicitly omits any field that
-    /// could carry attacker-controlled text. Wired by Unit 007.
+    /// could carry attacker-controlled text.
     pub fn emit_audit_event(finding: &PoisonFinding) -> JsonValue {
         json!({
             "tool_name": finding.tool_name,

@@ -1,13 +1,13 @@
-//! Unified key-set with per-environment values (Epic 3, AR2).
+//! Unified key-set with per-environment values.
 //!
 //! The spine of the environment-aware `.env` IDE feature: every key declared in
 //! any recognized env file is collected into one [`EnvKeySet`], where each key
 //! maps to its value **per environment**. This single model feeds:
 //!
-//! - key completion (Epic 3 / FR11) — the union of all keys,
-//! - value completion (Epic 3 / FR12) — values a key holds in other environments,
-//! - per-environment hover (Epic 4 / FR15) and cross-environment missing-key
-//!   diagnostics (Epic 4 / FR17).
+//! - key completion — the union of all keys,
+//! - value completion — values a key holds in other environments,
+//! - per-environment hover and cross-environment missing-key
+//!   diagnostics.
 //!
 //! Pure logic: [`build_env_keyset_from_sources`] takes `(env_name, file,
 //! content)` tuples and is fully unit-testable; [`build_env_keyset`] is the
@@ -32,14 +32,14 @@ pub struct ValueOccurrence {
     /// The value with surrounding quotes stripped.
     pub value: String,
     /// Whether this key is sensitive (heuristic; schema sensitivity is unioned
-    /// in by the redaction layer — Epic 5).
+    /// in by the redaction layer).
     pub sensitive: bool,
 }
 
 /// All per-environment occurrences of a single key.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyEntry {
-    /// `env_name -> occurrence`. `BTreeMap` for deterministic ordering (NFR11).
+    /// `env_name -> occurrence`. `BTreeMap` for deterministic ordering.
     pub values: BTreeMap<String, ValueOccurrence>,
 }
 
@@ -58,13 +58,13 @@ impl KeyEntry {
 /// The project's keys, each with its per-environment values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EnvKeySet {
-    /// `key -> entry`. `BTreeMap` for deterministic ordering (NFR11).
+    /// `key -> entry`. `BTreeMap` for deterministic ordering.
     pub keys: BTreeMap<String, KeyEntry>,
 }
 
 impl EnvKeySet {
     /// The union of all keys across environments, in deterministic order
-    /// (powers key completion, FR11).
+    /// (powers key completion).
     pub fn key_names(&self) -> impl Iterator<Item = &str> {
         self.keys.keys().map(String::as_str)
     }
@@ -75,7 +75,7 @@ impl EnvKeySet {
     }
 
     /// Distinct values a key holds across environments, deterministically
-    /// ordered and de-duplicated (powers value completion, FR12).
+    /// ordered and de-duplicated (powers value completion).
     pub fn distinct_values(&self, key: &str) -> Vec<&str> {
         let Some(entry) = self.keys.get(key) else {
             return Vec::new();
@@ -88,7 +88,7 @@ impl EnvKeySet {
     }
 
     /// Keys present in at least one environment but absent from `env_name`
-    /// (powers the cross-environment missing-key diagnostic, FR17). Returns
+    /// (powers the cross-environment missing-key diagnostic). Returns
     /// `(key, [environments that define it])` deterministically ordered.
     pub fn missing_in(&self, env_name: &str) -> Vec<(&str, Vec<&str>)> {
         self.keys
@@ -102,7 +102,7 @@ impl EnvKeySet {
         self.keys.is_empty()
     }
 
-    /// Union schema-declared sensitivity into the key-set (AR2 / FR19): a key
+    /// Union schema-declared sensitivity into the key-set: a key
     /// is sensitive if the key-name heuristic already flagged it **or** the
     /// schema marks it `sensitive`. Once a key is sensitive, every one of its
     /// per-environment occurrences is flagged so redaction is uniform.

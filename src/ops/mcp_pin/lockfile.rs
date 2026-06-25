@@ -1,6 +1,6 @@
 //! Lockfile schema, serde, and persistence for `.envforge/mcp.lock`.
 //!
-//! Schema versioning follows ADR-014: top-level `format_version: u32` plus
+//! Schema versioning uses a top-level `format_version: u32` plus
 //! explicit `migrate_v{n}_to_v{n+1}` chain functions (none needed at v1).
 
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use super::types::{PackageManager, PinMethod, Platform, Transport};
 
-/// Current on-disk lockfile format version. Bump per ADR-014.
+/// Current on-disk lockfile format version. Bump on schema change.
 pub const CURRENT_FORMAT_VERSION: u32 = 1;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -315,7 +315,7 @@ impl LockfileSerde {
                 supported_max: CURRENT_FORMAT_VERSION,
             });
         }
-        // Future migrations dispatch here (per ADR-014).
+        // Future migrations dispatch here.
         lockfile.validate()?;
         Ok(lockfile)
     }

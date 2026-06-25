@@ -1,14 +1,14 @@
-//! Data-driven fence target registry (Story 1.1 / Architecture D1).
+//! Data-driven fence target registry.
 //!
 //! The registry is the single source of truth for *which* AI-tool fence
 //! targets exist and their metadata (paths, file kind, ownership, detection
 //! hints, upstream convention source, whether the tool has a real ignore
 //! mechanism). Adding a new tool is a data entry here plus tests — not new
-//! control flow (NFR-M1).
+//! control flow.
 //!
-//! Story 1.1 introduces the data model and routes target id / path / iteration
-//! through it. The `FileKind`-dispatched writers/strippers (Story 1.2) and the
-//! richer status/detection consumers (Stories 1.6/1.7) build on this module.
+//! The data model routes target id / path / iteration through it. The
+//! `FileKind`-dispatched writers/strippers and the richer status/detection
+//! consumers build on this module.
 
 use super::FenceTarget;
 
@@ -64,13 +64,13 @@ pub struct FenceTargetSpec {
     pub tool: &'static str,
     /// One or more files this target manages.
     pub files: &'static [TargetFile],
-    /// Path/marker hints that signal the tool is installed (Story 1.7).
+    /// Path/marker hints that signal the tool is installed.
     pub detection: &'static [&'static str],
-    /// Authoritative source for this convention (FR25 verifiability).
+    /// Authoritative source for this convention (verifiability).
     pub source_url: &'static str,
     /// Whether the tool has a real ignore mechanism. `false` means
     /// protection is rules/deny fallback only — status must report
-    /// `fallback`, never a false `covered` (Story 1.6 / FR2b).
+    /// `fallback`, never a false `covered`.
     pub has_real_ignore: bool,
 }
 
@@ -262,7 +262,7 @@ pub static REGISTRY: &[FenceTargetSpec] = &[
         detection: &["AGENTS.md", ".codex", ".zed"],
         source_url: "https://agents.md",
         // Rules-only standard — no ignore mechanism. Status reports `fallback`,
-        // never a false `covered` (FR2b / Story 1.6).
+        // never a false `covered`.
         has_real_ignore: false,
     },
     FenceTargetSpec {
@@ -311,7 +311,7 @@ pub fn is_valid_id(id: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// Build-time validation: every entry is well-formed (NFR-M2).
+    /// Build-time validation: every entry is well-formed.
     #[test]
     fn test_registry_entries_well_formed() {
         for spec in REGISTRY {

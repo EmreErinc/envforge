@@ -183,7 +183,6 @@ pub fn safe_write(
     content: &str,
     expected_hash: Option<[u8; 32]>,
 ) -> Result<(), WriteError> {
-    // Create backup if file exists
     if path.exists() {
         use super::backup::{cleanup_backups, create_backup, MAX_BACKUPS};
 

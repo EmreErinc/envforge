@@ -2,8 +2,6 @@ use crate::model::{LifecycleAction, LifecycleRule, LifecycleTrigger, RotationStr
 use crate::ops::schema::EnvSchema;
 
 /// Generate lifecycle rules from schema variables that have lifecycle fields set.
-///
-/// Story 002-auto-rule-generation (Should priority).
 pub fn generate_rules_from_schema(schema: &EnvSchema) -> Vec<LifecycleRule> {
     let mut rules = Vec::new();
 

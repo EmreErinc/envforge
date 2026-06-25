@@ -123,10 +123,10 @@ pub struct FenceConfig {
 /// Per-target enable flags, keyed by fence-target registry id.
 ///
 /// Absent id => enabled (`true`) — so an empty map is byte-identical to
-/// enabling every target (NFR5 backward-compat). Only explicit overrides
+/// enabling every target (backward-compat). Only explicit overrides
 /// are stored/serialised.
 ///
-/// Adding a new AI-tool target requires no new field here (NFR-M1): add
+/// Adding a new AI-tool target requires no new field here: add
 /// an entry to `src/ops/fence/registry.rs` and the new id is automatically
 /// valid and defaults to enabled.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -152,8 +152,8 @@ impl<'de> serde::Deserialize<'de> for FenceTargets {
 impl FenceTargets {
     /// Returns whether the given target is enabled according to this config.
     ///
-    /// Absent key => `true` (NFR5 backward-compat / fail-safe default).
-    /// This is the single decision point for "is target X enabled?" (NFR10).
+    /// Absent key => `true` (backward-compat / fail-safe default).
+    /// This is the single decision point for "is target X enabled?".
     #[must_use]
     pub fn is_enabled(&self, target: crate::ops::fence::FenceTarget) -> bool {
         self.overrides.get(target.as_str()).copied().unwrap_or(true)

@@ -5,7 +5,7 @@ stepsCompleted:
   - step-03-create-stories
   - step-04-final-validation
 inputDocuments:
-  - docs/prd.md
+  - docs/prd_2.md
   - docs/implementation-readiness-report-2026-06-23.md
 ---
 

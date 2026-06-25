@@ -540,7 +540,7 @@ fn cmd_search(
 
 fn is_sensitive(key: &str) -> bool {
     // Canonical key-sensitivity decision lives in ops::dotenv. Delegate so the
-    // CLI, TUI mask, and export paths can never drift apart (FR6 / L6 / L12).
+    // CLI, TUI mask, and export paths can never drift apart.
     crate::ops::dotenv::is_sensitive_key(key)
 }
 
@@ -562,7 +562,7 @@ fn cmd_get(key: &str, json: bool, reveal: bool) -> Result<(), Box<dyn std::error
         .find(|e| e.key == key && e.location != EntryLocation::Commented);
 
     if let Some(e) = entry {
-        // L11: only emit a Reveal event when a sensitive value is actually
+        // Only emit a Reveal event when a sensitive value is actually
         // disclosed in cleartext (--reveal on a sensitive key). A masked default
         // read is not a reveal and shouldn't fire a (Warn) reveal event.
         if reveal && is_sensitive(key) {
@@ -578,7 +578,7 @@ fn cmd_get(key: &str, json: bool, reveal: bool) -> Result<(), Box<dyn std::error
                 severity: crate::ops::monitor::SecuritySeverity::Warn,
             });
         }
-        // H6/FR28: a value-bearing read masks sensitive values by default;
+        // A value-bearing read masks sensitive values by default;
         // cleartext only with explicit --reveal. Non-sensitive keys print as-is.
         let display_value = if is_sensitive(key) && !reveal {
             mask_value(&e.value)
@@ -670,7 +670,7 @@ fn cmd_set(assignment: &str, dry_run: bool, stdin: bool) -> Result<(), Box<dyn s
             &serialize_shell_file(sf),
             &sf.path.to_string_lossy(),
         );
-        // L2/FR3: never echo a sensitive cleartext value in the dry-run diff
+        // Never echo a sensitive cleartext value in the dry-run diff
         // (would defeat `--stdin`). Redacts both old and new sides.
         print!(
             "{}",
@@ -679,7 +679,7 @@ fn cmd_set(assignment: &str, dry_run: bool, stdin: bool) -> Result<(), Box<dyn s
     } else {
         let content = serialize_shell_file(sf);
         safe_write(&sf.path, &content, Some(sf.hash))?;
-        // L1/FR4: do not disclose the secret's length.
+        // Do not disclose the secret's length.
         println!("Set {}", key);
         crate::ops::schema::auto_update_ai_context();
     }
@@ -927,7 +927,7 @@ fn cmd_export_format(
         entries
     };
 
-    // M7/FR28: redact sensitive values by default; `--reveal` emits cleartext.
+    // Redact sensitive values by default; `--reveal` emits cleartext.
     // Otherwise `export --format …` would write every secret to stdout/file.
     let mut redacted = 0usize;
     let to_export: Vec<EnvEntry> = if reveal {
@@ -1437,7 +1437,7 @@ fn cmd_mcp_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!("Run `envforge mcp harden` to fix them.");
     }
 
-    // FR24: deterministic exit code for CI gating — non-zero when hardcoded
+    // Deterministic exit code for CI gating — non-zero when hardcoded
     // credentials are present so a CI job can fail the build. Clean = 0.
     // (Exit 1 is reserved for command errors.)
     if !findings.is_empty() {
@@ -1567,7 +1567,7 @@ fn cmd_backup(action: &BackupAction, json: bool) -> Result<(), Box<dyn std::erro
                 return Err(format!("Backup file not found: {}", file).into());
             }
 
-            // L4: the path is user-supplied. Confine reads to the backups
+            // The path is user-supplied. Confine reads to the backups
             // directory and refuse symlink/`..` escape — otherwise this reads
             // (and, once restore gains write capability, could clobber)
             // arbitrary files outside the backup store.
@@ -2252,7 +2252,7 @@ fn is_likely_secret(value: &str) -> bool {
             }
         }
     }
-    // Canonical detection (incl. M1 entropy path) lives in ops::sanitize.
+    // Canonical detection (incl. entropy path) lives in ops::sanitize.
     crate::ops::sanitize::value_looks_like_secret(value)
 }
 
@@ -3091,7 +3091,7 @@ fn cmd_doctor(
         }
     }
 
-    // --fail-on subsystem exit-code (Bolt 081 / Story 002)
+    // --fail-on subsystem exit-code
     if let Some(subsystem) = fail_on {
         if subsystem == "mcp" {
             if let Some(mcp) = &mcp_section {
@@ -4206,7 +4206,7 @@ fn cmd_fence_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // FR9: deterministic exit code for CI gating. 0 = protected, 2 = not.
+    // Deterministic exit code for CI gating. 0 = protected, 2 = not.
     // (Exit 1 is reserved for command errors.)
     if !status.all_fenced {
         std::process::exit(2);

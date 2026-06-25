@@ -110,7 +110,7 @@ pub fn dispatch_command(command_id: &str, _args: &[Value], workspace_root: Optio
             Some(root) => match check_fence_status(root) {
                 Ok(status) => {
                     // Extend with per-target resolved state so plugins can show
-                    // the enabled-set without a separate fence.config call (FR17).
+                    // the enabled-set without a separate fence.config call.
                     let resolved = {
                         let fence_cfg = crate::config::load_or_create_default()
                             .map(|c| c.fence)

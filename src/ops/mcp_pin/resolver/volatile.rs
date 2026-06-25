@@ -1,19 +1,18 @@
-//! `ReputationLookup` trait + `StubReputationLookup` cross-bolt seam
-//! (per ADR-016) and `VolatileChecker` dispatch service.
+//! `ReputationLookup` trait + `StubReputationLookup` stub and
+//! `VolatileChecker` dispatch service.
 //!
-//! Bolt 077 (`mcp_reputation::TierLookup`) provides the real
+//! `mcp_reputation::TierLookup` provides the real
 //! implementation. The canonical `Tier` enum lives in `mcp_reputation::tier`;
-//! this module re-exports it so existing callers (and tests written
-//! against the trait-stub seam) keep importing from
+//! this module re-exports it so existing callers keep importing from
 //! `mcp_pin::resolver`.
 
 use std::sync::Arc;
 
-// ADR-016 wire-up: `Tier` is owned by `mcp_reputation`; re-export here for
-// trait-method signatures and back-compat with bolt-076 test imports.
+// `Tier` is owned by `mcp_reputation`; re-export here for
+// trait-method signatures and back-compat with test imports.
 pub use crate::ops::mcp_reputation::Tier;
 
-/// Cross-bolt seam (ADR-016). `mcp_reputation::TierLookup` satisfies this
+/// `mcp_reputation::TierLookup` satisfies this
 /// trait; tests use `StubReputationLookup` below.
 pub trait ReputationLookup: Send + Sync {
     fn lookup(&self, name: &str) -> Tier;
@@ -25,7 +24,7 @@ pub trait ReputationLookup: Send + Sync {
 
 /// Safe-default stub. Returns `Unknown` for all names. Retained for tests
 /// and as a fallback when `mcp_reputation` is not wired (e.g. early in the
-/// Resolver pipeline before Unit 004 CLI is invoked).
+/// Resolver pipeline before the CLI is invoked).
 pub struct StubReputationLookup;
 
 impl ReputationLookup for StubReputationLookup {

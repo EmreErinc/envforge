@@ -1,12 +1,7 @@
 //! MCP server reputation: bundled gzip feed + per-user trust override store.
 //!
-//! Owns the canonical `Tier` enum (ADR-016 wire-up). Provides `TierLookup`
-//! which implements the `ReputationLookup` trait declared in Unit 002.
-//!
-//! See:
-//! - `bolts/077-reputation-feed/ddd-01-domain-model.md`
-//! - `bolts/077-reputation-feed/adr-017-security-floor-known-bad-no-override.md`
-//! - `bolts/077-reputation-feed/adr-018-unsigned-bundled-feed-v0.8.md`
+//! Owns the canonical `Tier` enum. Provides `TierLookup`
+//! which implements the `ReputationLookup` trait declared in `mcp_pin`.
 
 pub mod error;
 pub mod feed;
@@ -28,10 +23,10 @@ pub use user_override::{
 
 use crate::ops::mcp_pin::resolver::ReputationLookup;
 
-/// Public façade. Implements Unit 002's `ReputationLookup` trait.
+/// Public façade. Implements the `ReputationLookup` trait.
 ///
 /// Combines the bundled feed with the user override store and applies the
-/// canonical 5-step precedence rule (ADR-017):
+/// canonical 5-step precedence rule:
 ///
 /// ```text
 /// 1. Feed KnownBad → KnownBad (security floor; always wins)

@@ -1,10 +1,6 @@
 //! MCP server resolution: input fragment → concrete pin-able artifacts.
 //!
-//! Outputs are transient `ResolvedArtifact` values consumed by Unit 004 CLI
-//! which writes them through Unit 001's `LockfileRepository`.
-//!
-//! Cross-bolt seam: depends on Unit 003 via `ReputationLookup` trait
-//! (see `volatile.rs`; ADR-016).
+//! Outputs are transient `ResolvedArtifact` values.
 
 pub mod binary;
 pub mod detector;
@@ -96,7 +92,7 @@ pub enum ResolverError {
     },
 }
 
-/// Output value object. Consumed by Unit 004 to construct a `ServerPin`.
+/// Output value object. Consumed downstream to construct a `ServerPin`.
 #[derive(Debug, Clone)]
 pub struct ResolvedArtifact {
     pub name: String,
@@ -112,7 +108,7 @@ pub struct ResolvedArtifact {
 
 /// Options governing a `Resolver::resolve` call. `Default::default()`
 /// wires the `StubReputationLookup` so this unit can compile + test
-/// without Unit 003 (ADR-016).
+/// without `mcp_reputation`.
 pub struct ResolveOpts {
     pub reputation: Arc<dyn ReputationLookup>,
     pub project_root: Option<PathBuf>,
@@ -229,7 +225,7 @@ impl Resolver {
         }
 
         // Sanity hook: keep clippy happy that executor is used in
-        // multi-arm dispatch when Unit 005 reuses the trait.
+        // multi-arm dispatch when the poisoning scan reuses the trait.
         let _ = &executor;
 
         Ok(ResolvedArtifact {

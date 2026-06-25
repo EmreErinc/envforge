@@ -152,7 +152,7 @@ pub fn render_confirm_popup(f: &mut Frame, action: &ConfirmAction) {
     let area = centered_popup(f.area(), 50, 15);
     f.render_widget(Clear, area);
 
-    // L5/FR2: sanitize the key name — it can carry control/escape bytes when
+    // Sanitize the key name — it can carry control/escape bytes when
     // sourced from a parsed/imported file.
     let message = match action {
         ConfirmAction::Delete(key) => format!(
@@ -204,7 +204,7 @@ pub fn render_diff_preview(f: &mut Frame, app: &App) {
         .diff_content
         .lines()
         .map(|line| {
-            // H2/FR2: strip control/escape sequences before the diff hits the
+            // Strip control/escape sequences before the diff hits the
             // terminal (values are already value-redacted upstream).
             let line = crate::ui::sanitize::sanitize_for_display(line);
             if line.starts_with('+') && !line.starts_with("+++") {

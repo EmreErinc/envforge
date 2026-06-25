@@ -1,5 +1,5 @@
-//! Canonicalization pipeline shared between Unit 005 and future intent
-//! 035 (ENV-value scanner).
+//! Canonicalization pipeline shared between the poisoning scanner and a
+//! future ENV-value scanner.
 //!
 //! 7 steps: NFKC, lowercase, strip-zero-width, line-sep-normalize,
 //! leetspeak-fold, whitespace-collapse, non-allowed-strip.

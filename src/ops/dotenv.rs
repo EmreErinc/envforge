@@ -295,7 +295,7 @@ mod tests {
         parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
     }
 
-    /// Regression (Story 2.4): a lone quote char as a value must not panic
+    /// Regression: a lone quote char as a value must not panic
     /// `strip_quotes` (`value[1..0]`). Found by the MCP no-secret property test.
     #[test]
     fn test_strip_quotes_lone_quote_no_panic() {

@@ -183,7 +183,7 @@ fn key_completions(
     }
 
     // 2. From the project key-set — keys declared in this project's other
-    //    environments (FR11). Ranked right after schema (0_) and ABOVE
+    //    environments. Ranked right after schema (0_) and ABOVE
     //    globally-managed shell vars: in a project env file the project's own
     //    keys are the most relevant, and must not be buried under the user's
     //    whole shell environment. Runs before the managed loop so a key in both
@@ -386,9 +386,9 @@ fn value_completions(
         }
     }
 
-    // Cross-environment values (FR12): values this key holds in other
+    // Cross-environment values: values this key holds in other
     // environments. Sensitive keys never surface a raw cross-env value — only
-    // a safe marker (redaction parity, NFR4); non-sensitive keys offer the
+    // a safe marker (redaction parity); non-sensitive keys offer the
     // real values for reuse.
     if let Some(ks) = env_keyset {
         if let Some(entry) = ks.entry(key) {

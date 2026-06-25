@@ -183,7 +183,7 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
 }
 
 fn truncate_value(value: &str, max_len: usize) -> String {
-    // Char-boundary safe (M5/M8/FR9): byte-slicing `&value[..max_len]` panics
+    // Char-boundary safe: byte-slicing `&value[..max_len]` panics
     // when a multibyte codepoint straddles the cut. Count/cut by chars.
     if value.chars().count() > max_len {
         format!("{}…", crate::ops::sanitize::char_prefix(value, max_len))

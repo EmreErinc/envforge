@@ -28,7 +28,7 @@ pub struct CanarySecret {
     pub trigger_count: usize,
     #[serde(default = "default_rotate_after_days")]
     pub rotate_after_days: u32,
-    // v2 extension fields (additive; serde-default for backward compat). See ADR-007.
+    // v2 extension fields (additive; serde-default for backward compat).
     #[serde(default = "default_version")]
     pub version: u8,
     #[serde(default)]

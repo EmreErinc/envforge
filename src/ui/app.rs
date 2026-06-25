@@ -100,7 +100,7 @@ pub struct App {
     pub notification: Option<Notification>,
     /// Keys (not row indices) whose value is currently revealed. Keyed by the
     /// env var name so scrolling/sorting/regrouping can't reveal the wrong
-    /// secret when a row index is later reused (L9).
+    /// secret when a row index is later reused.
     pub revealed: HashSet<String>,
     pub should_quit: bool,
     pub diff_content: String,
@@ -117,7 +117,7 @@ pub struct App {
     pub fence_enabled: bool,
     /// Whether the first-run security setup has been completed
     pub first_run_completed: bool,
-    /// Resolved fence targets for the current config — shown read-only in the footer (FR16).
+    /// Resolved fence targets for the current config — shown read-only in the footer.
     /// Populated once on construction; refreshed when the fence is toggled.
     pub fence_resolved_targets: Vec<crate::ops::fence::ResolvedTarget>,
 }
@@ -192,7 +192,7 @@ impl App {
             }
         }
 
-        // Resolve fence targets once at startup for the read-only footer display (FR16).
+        // Resolve fence targets once at startup for the read-only footer display.
         let fence_resolved_targets = {
             let fence_cfg = crate::config::load_or_create_default()
                 .map(|c| c.fence)
@@ -313,11 +313,11 @@ impl App {
 
     /// Check if a value should be masked.
     pub fn is_masked(&self, key: &str) -> bool {
-        // Reveal is tracked by key identity (L9), not row index.
+        // Reveal is tracked by key identity, not row index.
         if self.revealed.contains(key) {
             return false;
         }
-        // Delegate to the canonical key-sensitivity decision (FR6 / L6 / L12).
+        // Delegate to the canonical key-sensitivity decision.
         crate::ops::dotenv::is_sensitive_key(key)
     }
 
@@ -579,7 +579,7 @@ impl App {
                 }
             }
             KeyCode::Char('v') => {
-                // Toggle reveal for the selected entry's KEY (L9).
+                // Toggle reveal for the selected entry's KEY.
                 if let Some(entry) = self.selected_entry() {
                     let k = entry.key;
                     if self.revealed.contains(&k) {
@@ -773,7 +773,7 @@ impl App {
 
     fn toggle_fence(&mut self) {
         let cwd = std::env::current_dir().unwrap_or_default();
-        // Refresh the resolved target summary after any config-touching toggle (FR16).
+        // Refresh the resolved target summary after any config-touching toggle.
         self.refresh_fence_resolved_targets();
         if self.fence_enabled {
             match crate::ops::fence::remove_fence(&cwd, false) {
@@ -1150,7 +1150,7 @@ impl App {
                 diffs.push('\n');
             }
         }
-        // H2/FR1: redact sensitive cleartext values (old AND new sides) before
+        // Redact sensitive cleartext values (old AND new sides) before
         // the diff is stored in App state or rendered — the diff preview is the
         // one screen that would otherwise show a secret in full.
         let diffs = crate::ops::sanitize::redact_sensitive_assignments(&diffs);
@@ -1196,7 +1196,7 @@ pub fn run_tui() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // H3/FR8: guarantee terminal restore on ANY exit path — normal return,
+    // Guarantee terminal restore on ANY exit path — normal return,
     // `?` early-return, or panic — so a revealed secret can never be stranded
     // on a raw/alt screen. The panic hook restores BEFORE the default panic
     // message prints (otherwise it renders into a raw terminal); the RAII

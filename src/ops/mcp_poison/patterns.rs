@@ -1,6 +1,6 @@
 //! Pattern set v1 for poisoning detection. Compiled-once via `OnceLock`.
 //!
-//! Per ADR-013 (non-backtracking-engine policy): all regexes use the
+//! All regexes use the
 //! `regex` crate (no lookbehind / no backreferences) with bounded
 //! `size_limit` and `dfa_size_limit`.
 

@@ -1,16 +1,16 @@
 //! Resolve a [`ProjectConfig`]'s declared environments into the concrete set of
-//! env-file paths the LSP recognizes (Epic 1: Project Manifest Foundation).
+//! env-file paths the LSP recognizes.
 //!
 //! The project config (`.envforge.project.toml` / `.yaml` / `.json`, parsed by
 //! [`super::config`]) is the source of truth for *which* env files belong to a
 //! project. This module turns its `environments` list into absolute paths,
 //! dropping any entry whose path would escape the project root — recognition
-//! must never reach outside the workspace (NFR6 / scoping rule).
+//! must never reach outside the workspace (scoping rule).
 //!
 //! Pure logic, no I/O: callers pass an already-loaded `ProjectConfig` and the
 //! project root. The LSP layer consults [`ResolvedEnvSet::recognizes`] as the
 //! single source of truth for env-file recognition; when no project config is
-//! present it falls back to conventional `.env*` recognition (Story 1.5).
+//! present it falls back to conventional `.env*` recognition.
 
 use std::path::{Component, Path, PathBuf};
 
