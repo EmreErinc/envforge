@@ -93,8 +93,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
-- **2,662 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
-  builds clean. (+60 edge-case coverage tests for `ops` units — +43 pure units:
+- **2,806 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
+  builds clean. (+204 edge-case coverage tests for `ops` units — +43 pure units:
   `validation_utils` validators, `sanitize` UTF-8 slicing / secret heuristic /
   diff-aware redaction, `redact` message masking, `uri_resolve` URI + content
   parsing, `export_format` format/extension mapping; +17 for `schema`
@@ -102,7 +102,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolution, url/port/regex validation, drift) and the `fence`
   create/status/remove/apply lifecycle
   (destructive `remove_fence` dry-run guarantee, idempotency, config-gated
-  skipping, `apply_tool` error paths); +31 for the
+  skipping, `apply_tool` error paths); +26 for `crud` rename/soft-delete
+  (`rename_entry_at` bounds/type errors, rename collision, `soft_delete`/
+  `undo_delete` round-trip), `proxy` request routing (status matrix, key-format
+  validation, allowlist filtering, lease bypass), and `offset`/`reference`
+  (safe-zone boundaries, unclosed protected blocks, managed-zone detection,
+  source-directive injection, move-to-reference); +12 for `crud` mutation
+  (`add_entry` duplicate / no-safe-zone, `edit_entry` missing / ambiguous,
+  `ensure_managed_zone`) and `fuzzy` search (empty-query passthrough, key vs
+  value matching, no-match, score ordering); +11 for `canary::v2` forensic
+  token codec (HMAC round-trip, forgery detection, multi-key resolution, format
+  errors, timestamp/age math) and `conflict` (external-edit detection via stored
+  hash, unified-diff generation); +7 for `check` (`CheckCategory`
+  name/parse/display round-trips, `parse_category_filter`, `CheckReport` status
+  counts) and `snapshot::diff_snapshot` (Added/Removed/Changed/Same); +10 IO
+  round-trips (`HOME`/`ENVFORGE_CONFIG_DIR`-isolated, serialized): `snapshot`
+  create/list/load/delete/prune, `profile` create/delete + name validation, and
+  pure `sync::diff` compute_diff/compute_status; +8 for `sync` pure
+  parsers/validators (git status/log parsing, remote-URL validation with SSH
+  enforcement + `ext::`/`file://`/dash/control-char injection guards,
+  `export_to_snapshot`, three-way `compute_pull_changes`); +9 for security/parse
+  helpers — `ai_guard::is_sensitive_path` (AI Read-tool gate: blocks
+  `.env`/`.pem`/`.key`/`.ssh`/`credentials`/`id_rsa`, allows `.env.schema`/
+  `.example`/`.template` variants, case-insensitive) and `dotenv`
+  (`parse_dotenv_content`, `is_sensitive_key` keyboard exception, `export_safe`
+  redaction); +11 for `secrets::modes` (`glob_match` wildcard matcher,
+  `VolatileMode` accessors, `zeroize_secrets`) and `audit::tamper::ChainState`
+  (hash-chain head tracking per log file); +13 for `hardening` adversarial-input
+  layers (control-char/homoglyph strip, base64 decode, split-string assembly,
+  pipeline) and a fixture-heavy `sync` push round-trip (real git repo +
+  age-encrypted snapshot, no-remote / dry-run / no-keys / nothing-to-sync) and a
+  full bare-remote round-trip (+2: push lands the encrypted snapshot on a real
+  remote verified by independent clone; pull picks up another machine's change
+  fast-forward without conflict); +8 for `scanner` (sensitive-entry filtering,
+  on-disk leaked-secret detection with masked match output) and `secure_memory`
+  (zeroize strings/bytes, core-dump disable); +12 for `ci_trust::classifier`
+  (GitHub Actions trust matrix — fork PR / pull_request_target / external comment
+  classify Untrusted, fail-closed on unknown events) and
+  `external_scanner::ScannerRegistry` (enabled-filtered lookup/iteration); +9
+  for `ci_trust::quarantine::apply` (secret scrubbing — GITHUB_TOKEN always
+  removed, key-name + value-shape detection, allow-list) and
+  `envbom::serializer` (SHA-256 digest/subject vectors); +6 for `envbom::builder`
+  (value-state classification, audit-summary counts, deterministic canonical
+  JSON) and `envbom::differ` (added/removed/changed BOM diff); +31 for the
   environment-aware `.env` IDE feature: manifest
   resolution, unified key-set, cross-env completion/hover/diagnostics, schema
   sensitivity union, cross-client conformance; +2 for value-position `$VAR`
