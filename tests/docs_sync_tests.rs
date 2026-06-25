@@ -1,10 +1,10 @@
 //! Documentation-sync guardrails.
 //!
 //! These tests make the doc-sync effort permanent: they fail the build if any
-//! surface drifts from the canonical facts in `docs/FACTS.md` — conflicting
-//! counts, a stale version, a blank `--help` description, or an undocumented
-//! command. When a canonical number legitimately changes, update `docs/FACTS.md`
-//! AND the surfaces, and these tests will confirm everything agrees again.
+//! surface drifts from the canonical facts — conflicting counts, a stale
+//! version, a blank `--help` description, or an undocumented command. When a
+//! canonical number legitimately changes, update the surfaces and these tests
+//! will confirm everything agrees again.
 
 use clap::CommandFactory;
 use envforge::cli::Cli;
@@ -140,15 +140,6 @@ fn test_canonical_counts_no_stale_values() {
     let index = read("docs/index.html");
     let readme = read("README.md");
     let man = read("src/ops/man.rs");
-    let facts = read("docs/FACTS.md");
-
-    // FACTS.md must declare the canonical values we enforce.
-    for token in ["30+", "130+", "13", "AI-safe environment variable manager"] {
-        assert!(
-            facts.contains(token),
-            "docs/FACTS.md is missing canonical token {token:?}"
-        );
-    }
 
     // Canonical values must be present on the public surfaces.
     assert!(
