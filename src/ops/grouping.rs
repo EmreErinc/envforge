@@ -25,7 +25,6 @@ pub fn group_entries(entries: &[EnvEntry], config: &GroupConfig) -> Vec<EnvGroup
     let mut result = Vec::new();
     let mut assigned: HashSet<usize> = HashSet::new();
 
-    // 1. User-defined groups
     for (name, patterns) in &config.groups {
         let mut group_entries = Vec::new();
         for (i, entry) in entries.iter().enumerate() {
@@ -46,7 +45,6 @@ pub fn group_entries(entries: &[EnvEntry], config: &GroupConfig) -> Vec<EnvGroup
         }
     }
 
-    // 2. Auto-detect prefix groups from remaining entries
     let remaining: Vec<(usize, &EnvEntry)> = entries
         .iter()
         .enumerate()
@@ -70,7 +68,6 @@ pub fn group_entries(entries: &[EnvEntry], config: &GroupConfig) -> Vec<EnvGroup
         }
     }
 
-    // 3. "Other" group for unmatched entries
     let other_entries: Vec<EnvEntry> = entries
         .iter()
         .enumerate()

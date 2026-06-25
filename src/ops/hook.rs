@@ -169,7 +169,6 @@ pub fn cmd_env(dir: Option<&str>) -> Result<(), OpError> {
         None => std::env::current_dir()?,
     };
 
-    // Look for .envforge.toml project config
     let project_config_path = base_dir.join(".envforge.toml");
     let has_project_config = project_config_path.exists();
     let has_schema = base_dir.join(".env.schema").exists();
@@ -182,21 +181,18 @@ pub fn cmd_env(dir: Option<&str>) -> Result<(), OpError> {
         .into());
     }
 
-    // Parse project config to get profile name
     let profile_name = if has_project_config {
         parse_project_config(&project_config_path)?
     } else {
         None
     };
 
-    // Collect environment variables
     let env = collect_project_env(&base_dir, profile_name.as_deref())?;
 
     if env.is_empty() {
         return Ok(());
     }
 
-    // Save previous values for unload (to user state dir, mode 0600).
     save_prev_values(&base_dir, &env)?;
 
     // Remove any legacy in-project prev file from older envforge versions
@@ -206,7 +202,6 @@ pub fn cmd_env(dir: Option<&str>) -> Result<(), OpError> {
         let _ = std::fs::remove_file(&legacy_prev);
     }
 
-    // Output export statements to stdout
     let mut keys: Vec<&String> = env.keys().collect();
     keys.sort();
     for key in keys {

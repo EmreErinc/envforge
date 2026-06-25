@@ -3,7 +3,7 @@
 //! - On-disk JSON array at `~/.config/envforge/mcp-trust.json`
 //! - Atomic save via tempfile + rename
 //! - 0600 perms on Unix
-//! - Security floor (ADR-017): write API refuses any tier other than UserTrusted
+//! - Security floor: write API refuses any tier other than UserTrusted
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -137,7 +137,7 @@ impl UserOverrideRepository for InMemoryUserOverrideRepository {
 }
 
 /// Public store façade. Composes `UserOverrideRepository` with record/revoke
-/// API enforcing the security floor (ADR-017).
+/// API enforcing the security floor.
 pub struct UserOverrideStore {
     repo: Arc<dyn UserOverrideRepository>,
 }

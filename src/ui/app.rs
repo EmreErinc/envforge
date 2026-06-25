@@ -100,7 +100,7 @@ pub struct App {
     pub notification: Option<Notification>,
     /// Keys (not row indices) whose value is currently revealed. Keyed by the
     /// env var name so scrolling/sorting/regrouping can't reveal the wrong
-    /// secret when a row index is later reused (L9).
+    /// secret when a row index is later reused.
     pub revealed: HashSet<String>,
     pub should_quit: bool,
     pub diff_content: String,
@@ -117,7 +117,7 @@ pub struct App {
     pub fence_enabled: bool,
     /// Whether the first-run security setup has been completed
     pub first_run_completed: bool,
-    /// Resolved fence targets for the current config — shown read-only in the footer (FR16).
+    /// Resolved fence targets for the current config — shown read-only in the footer.
     /// Populated once on construction; refreshed when the fence is toggled.
     pub fence_resolved_targets: Vec<crate::ops::fence::ResolvedTarget>,
 }
@@ -130,7 +130,6 @@ impl App {
         // Detect first run — config file was just created by load_or_create_default
         let is_first_run = crate::config::config_file_path()
             .map(|p| {
-                // Check if the config was freshly created (file is new or has first_run not set)
                 p.exists()
                     && std::fs::metadata(&p)
                         .map(|m| {
@@ -167,7 +166,6 @@ impl App {
             if profile_path.exists() {
                 shell_files.push(parse_shell_file(&profile_path)?);
             } else {
-                // Create empty profile file
                 std::fs::write(
                     &profile_path,
                     format!("# EnvForge profile: {}\n", config.profiles.active),
@@ -179,7 +177,6 @@ impl App {
         let entries = collect_all_entries(&shell_files);
         let duplicate_keys = duplicate_key_set(&shell_files);
 
-        // Pre-compute collapsed groups: all collapsed except "Other"
         let group_config = GroupConfig {
             groups: config
                 .groups
@@ -195,7 +192,7 @@ impl App {
             }
         }
 
-        // Resolve fence targets once at startup for the read-only footer display (FR16).
+        // Resolve fence targets once at startup for the read-only footer display.
         let fence_resolved_targets = {
             let fence_cfg = crate::config::load_or_create_default()
                 .map(|c| c.fence)
@@ -316,11 +313,11 @@ impl App {
 
     /// Check if a value should be masked.
     pub fn is_masked(&self, key: &str) -> bool {
-        // Reveal is tracked by key identity (L9), not row index.
+        // Reveal is tracked by key identity, not row index.
         if self.revealed.contains(key) {
             return false;
         }
-        // Delegate to the canonical key-sensitivity decision (FR6 / L6 / L12).
+        // Delegate to the canonical key-sensitivity decision.
         crate::ops::dotenv::is_sensitive_key(key)
     }
 
@@ -333,7 +330,6 @@ impl App {
         });
     }
 
-    /// Refresh entries from shell files.
     /// Get the file index for the active profile (index 2).
     pub fn profile_file_index(&self) -> usize {
         2
@@ -369,10 +365,8 @@ impl App {
         self.duplicate_keys = duplicate_key_set(&self.shell_files);
     }
 
-    /// Handle a key event based on current mode.
     /// Handle mouse events.
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
-        // Only handle mouse in Normal mode
         if self.mode != ViewMode::Normal {
             return;
         }
@@ -382,7 +376,6 @@ impl App {
 
         match mouse.kind {
             MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
-                // Click: select row (offset by header area: 3 lines header + 1 table header)
                 let table_start = 4_u16; // header border(3) + table header row(1)
                 if mouse.row >= table_start {
                     let clicked_row = (mouse.row - table_start) as usize;
@@ -469,7 +462,6 @@ impl App {
                     }
                 }
             }
-            // Left on group header = collapse
             KeyCode::Left => {
                 if let Some(TableRow::GroupHeader {
                     name, collapsed, ..
@@ -481,7 +473,6 @@ impl App {
                 }
             }
             KeyCode::Char('g') => {
-                // Toggle grouping on/off
                 self.grouping_enabled = !self.grouping_enabled;
                 self.selected = 0;
                 self.notify(
@@ -494,7 +485,6 @@ impl App {
                 );
             }
             KeyCode::Char(' ') => {
-                // Toggle active/passive for selected entry
                 if let Some(entry) = self.selected_entry() {
                     let source = entry.source_file.clone();
                     let key_name = entry.key.clone();
@@ -589,7 +579,7 @@ impl App {
                 }
             }
             KeyCode::Char('v') => {
-                // Toggle reveal for the selected entry's KEY (L9).
+                // Toggle reveal for the selected entry's KEY.
                 if let Some(entry) = self.selected_entry() {
                     let k = entry.key;
                     if self.revealed.contains(&k) {
@@ -600,7 +590,6 @@ impl App {
                 }
             }
             KeyCode::Char('L') => {
-                // Show lifecycle info for the selected key
                 if let Some(entry) = self.selected_entry() {
                     match crate::ops::lifecycle::orchestrator::get_state(&entry.key) {
                         Ok(state) => {
@@ -685,7 +674,6 @@ impl App {
                 self.mode = ViewMode::Exporting;
             }
             KeyCode::Char('P') => {
-                // Open profile selector
                 let names = self.config.profiles.profile_names();
                 let current_idx = names
                     .iter()
@@ -694,7 +682,6 @@ impl App {
                 self.mode = ViewMode::ProfileSelector(current_idx);
             }
             KeyCode::Char('F') => {
-                // Toggle AI tool fence for the current project
                 self.toggle_fence();
             }
             KeyCode::Tab => {}
@@ -721,7 +708,6 @@ impl App {
                             match switch_profile(&mut self.config, sf, &name) {
                                 Ok(()) => {
                                     self.has_unsaved_changes = true;
-                                    // Reload entries with new profile
                                     self.entries = load_profile_entries(&self.config, sf);
                                     self.duplicate_keys = duplicate_key_set(&self.shell_files);
                                     self.notify(
@@ -787,7 +773,7 @@ impl App {
 
     fn toggle_fence(&mut self) {
         let cwd = std::env::current_dir().unwrap_or_default();
-        // Refresh the resolved target summary after any config-touching toggle (FR16).
+        // Refresh the resolved target summary after any config-touching toggle.
         self.refresh_fence_resolved_targets();
         if self.fence_enabled {
             match crate::ops::fence::remove_fence(&cwd, false) {
@@ -966,7 +952,6 @@ impl App {
                 if field == AddField::Key {
                     self.mode = ViewMode::Adding(AddField::Value);
                 } else {
-                    // Commit add to target file (profile or shared)
                     let key_str = self.add_key_input.value().to_string();
                     let value_str = self.add_value_input.value().to_string();
                     if !key_str.is_empty() {
@@ -1009,9 +994,7 @@ impl App {
                 }
             }
             KeyCode::Tab => {
-                // Ctrl+Tab or just Tab to switch field
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    // Toggle target: profile ↔ shared
                     self.add_target = match self.add_target {
                         AddTarget::Profile => AddTarget::Shared,
                         AddTarget::Shared => AddTarget::Profile,
@@ -1024,14 +1007,13 @@ impl App {
                 }
             }
             KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                // Ctrl+T to toggle target: profile ↔ shared
                 self.add_target = match self.add_target {
                     AddTarget::Profile => AddTarget::Shared,
                     AddTarget::Shared => AddTarget::Profile,
                 };
             }
             KeyCode::Esc => {
-                self.add_target = AddTarget::Profile; // Reset target
+                self.add_target = AddTarget::Profile;
                 self.mode = ViewMode::Normal;
             }
             KeyCode::Backspace => match field {
@@ -1168,7 +1150,7 @@ impl App {
                 diffs.push('\n');
             }
         }
-        // H2/FR1: redact sensitive cleartext values (old AND new sides) before
+        // Redact sensitive cleartext values (old AND new sides) before
         // the diff is stored in App state or rendered — the diff preview is the
         // one screen that would otherwise show a secret in full.
         let diffs = crate::ops::sanitize::redact_sensitive_assignments(&diffs);
@@ -1190,7 +1172,6 @@ impl App {
                 }
             }
         }
-        // Re-parse to update hashes
         let paths: Vec<_> = self.shell_files.iter().map(|sf| sf.path.clone()).collect();
         self.shell_files.clear();
         for path in paths {
@@ -1209,14 +1190,13 @@ impl App {
 pub fn run_tui() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new()?;
 
-    // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // H3/FR8: guarantee terminal restore on ANY exit path — normal return,
+    // Guarantee terminal restore on ANY exit path — normal return,
     // `?` early-return, or panic — so a revealed secret can never be stranded
     // on a raw/alt screen. The panic hook restores BEFORE the default panic
     // message prints (otherwise it renders into a raw terminal); the RAII
@@ -1228,7 +1208,6 @@ pub fn run_tui() -> Result<(), Box<dyn std::error::Error>> {
     }));
     let _tui_guard = TuiGuard;
 
-    // Main loop
     let tick_rate = Duration::from_millis(250);
     let mut last_tick = Instant::now();
 

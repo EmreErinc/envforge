@@ -48,7 +48,6 @@ pub fn switch_profile(
     new_profile: &str,
 ) -> Result<(), ProfileError> {
     validate_profile_name(new_profile)?;
-    // Validate profile exists
     if !config.profiles.entries.contains_key(new_profile) {
         return Err(ProfileError::NotFound(new_profile.to_string()));
     }
@@ -57,13 +56,10 @@ pub fn switch_profile(
     let new_entry = config.profiles.entries.get(new_profile).unwrap();
     let new_file = new_entry.file.clone();
 
-    // Update source directive in shell config
     update_profile_source_directive(primary_shell_file, &old_file, &new_file);
 
-    // Update config
     config.profiles.active = new_profile.to_string();
 
-    // Save config
     let config_path = config_file_path().map_err(|_| ProfileError::ConfigError)?;
     save_config(config, &config_path).map_err(|_| ProfileError::ConfigError)?;
 
@@ -85,14 +81,12 @@ pub fn create_profile(config: &mut AppConfig, name: &str) -> Result<PathBuf, Pro
         },
     );
 
-    // Create the file if it doesn't exist
     let expanded = shellexpand(&file_path);
     if !expanded.exists() {
         std::fs::write(&expanded, format!("# EnvForge profile: {}\n", name))
             .map_err(|_| ProfileError::ConfigError)?;
     }
 
-    // Save config
     let config_path = config_file_path().map_err(|_| ProfileError::ConfigError)?;
     save_config(config, &config_path).map_err(|_| ProfileError::ConfigError)?;
 
@@ -141,7 +135,6 @@ pub fn ensure_shared_file(
             .map_err(|_| ProfileError::ConfigError)?;
     }
 
-    // Inject shared source directive if not present
     let has_shared = shell_file
         .lines
         .iter()
@@ -223,7 +216,6 @@ fn update_profile_source_directive(shell_file: &mut ShellFile, old_file: &str, n
             // This is the comment line — skip, update the next source line
             continue;
         }
-        // Check if this is the source line for the old profile
         if text.contains(&shellexpand(old_file).to_string_lossy().to_string())
             || text.contains(old_file)
         {
@@ -246,10 +238,8 @@ fn update_profile_source_directive(shell_file: &mut ShellFile, old_file: &str, n
 pub fn load_profile_entries(config: &AppConfig, shell_file: &ShellFile) -> Vec<EnvEntry> {
     let mut all_entries = Vec::new();
 
-    // 1. Shell config entries
     all_entries.extend(collect_entries(shell_file));
 
-    // 2. Shared file entries
     let shared_path = shellexpand(&config.profiles.shared_file);
     if shared_path.exists() {
         if let Ok(shared_sf) = parse_shell_file(&shared_path) {
@@ -257,7 +247,6 @@ pub fn load_profile_entries(config: &AppConfig, shell_file: &ShellFile) -> Vec<E
         }
     }
 
-    // 3. Active profile entries (highest priority)
     if let Some(profile_file) = config.profiles.active_file() {
         let profile_path = shellexpand(&profile_file);
         if profile_path.exists() {

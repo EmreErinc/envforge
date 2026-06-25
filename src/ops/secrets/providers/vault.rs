@@ -134,7 +134,6 @@ impl SecretProvider for VaultProvider {
 
             Ok(())
         } else {
-            // Token auth — just verify token exists
             if !credentials.contains_key("token") {
                 return Err(SecretsError::CredentialError(
                     "Token auth requires 'token'. Run: envforge secrets config vault --set token=<value>".into(),

@@ -29,7 +29,6 @@ pub fn log_change(profile: &str, action: &str, key: &str, detail: &str) {
             timestamp, profile, action, key, detail
         );
 
-        // Create parent dir if needed
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -68,7 +67,6 @@ pub fn log_change(profile: &str, action: &str, key: &str, detail: &str) {
             }
         }
 
-        // Rotate if needed
         let _ = rotate_if_needed(&path, 1000);
     }
 }
@@ -104,7 +102,6 @@ pub fn read_changelog(
         })
         .collect();
 
-    // Return last N entries
     if entries.len() > max_entries {
         entries = entries.split_off(entries.len() - max_entries);
     }

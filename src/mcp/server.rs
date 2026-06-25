@@ -1,4 +1,4 @@
-//! EnvForge MCP server — Story 2.1 skeleton + Story 2.3 read-safe tools.
+//! EnvForge MCP server — read-safe tools.
 //!
 //! Boots an MCP server over stdio, completes the initialize handshake, and
 //! serves two read-safe tools that expose env-var metadata to AI agents without
@@ -28,8 +28,6 @@ use crate::ops::{
     redact::redact_for_label,
     schema::parse_schema,
 };
-
-// ── Audit helper ──────────────────────────────────────────────────────────────
 
 /// Build an audit message for an MCP tool invocation.
 ///
@@ -159,8 +157,6 @@ pub fn describe(dir: &Path) -> Vec<VarDesc> {
     vars.sort_by(|a, b| a.key.cmp(&b.key));
     vars
 }
-
-// ── MCP handler ──────────────────────────────────────────────────────────────
 
 /// Handler struct for the EnvForge MCP server.
 ///

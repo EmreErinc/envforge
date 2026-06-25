@@ -136,16 +136,29 @@ pub fn parse_schema_content(content: &str) -> Result<EnvSchema, SchemaError> {
 
     for (key, value) in &table {
         if let Some(tbl) = value.as_table() {
-            // Check if this is an env override like [DB_URL.production]
+            // Check if this is an env override expressed as a quoted dotted
+            // top-level key like ["DB_URL.production"]. Handled in the loop below.
             if key.contains('.') {
-                continue; // Handled below with parent
+                continue;
             }
-            let var = parse_variable(key, tbl)?;
+            let mut var = parse_variable(key, tbl)?;
+            // Idiomatic `[VAR.environment]` parses as a *sub-table* of VAR rather
+            // than a dotted top-level key, so any nested table here is a
+            // per-environment override (the variable's own fields are scalars /
+            // arrays, never tables).
+            for (sub_key, sub_value) in tbl {
+                if let Some(sub_tbl) = sub_value.as_table() {
+                    var.env_overrides
+                        .insert(sub_key.clone(), parse_override(sub_tbl));
+                }
+            }
             variables.insert(key.clone(), var);
         }
     }
 
-    // Parse env overrides [VAR.environment]
+    // Parse env overrides written as quoted dotted top-level keys
+    // (["VAR.environment"]). The idiomatic nested `[VAR.environment]` form is
+    // handled above; this preserves backward compatibility with the literal form.
     for (key, value) in &table {
         if let Some(dot_pos) = key.find('.') {
             let var_name = &key[..dot_pos];
@@ -279,7 +292,6 @@ pub fn validate_against_schema(
 ) -> Vec<SchemaValidationError> {
     let mut errors = Vec::new();
 
-    // Check schema variables
     for (var_name, var_def) in &schema.variables {
         let effective = resolve_effective(var_def, environment);
 
@@ -639,7 +651,6 @@ pub fn detect_drift(
     env_files: &[(String, HashMap<String, String>)],
     schema: Option<&EnvSchema>,
 ) -> Vec<DriftEntry> {
-    // Collect all keys
     let mut all_keys: Vec<String> = Vec::new();
     for (_, env) in env_files {
         for key in env.keys() {
@@ -727,7 +738,6 @@ pub fn emit_ai_context(schema: Option<&EnvSchema>, entries: &[(String, String)])
     // Collect all variable names, schema first then inferred
     let mut seen = std::collections::HashSet::new();
 
-    // Schema-defined variables
     if let Some(s) = schema {
         let mut schema_keys: Vec<&String> = s.variables.keys().collect();
         schema_keys.sort();
@@ -793,10 +803,8 @@ pub fn auto_update_ai_context() {
         return; // Only update if file already exists
     }
 
-    // Load schema if available
     let schema = find_schema().and_then(|p| parse_schema(&p).ok());
 
-    // Load entries for inference
     if let Ok(config) = crate::config::load_or_create_default() {
         let mut shell_files = Vec::new();
         let primary = shellexpand_path(&config.files.primary);

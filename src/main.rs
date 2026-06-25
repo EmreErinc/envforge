@@ -12,10 +12,8 @@ fn main() {
     start_persistent_audit_log();
 
     if let Some(ref cmd) = cli.command {
-        // CLI subcommand mode
         execute_command(cmd, cli.json, cli.dry_run);
     } else {
-        // No subcommand → check if config exists, run wizard if needed, then TUI
         let needs_wizard = config_file_path().map(|p| !p.exists()).unwrap_or(true);
 
         if needs_wizard {

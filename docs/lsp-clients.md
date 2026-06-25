@@ -32,13 +32,17 @@ default, plus the named `envforge/*` custom requests
 
 All `textDocument/*` capabilities advertised by `envforge lsp`:
 
-- `completion` — schema-aware keys + `${REF}` completions
+- `completion` — schema-aware keys + `${REF}` completions, plus
+  cross-environment keys/values from the project manifest (sensitive
+  cross-env values are never offered raw)
 - `publishDiagnostics` — schema validation, unknown-key warnings, MCP
-  config credential findings, save-time AI-guard scan
-- `hover` — schema info + value provenance (source file, current value
-  redacted if sensitive)
-- `definition` — env file → schema, source files (TS / JS / Py / Rust
-  / Go / Java / Kotlin / Ruby / PHP / C# / Shell) → schema
+  config credential findings, save-time AI-guard scan, cross-environment
+  missing-key warnings (`envforge-env`)
+- `hover` — schema info + value provenance; for manifest projects, which
+  environments set the key (presence only — no raw values)
+- `definition` — env file key → schema + the key's definitions across
+  every recognized env file. (Source files → schema still implemented
+  server-side; not attached by first-party clients.)
 - `references` — schema declaration + every open `.env*` entry
 - `rename` — atomic WorkspaceEdit across schema + open `.env*` docs
 - `codeAction` — 7 quick-fixes (Add to schema, Use secret ref, Mark
@@ -50,6 +54,14 @@ All `textDocument/*` capabilities advertised by `envforge lsp`:
 - `semanticTokens/full` — variable/string/comment + readonly modifier
   on sensitive keys
 - `documentSymbol`, `workspace/symbol`, `foldingRange`
+
+**Env-file recognition.** The server recognizes a project's env files from the
+`.envforge.project.toml` manifest (its `[[environments]]` list), in addition to
+the conventional `.env*` set. Profile variants (`.env.development`,
+`.env.stage`, `.env.production`, …) already match the first-party clients'
+`.env.*` selectors; non-`.env*` filenames declared via `extra_files` are
+recognized server-side but client attach for them is a documented limitation.
+See [`docs/envforge-project-toml.md`](envforge-project-toml.md).
 
 The named `envforge/*` security requests are also reachable from any
 client (the generic `workspace/executeCommand` is disabled) — see
@@ -226,11 +238,15 @@ file-types = ["env", "dotenv"]
 - **Workspace root:** the server uses `rootUri` (or the first
   `workspaceFolders` entry) to canonicalize file paths and locate
   `.env.schema.toml` / `.env.schema`.
-- **Source-file goto-definition:** the server reads source files
-  directly from disk on demand, gated by an extension allow-list
+- **Source-file goto-definition (opt-in):** the server reads source
+  files directly from disk on demand, gated by an extension allow-list
   (`.ts .tsx .js .jsx .mjs .cjs .py .rs .go .java .kt .rb .php .cs
   .sh`) and a 1 MiB size cap. Path canonicalization keeps the read
-  inside the workspace root.
+  inside the workspace root. **The first-party VS Code, IntelliJ, and
+  Neovim clients no longer attach to source languages** (they attach
+  only to EnvForge's own files — `.env*`, `.env.schema*`, MCP config),
+  so this feature does not fire there. A generic LSP client can still
+  use it by adding the source-language document selectors itself.
 - **Custom request `envforge/exposureMap`:** see
   `docs/api-reference.md` for the wire format.
 - **Named `envforge/*` security requests:** see `docs/api-reference.md`

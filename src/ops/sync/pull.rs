@@ -45,10 +45,8 @@ pub fn pull(
     let base_snapshot = read_snapshot(&snapshot_path, &config.sync.encryption_policy, false)?;
 
     if !dry_run {
-        // Backup current snapshot before any changes
         let backup = backup_snapshot(sync_path)?;
 
-        // Git pull
         let git = super::git::GitCommandRunner::new(sync_path.to_path_buf());
         let pull_result = git.pull()?;
 
@@ -65,9 +63,7 @@ pub fn pull(
             PullResult::Conflict { files } => {
                 return Err(SyncError::PullConflict { files });
             }
-            PullResult::Updated => {
-                // Continue with diff computation
-            }
+            PullResult::Updated => {}
         }
 
         // Optional signed-commit verification: fail closed if the remote
@@ -87,13 +83,10 @@ pub fn pull(
         }
     }
 
-    // Read updated snapshot (after pull)
     let remote_snapshot = read_snapshot(&snapshot_path, &config.sync.encryption_policy, false)?;
 
-    // Compute changes
     let (diff, conflicts) = compute_pull_changes(&base_snapshot, &remote_snapshot, local_entries);
 
-    // Auto-resolve if strategy is not Ask
     let final_conflicts = if conflicts.is_empty() {
         vec![]
     } else {

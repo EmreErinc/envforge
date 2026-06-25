@@ -1,6 +1,6 @@
 //! Sync subprocess executor trait with timeout-bounded execution.
 //!
-//! Manual polling watchdog (ADR-008 spirit) avoids tokio runtime requirement.
+//! Manual polling watchdog avoids tokio runtime requirement.
 
 use std::io::Read;
 use std::process::{Command, Stdio};

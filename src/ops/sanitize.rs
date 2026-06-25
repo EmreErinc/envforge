@@ -6,7 +6,7 @@ use super::OpError;
 ///
 /// Shared char-boundary-safe primitive for every redaction/truncation sink
 /// (TUI render, CLI `mask_value`, table truncation). Replaces raw `&s[..n]`
-/// byte-slicing, which panics when byte `n` falls mid-codepoint (M5/M8/FR9).
+/// byte-slicing, which panics when byte `n` falls mid-codepoint.
 pub fn char_prefix(s: &str, n: usize) -> &str {
     match s.char_indices().nth(n) {
         Some((idx, _)) => &s[..idx],
@@ -28,7 +28,7 @@ pub fn char_suffix(s: &str, n: usize) -> &str {
 
 /// Heuristic: does `value` look like a secret that must not appear on argv?
 ///
-/// Catches long values, URLs, known token prefixes, AND — new in M1 — short,
+/// Catches long values, URLs, known token prefixes, AND short,
 /// prefix-less, high-entropy strings (random API keys / passwords) that the
 /// length+prefix checks alone slipped onto the command line (visible in `ps`,
 /// `/proc/<pid>/cmdline`, shell history). The entropy path is deliberately
@@ -43,7 +43,7 @@ pub fn value_looks_like_secret(value: &str) -> bool {
     }
     // Prefix list preserved byte-for-byte from the original inline copies (incl.
     // the mixed-case "eyJ"/"AKIA"/"BEGIN " entries) so existing detection
-    // contracts are unchanged; M1 only ADDS the entropy path below. (Those
+    // contracts are unchanged; only the entropy path below is ADDED. (Those
     // mixed-case entries don't match a lowercased value, but the long tokens
     // they'd catch are already flagged by the >16-char length rule.)
     let lower = value.to_lowercase();
@@ -55,7 +55,7 @@ pub fn value_looks_like_secret(value: &str) -> bool {
     if PREFIXES.iter().any(|p| lower.starts_with(p)) {
         return true;
     }
-    // Entropy path (M1): catch a short (12–16 char), prefix-less secret that the
+    // Entropy path: catch a short (12–16 char), prefix-less secret that the
     // length/prefix checks miss — e.g. a generated password/API key like
     // "x7Kp9mQ2nL4w". Deliberately narrow to a CONTIGUOUS alphanumeric run with
     // BOTH letters and digits and high per-char entropy, so hyphenated/dotted
@@ -94,7 +94,7 @@ fn shannon_entropy_per_char(s: &str) -> f64 {
 /// Redact the value of every `KEY=VALUE` assignment whose key is sensitive,
 /// line by line. Safe to run over unified-diff text: a leading `+`/`-`/space
 /// marker (and `+++`/`---` headers) are preserved. Redacts BOTH old and new
-/// values, so a diff can never leak a secret on either side (H2/L2/FR1/FR3).
+/// values, so a diff can never leak a secret on either side.
 pub fn redact_sensitive_assignments(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for line in text.split_inclusive('\n') {
@@ -200,8 +200,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_skips_only_empty_values() {
-        // Short tokens (3 chars) used to be silently skipped; M5 removed
-        // that gap. Empty values are still skipped (replacing "" loops).
+        // Short tokens (3 chars) used to be silently skipped; that gap was
+        // removed. Empty values are still skipped (replacing "" loops).
         let content = "PORT=80 and TOKEN=abc and EMPTY=";
         let secrets = vec![
             ("PORT".to_string(), "80".to_string()),

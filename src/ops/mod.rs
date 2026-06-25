@@ -14,6 +14,7 @@ pub mod doctor;
 pub mod dotenv;
 pub mod duplicates;
 pub mod encrypt;
+pub mod env_keyset;
 pub mod envbom;
 pub mod explain;
 pub mod export_format;

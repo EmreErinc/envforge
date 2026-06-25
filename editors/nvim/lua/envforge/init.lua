@@ -6,10 +6,13 @@
 
 local M = {}
 
+-- NOTE: EnvForge does NOT attach to whole source languages (typescript,
+-- python, rust, java, …) or to shared config filetypes. Attaching the LSP to
+-- every source buffer to provide one niche feature (goto from an env-var read
+-- back to .env.schema) is broad and degrades the editor; the feature is
+-- intentionally dropped. The LSP attaches only to EnvForge's own files: dotenv.
 local default_filetypes = {
-  "dotenv", "sh", "bash", "zsh",
-  "typescript", "javascript", "python", "rust", "go",
-  "java", "kotlin", "ruby", "php", "cs",
+  "dotenv",
 }
 
 --- Setup the plugin. Call once from your config: require("envforge").setup()
@@ -27,7 +30,7 @@ function M.setup(opts)
 
   local grp = vim.api.nvim_create_augroup("EnvForge", { clear = true })
 
-  -- Auto-start the LSP for env + source files.
+  -- Auto-start the LSP for EnvForge's own files (dotenv).
   vim.api.nvim_create_autocmd("FileType", {
     group = grp,
     pattern = opts.filetypes or default_filetypes,

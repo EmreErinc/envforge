@@ -83,7 +83,7 @@ pub enum EventType {
     McpReverifyOk,
     /// Periodic re-verify failed (lockfile / resolver / feed error).
     McpReverifyFailed,
-    /// Poisoning scanner finding above threshold (ADR-020 redacted).
+    /// Poisoning scanner finding above threshold (redacted).
     McpPoisonDetected,
     /// Reputation feed flipped a pinned server to KnownBad.
     McpFeedFlippedKnownBad,

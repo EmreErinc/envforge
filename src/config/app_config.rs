@@ -123,10 +123,10 @@ pub struct FenceConfig {
 /// Per-target enable flags, keyed by fence-target registry id.
 ///
 /// Absent id => enabled (`true`) — so an empty map is byte-identical to
-/// enabling every target (NFR5 backward-compat). Only explicit overrides
+/// enabling every target (backward-compat). Only explicit overrides
 /// are stored/serialised.
 ///
-/// Adding a new AI-tool target requires no new field here (NFR-M1): add
+/// Adding a new AI-tool target requires no new field here: add
 /// an entry to `src/ops/fence/registry.rs` and the new id is automatically
 /// valid and defaults to enabled.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -152,8 +152,8 @@ impl<'de> serde::Deserialize<'de> for FenceTargets {
 impl FenceTargets {
     /// Returns whether the given target is enabled according to this config.
     ///
-    /// Absent key => `true` (NFR5 backward-compat / fail-safe default).
-    /// This is the single decision point for "is target X enabled?" (NFR10).
+    /// Absent key => `true` (backward-compat / fail-safe default).
+    /// This is the single decision point for "is target X enabled?".
     #[must_use]
     pub fn is_enabled(&self, target: crate::ops::fence::FenceTarget) -> bool {
         self.overrides.get(target.as_str()).copied().unwrap_or(true)
@@ -300,7 +300,6 @@ pub fn load_or_create_default() -> Result<AppConfig, ConfigError> {
 
     if path.exists() {
         let mut config = load_config(&path)?;
-        // Migration: if profiles section is empty/default and old reference file exists
         migrate_if_needed(&mut config)?;
         Ok(config)
     } else {
@@ -324,15 +323,12 @@ fn migrate_if_needed(config: &mut AppConfig) -> Result<(), ConfigError> {
             .unwrap_or("~/.env_managed.default"),
     );
 
-    // Only migrate if old file exists and new profile file doesn't
     if old_ref.exists() && !default_profile_file.exists() && old_ref != default_profile_file {
-        // Rename old → default profile
         std::fs::rename(&old_ref, &default_profile_file).map_err(|e| ConfigError::IoError {
             path: old_ref.clone(),
             source: e,
         })?;
 
-        // Save updated config
         let config_path = config_file_path().map_err(|_| ConfigError::HomeDirNotFound)?;
         save_config(config, &config_path)?;
     }

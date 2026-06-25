@@ -27,7 +27,7 @@ pub struct McpConfigFragment {
     pub url: Option<String>,
 
     /// MCP config may carry env hints; not consumed by this unit.
-    /// Reserved for Unit 005 cross-feature usage.
+    /// Reserved for cross-feature usage.
     #[serde(default)]
     pub env: Option<HashMap<String, String>>,
 }

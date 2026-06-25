@@ -5,17 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="envforge-icon.svg">
   <title>EnvForge — AI-safe environment variable manager | Protect secrets from AI agents</title>
-  <meta name="description" content="The environment variable manager built to protect secrets from AI coding agents. 25 AI safety tools, encrypted sync, 13 secret providers, a Rust CLI + TUI, and a Language Server for VS Code, IntelliJ, Neovim & Zed.">
+  <meta name="description" content="The environment variable manager built to protect secrets from AI coding agents. 30+ AI safety tools, encrypted sync, 13 secret providers, a Rust CLI + TUI, and a Language Server for VS Code, IntelliJ, Neovim & Zed.">
   <meta name="keywords" content="environment variable manager, env file security, AI agent secrets, secrets management CLI, dotenv alternative, protect secrets from AI, vibe coding security, MCP secrets">
   <meta name="author" content="Emre Erinc">
 
   <meta property="og:title" content="EnvForge — AI-safe environment variable manager">
-  <meta property="og:description" content="25 AI safety tools. Encrypted sync. 13 secret providers. CLI + TUI + LSP. Protect your secrets from AI coding agents.">
+  <meta property="og:description" content="30+ AI safety tools. Encrypted sync. 13 secret providers. CLI + TUI + LSP. Protect your secrets from AI coding agents.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://emreerinc.github.io/envforge">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="EnvForge — AI-safe environment variable manager">
-  <meta name="twitter:description" content="25 AI safety tools to protect your secrets from AI coding agents. Source-available, written in Rust.">
+  <meta name="twitter:description" content="30+ AI safety tools to protect your secrets from AI coding agents. Source-available, written in Rust.">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -353,7 +353,7 @@
       <div class="grid-bg" aria-hidden="true"></div>
       <div class="wrap">
         <div class="hero__inner">
-          <p class="hero__kicker reveal"><span class="ok">●</span> 25 AI safety tools · Rust · source-available · VS&nbsp;Code, IntelliJ, Neovim, Zed</p>
+          <p class="hero__kicker reveal"><span class="ok">●</span> 30+ AI safety tools · Rust · source-available · VS&nbsp;Code, IntelliJ, Neovim, Zed</p>
           <h1 class="reveal">Your secrets aren’t <span class="danger">safe</span> from AI.</h1>
           <p class="hero__sub reveal">EnvForge is the environment-variable manager built to protect secrets <strong>from</strong> AI coding agents — not just store them. Fence the files, intercept the tool calls, run with secrets sealed in memory, and trip a canary if anything leaks. <strong>One Rust CLI, a TUI, and a Language Server</strong> that lights up your editor.</p>
           <div class="cta-row reveal">
@@ -363,10 +363,10 @@
             </button>
           </div>
           <div class="statbar reveal">
-            <span><b>25</b> AI safety tools</span>
+            <span><b>30+</b> AI safety tools</span>
             <span><b>13</b> secret providers</span>
-            <span><b>100+</b> commands</span>
-            <span><b>2,400+</b> tests passing</span>
+            <span><b>130+</b> commands</span>
+            <span><b>2,800+</b> tests passing</span>
           </div>
         </div>
       </div>
@@ -477,7 +477,7 @@
       </div>
       <div class="editor-grid">
         <ul class="spec-list reveal">
-          <li><b>Exposure heatmap</b> — a colored dot in the gutter on every env-var line. The classification is byte-identical to the CLI.</li>
+          <li><b>Exposure heatmap</b> — a colored dot in the gutter on every env-var line. It shows exactly the same result as the command line.</li>
           <li><b>Canary tripwire glyphs</b> — a shield replaces the dot when a canary is registered. Hover for status.</li>
           <li><b>Status-bar trio</b> — variable count, fence shield (<code>AI BLOCKED</code> / <code>AI ALLOWED</code>), and a live volatile-lease countdown.</li>
           <li><b>Source-language goto-definition</b> — ctrl-click <code>process.env.X</code>, <code>os.environ["X"]</code>, <code>std::env::var("X")</code> across 11 languages, land on the schema entry.</li>
@@ -489,7 +489,7 @@
           <div class="legend__row"><span class="dot dot--red" aria-hidden="true"></span><code>RED</code><span>plaintext, readable by AI agents right now</span></div>
           <div class="legend__row"><span class="dot dot--amber" aria-hidden="true"></span><code>AMBER</code><span>sensitive — will be redacted by AI-guard</span></div>
           <div class="legend__row"><span class="dot dot--green" aria-hidden="true"></span><code>GREEN</code><span>fenced — the agent can’t reach it</span></div>
-          <p class="editors-note">All first-party plugins are thin clients over <code class="inline-code">envforge lsp</code> — same backend, contract-locked parity. Also works LSP-only in Helix, Emacs, Sublime Text, Kakoune &amp; Lapce.</p>
+          <p class="editors-note">Every plugin talks to the same <code class="inline-code">envforge lsp</code> engine, so they all behave the same way. Also works through LSP alone in Helix, Emacs, Sublime Text, Kakoune &amp; Lapce.</p>
         </div>
       </div>
     </section>
@@ -497,7 +497,7 @@
     <!-- tools table -->
     <section id="tools" class="wrap">
       <div class="sec-head">
-        <h2>27 tools. Six layers.</h2>
+        <h2>30+ tools. Six layers.</h2>
         <p>From prevention to governance — the most comprehensive AI-agent secret protection of any CLI.</p>
       </div>
       <div class="table-scroll reveal">
@@ -543,13 +543,13 @@
     <section class="wrap">
       <div class="sec-head">
         <h2>Beyond AI safety.</h2>
-        <p>A complete environment-variable manager underneath — 100+ commands, no migration required.</p>
+        <p>A complete environment-variable manager underneath — 130+ commands, no migration required.</p>
       </div>
       <div class="features">
-        <div class="feature reveal"><h3><span class="mk">+</span>Encrypted sync</h3><p>Git-based cross-machine sync with age (X25519) encryption. Selective keys, machine overrides, rollback, offline-first. Your env vars are ciphertext in the repo.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>Encrypted sync</h3><p>Sync across machines through Git, with strong encryption (age). Pick which keys to sync, override values per machine, roll back, and work offline. Your env vars are stored encrypted in the repo — never in plain text.</p></div>
         <div class="feature reveal"><h3><span class="mk">+</span>13 secret providers</h3><p>Pull, push and reference across Vault, AWS SSM, 1Password, Doppler, GCP, Azure and more — with URI refs like <code>vault://secret/app/DB_URL</code>.</p></div>
         <div class="feature reveal"><h3><span class="mk">+</span>Schema validation</h3><p><code>.env.schema</code> with types, defaults &amp; descriptions. Drift detection, JSON Schema for autocomplete, onboarding wizard.</p></div>
-        <div class="feature reveal"><h3><span class="mk">+</span>TUI + CLI</h3><p>Vim-style TUI with fuzzy search, grouping and masking. 100+ CLI commands with <code>--json</code> and <code>--dry-run</code>.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>TUI + CLI</h3><p>Vim-style TUI with fuzzy search, grouping and masking. 130+ CLI commands with <code>--json</code> and <code>--dry-run</code>.</p></div>
         <div class="feature reveal"><h3><span class="mk">+</span>8 export formats</h3><p>dotenv, JSON, YAML, TOML, Docker, Docker Secrets, Kubernetes Secret, Terraform tfvars — one command.</p></div>
         <div class="feature reveal"><h3><span class="mk">+</span>Workflows &amp; audit</h3><p>Profiles, snapshots, guided rotation with propagation, secure sharing, a unified <code>check</code>, plus SOC2 audit-trail reports.</p></div>
       </div>
@@ -579,7 +579,7 @@
             <tr><th></th><th class="col-ef">EnvForge</th><th>ggshield</th><th>dotenvx</th><th>Infisical</th><th>Doppler</th><th>Varlock</th></tr>
           </thead>
           <tbody>
-            <tr><td>AI safety tools</td><td class="col-ef"><b class="num">27</b></td><td><b class="num">3</b></td><td><b class="num">2</b></td><td><b class="num">1</b></td><td><span class="no">0</span></td><td><b class="num">7</b></td></tr>
+            <tr><td>AI safety tools</td><td class="col-ef"><b class="num">30+</b></td><td><b class="num">3</b></td><td><b class="num">2</b></td><td><b class="num">1</b></td><td><span class="no">0</span></td><td><b class="num">7</b></td></tr>
             <tr><td>Pre-tool scanning</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
             <tr><td>Canary secrets</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
             <tr><td>Session leases + killswitch</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>

@@ -300,7 +300,6 @@ fn cmd_prune(before: Option<String>, json: bool) -> Result<(), Box<dyn std::erro
             );
         }
     } else {
-        // Prune based on retention_days
         let mut events = storage::load_events()?;
         let before_count = events.len();
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(retention_days));

@@ -28,7 +28,7 @@ pub struct CanarySecret {
     pub trigger_count: usize,
     #[serde(default = "default_rotate_after_days")]
     pub rotate_after_days: u32,
-    // v2 extension fields (additive; serde-default for backward compat). See ADR-007.
+    // v2 extension fields (additive; serde-default for backward compat).
     #[serde(default = "default_version")]
     pub version: u8,
     #[serde(default)]
@@ -91,7 +91,6 @@ pub struct CanaryAlert {
 
 /// Generate a fake but plausible credential value for a given pattern.
 pub fn generate_fake_value(pattern: &str) -> String {
-    // Generate deterministic-looking but fake values
     let suffix: String = (0..20)
         .map(|i| {
             let chars = b"abcdefghijklmnopqrstuvwxyz0123456789";
@@ -446,7 +445,6 @@ pub fn place_canary_in_file(
         String::new()
     };
 
-    // Check if already placed
     if content.contains(&marker) {
         return Ok(false);
     }

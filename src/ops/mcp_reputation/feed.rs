@@ -1,6 +1,6 @@
 //! Bundled reputation feed: schema + lazy gzip decode.
 //!
-//! Per ADR-018, the feed ships unsigned in v0.8; trust anchor is the
+//! The feed ships unsigned in v0.8; trust anchor is the
 //! envforge binary release pipeline. Cosign-sign-blob–verified external
 //! feed channel deferred to v0.9.
 

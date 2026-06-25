@@ -30,7 +30,7 @@ fn sanitized_git_command() -> Command {
 /// smudge filters and hooks). After cloning, scrubs the repo-local config
 /// to remove any filter driver definitions, then performs a safe checkout.
 pub fn git_safe_clone(url: &str, target: &Path, enforce_ssh: bool) -> Result<(), SyncError> {
-    // M2: honor the caller's SSH-only policy. Previously this always called
+    // Honor the caller's SSH-only policy. Previously this always called
     // `validate_remote_url` (enforce_ssh=false), so `sync.enforce_ssh=true`
     // was a dead control and an http(s) remote was accepted at clone time.
     validate_remote_url_enforce_ssh(url, enforce_ssh)?;
@@ -172,7 +172,6 @@ impl GitCommandRunner {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             let command = format!("git {}", args.join(" "));
 
-            // Classify error by stderr content
             if stderr.contains("Authentication")
                 || stderr.contains("Permission denied")
                 || stderr.contains("could not read Username")
@@ -290,7 +289,6 @@ impl GitOps for GitCommandRunner {
     }
 
     fn push(&self) -> Result<PushResult, SyncError> {
-        // Check if remote exists first
         if self.remote_url()?.is_none() {
             return Ok(PushResult::NoRemote);
         }

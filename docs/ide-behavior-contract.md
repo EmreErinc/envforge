@@ -63,7 +63,13 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | IntelliJ render | Inlay chip via lsp4ij inlay client |
 | Test IDs | `test_inlay_hint_default_marker`, `test_inlay_hint_type_for_empty_value`, `test_inlay_hint_ref_resolution_redacted_for_sensitive`, `test_inlay_hint_ref_unresolved`, `test_inlay_hint_skips_comments_and_blanks`, `test_inlay_hint_sensitive_value_redacted`, `test_inlay_hint_respects_range_window` |
 
-### L4 — Go-to-definition (source code → schema)
+### L4 — Go-to-definition (source code → schema) — server capability, opt-in only
+
+> **Not delivered by first-party clients.** The VS Code, IntelliJ, and Neovim
+> clients no longer attach the LSP to source languages — they attach only to
+> EnvForge's own files (`.env*`, `.env.schema*`, MCP config). The server still
+> implements this capability for generic LSP clients that opt in by adding their
+> own source-language document selectors.
 
 | Field | Value |
 |---|---|
@@ -73,9 +79,8 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | Match rule | Identifier must exist as a top-level key in `.env.schema.toml` (or `.env.schema`) — looked up via `schema_line_map`. |
 | Result | `Location` pointing at the schema file URI, range `(line=N, char=0) .. (line=N, char=0)` where `N` is the schema entry line. |
 | Server file ingestion | Server reads the source file from disk, NOT from `did_open` state. Path must canonicalize successfully and stay inside the canonicalized workspace root. Allowed extensions: `.ts .tsx .js .jsx .mjs .cjs .py .rs .go .java .kt .rb .php .cs .sh`. Files larger than `MAX_DOCUMENT_BYTES` (1 MiB) are rejected. |
-| VS Code wiring | `documentSelector` in `editors/vscode/src/extension.ts` extended to include 13 source-language IDs. |
-| IntelliJ wiring | `languageMapping` entries in `plugin.xml` added for each common JetBrains language ID. Mappings without the corresponding language plugin installed (e.g. Python on IntelliJ Community) silently no-op via lsp4ij. |
-| Existing `.env` → schema dispatch | Unchanged: when URI is a `.env*` file, server still routes through `documents` map + `goto_definition`. |
+| First-party client wiring | **None.** The VS Code `documentSelector`, IntelliJ `languageMapping`, and Neovim filetype list no longer include source languages — first-party clients attach only to EnvForge's own files, so this lookup never fires there. A generic LSP client must add the source-language selectors itself to use it. |
+| `.env` → schema dispatch | Always available: when the URI is a `.env*` file, the server routes through the `documents` map + `goto_definition` (key in `.env` → `.env.schema` section). This is the goto-definition first-party clients do deliver. |
 | Test IDs | `test_source_goto_def_typescript_process_env_dot`, `test_source_goto_def_typescript_bracket_access`, `test_source_goto_def_python_os_environ`, `test_source_goto_def_rust_env_var`, `test_source_goto_def_go_getenv`, `test_source_goto_def_returns_none_on_lowercase_identifier`, `test_source_goto_def_returns_none_when_identifier_missing_from_schema`, `test_source_goto_def_returns_none_when_no_schema_uri`, `test_source_goto_def_clamped_cursor_past_eol`, `test_source_goto_def_unicode_line_safe` |
 
 ### L8 — Rename symbol
@@ -85,7 +90,7 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | LSP method | `textDocument/rename` |
 | Capability | `rename_provider: true` declared in `initialize` |
 | Trigger (env file) | Cursor inside `key_range` of an `EnvDocEntry` in a `.env*` file → invoke "Rename Symbol" |
-| Trigger (source file) | Cursor on an `UPPER_SNAKE_CASE` identifier in an allow-listed source file → invoke "Rename Symbol" |
+| Trigger (source file) | Cursor on an `UPPER_SNAKE_CASE` identifier in an allow-listed source file → invoke "Rename Symbol". **Server capability only — first-party clients no longer attach to source languages, so this does not fire there; opt-in for generic clients.** |
 | Identifier extraction | Reuses `definition::extract_upper_snake_identifier` (same gates as L4) |
 | New name validation | Must match `^[A-Za-z_][A-Za-z0-9_]*$`. Empty / invalid characters / leading-digit / no-op `NEW == OLD` → returns `None` (client surfaces error, no edit applied) |
 | Workspace edit scope | Schema file table header `[OLD]` → `[NEW]` on the line tracked in `schema_line_map`. Plus every currently-open `.env*` `documents` entry whose key equals `OLD`: `key_range` rewritten to `NEW`. |
@@ -135,7 +140,7 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | LSP method | `textDocument/references` |
 | Capability | `references_provider: true` declared in `initialize` |
 | Trigger (env file) | Cursor inside `key_range` of a `.env*` entry → invoke "Find Usages" / "Find All References" |
-| Trigger (source file) | Cursor on UPPER_SNAKE identifier in source file → invoke "Find Usages" |
+| Trigger (source file) | Cursor on UPPER_SNAKE identifier in source file → invoke "Find Usages". **Server capability only — first-party clients no longer attach to source languages, so this does not fire there; opt-in for generic clients.** |
 | Identifier extraction | Mirrors L4: `definition::extract_upper_snake_identifier` |
 | `includeDeclaration` honored | When `true` (default), schema header is included as declaration. When `false`, only `.env*` entry references are returned. |
 | Locations returned | Schema header line for the key (if schema declares it) PLUS every `key_range` in any currently-open `.env*` document whose entry key equals the target |
@@ -407,5 +412,23 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 |---|---|
 | VS Code wiring | **Shipped.** Dedicated "Profiles" view in the EnvForge activity bar container. Shows active/inactive profiles with their source files. Double-click to switch. |
 | IntelliJ wiring | **Shipped.** Dedicated "Profiles" tab in the EnvForge tool window. Replaces the old Gear-menu profile switcher with a first-class tree view. Double-click a node to switch active profile. |
+
+### E1 — Environment-aware `.env` intelligence (project manifest)
+
+Driven by `.envforge.project.toml` (its `[[environments]]` list). All logic is
+server-side and deterministic, so every client renders identically. See
+`docs/envforge-project-toml.md` for the schema, recognition, and precedence.
+
+| Field | Value |
+|---|---|
+| Recognition | `.envforge.project.toml` resolves to a concrete env-file set; the LSP recognizes those + the conventional `.env*` set. Absolute / `..`-escaping paths dropped. Reloaded live on manifest save; malformed manifest → `envforge-project` diagnostic + last-good fallback. |
+| Key completion | Offers the project's known keys (union across declared environments) not already in the current file. `detail: "set in: <envs>"`. |
+| Value completion | Offers a key's values from other environments via `text_edit.new_text`. **Sensitive keys never offer a raw cross-env value** — only a `(sensitive — set per environment)` marker. |
+| Hover | Adds a "Set in environments" section listing which environments set the key (+ `(sensitive)` marker). **Never shows raw values** — the LSP is a read-only display boundary. |
+| Missing-key diagnostic | `textDocument/publishDiagnostics`, source `envforge-env`, severity `Warning`, anchored at end-of-file. Fires for a key set in ≥1 other recognized environment but absent here. No false positives on non-manifest projects. |
+| Go-to-definition | Env key → schema location **plus** the key's assignment in every other recognized env file (excludes the cursor's own occurrence). Returned as a `Location` array. |
+| Sensitivity | A key is sensitive if the key-name heuristic flags it OR `.env.schema` marks it sensitive (union); applied uniformly across the key-set. |
+| Client coverage | Profile variants attach via existing `.env.*` selectors on all four first-party clients. Non-`.env*` `extra_files` names: recognized server-side; client attach is a documented limitation (Growth). |
+| Test IDs | `tests/project_resolve_tests.rs`, `tests/env_keyset_tests.rs`, `tests/completion_cross_env_tests.rs`, `tests/hover_cross_env_tests.rs`, `tests/cross_ide_conformance_tests.rs` |
 
 ### (future rows added here as each feature ships)

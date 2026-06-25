@@ -72,7 +72,6 @@ pub fn parse_uri_content(content: &str) -> Vec<(String, String)> {
         if let Some(eq_pos) = trimmed.find('=') {
             let key = trimmed[..eq_pos].trim().to_string();
             let value = trimmed[eq_pos + 1..].trim().to_string();
-            // Strip quotes
             let value = if (value.starts_with('"') && value.ends_with('"'))
                 || (value.starts_with('\'') && value.ends_with('\''))
             {
@@ -129,7 +128,6 @@ pub fn resolve_uris(
 
     for (key, value) in entries {
         if let Some(uri) = parse_secret_uri(value) {
-            // Map provider name to registry name
             let registry_name = map_provider_name(&uri.provider);
 
             match resolve_single_uri(&uri, registry_name, registry) {
@@ -163,7 +161,6 @@ pub fn resolve_uris(
     results
 }
 
-/// Map URI provider scheme to registry provider name.
 fn map_provider_name(scheme: &str) -> &str {
     match scheme {
         "1password" => "1password",

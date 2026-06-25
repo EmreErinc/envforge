@@ -17,17 +17,14 @@ pub fn push(
     let snapshot_path = sync_path.join(SNAPSHOT_FILE);
     let config = read_config(&config_path)?;
 
-    // Filter to sync-marked keys only
     let sync_entries = filter_sync_entries(entries, &config);
 
     if sync_entries.is_empty() {
         return Err(SyncError::NoKeysMarked);
     }
 
-    // Read current snapshot
     let current_snapshot = read_snapshot(&snapshot_path, &config.sync.encryption_policy, false)?;
 
-    // Compute diff
     let diff = compute_diff(&sync_entries, &current_snapshot.entries);
 
     if diff.is_empty() {
@@ -56,13 +53,10 @@ pub fn push(
         });
     }
 
-    // Build new snapshot
     let new_snapshot = export_to_snapshot(&sync_entries, &config.sync.machine_id);
 
-    // Write snapshot atomically (encrypted if config says so)
     write_snapshot_encrypted(&snapshot_path, &new_snapshot)?;
 
-    // Git operations
     let git = GitCommandRunner::new(sync_path.to_path_buf());
     git.add_all()?;
     let commit_hash = git.commit(final_msg)?;

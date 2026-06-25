@@ -101,7 +101,6 @@ pub fn create_snapshot(
     let content = toml::to_string_pretty(&snapshot)?;
     write_snapshot_secure(&path, &content)?;
 
-    // Auto-prune old snapshots
     let _ = prune_snapshots(20);
 
     Ok(path)

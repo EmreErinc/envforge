@@ -342,7 +342,6 @@ fn cmd_sync_status(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     let config_path = sync_path.join("sync-config.toml");
     let config = read_config(&config_path)?;
 
-    // Filter to sync-marked entries
     let sync_entries: Vec<(String, String)> = entries
         .iter()
         .filter(|(k, _)| marking::get_key_status(k, &config) == KeyStatus::Synced)

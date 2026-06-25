@@ -1,7 +1,6 @@
 //! Forensic canary v2 — encoded token format with HMAC-SHA256 integrity.
 //!
-//! See `memory-bank/bolts/073-canary-v2/ddd-01-domain-model.md` and ADR-006
-//! (HMAC tag truncated to 8 bytes for log-line budget).
+//! HMAC tag truncated to 8 bytes for log-line budget.
 //!
 //! Wire format: `cnry_<39-char base32>_<13-char base32>` (RFC 4648 alphabet, no pad).
 //! Total length 58 chars; fits 64-char log-line budget.

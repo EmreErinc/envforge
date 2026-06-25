@@ -234,7 +234,6 @@ fn cmd_secrets_pull(
     let (entries, result, _sources) =
         modes::pull_secrets(&registry, provider_name, path, filter, &existing)?;
 
-    // Track secret ages (skip on dry-run)
     if !dry_run {
         let all_keys: Vec<String> = entries.iter().map(|(k, _)| k.clone()).collect();
         let _ = crate::ops::secrets::age::record_pull(&all_keys, provider_name, path);
@@ -393,7 +392,6 @@ fn cmd_secrets_resolve(
 
     let registry = create_default_registry();
 
-    // Load entries from shell files
     let config = load_or_create_default()?;
     let mut shell_files = Vec::new();
 
@@ -407,7 +405,6 @@ fn cmd_secrets_resolve(
         shell_files.push(parse_shell_file(&ref_path)?);
     }
 
-    // Load profile files
     if !config.profiles.active.is_empty() {
         if let Some(profile) = config.profiles.entries.get(&config.profiles.active) {
             let profile_path = shellexpand(&profile.file);
@@ -619,7 +616,7 @@ fn cmd_secrets_config(
 
         credentials::store_credential_with_ttl(provider, key, &value, ttl)?;
 
-        // L3: wipe the plaintext credential from memory after storing, matching
+        // Wipe the plaintext credential from memory after storing, matching
         // `cmd_set`'s zeroize-on-finish behavior (was asymmetric before).
         {
             use zeroize::Zeroize;
@@ -651,7 +648,6 @@ fn cmd_secrets_config(
         return Err("--ttl requires --set key=value".into());
     }
 
-    // Show help for this provider
     let registry = create_default_registry();
     if let Ok(p) = registry.get(provider) {
         let fields = p.credential_fields();
@@ -996,13 +992,11 @@ fn cmd_secrets_diff(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let registry = create_default_registry();
 
-    // Pull remote secrets
     let existing = std::collections::HashMap::new();
     let (remote_entries, _, _) =
         modes::pull_secrets(&registry, provider_name, path, filter, &existing)?;
     let remote: std::collections::BTreeMap<String, String> = remote_entries.into_iter().collect();
 
-    // Load local entries
     let config = crate::config::load_or_create_default()?;
     let mut shell_files = Vec::new();
     let primary = shellexpand(&config.files.primary);
@@ -1014,7 +1008,6 @@ fn cmd_secrets_diff(
         shell_files.push(crate::parser::parse_shell_file(&ref_path)?);
     }
 
-    // Load profile files
     if !config.profiles.active.is_empty() {
         if let Some(profile) = config.profiles.entries.get(&config.profiles.active) {
             let profile_path = shellexpand(&profile.file);
@@ -1045,7 +1038,6 @@ fn cmd_secrets_diff(
         local
     };
 
-    // Compute diff
     let mut all_keys: Vec<String> = Vec::new();
     for k in remote.keys().chain(local.keys()) {
         if !all_keys.contains(k) {
@@ -1207,7 +1199,6 @@ fn cmd_secrets_cache_list(json_output: bool) -> Result<(), Box<dyn std::error::E
                 "\x1b[32mfresh\x1b[0m"
             };
 
-            // Format fetched_at for display
             let fetched = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&e.fetched_at) {
                 dt.format("%Y-%m-%d %H:%M:%S").to_string()
             } else {
@@ -1312,6 +1303,6 @@ fn is_unsafe_argv_allowed(provider: &str) -> bool {
 }
 
 fn is_likely_secret(value: &str) -> bool {
-    // Canonical detection (incl. M1 entropy path) lives in ops::sanitize.
+    // Canonical detection (incl. entropy path) lives in ops::sanitize.
     crate::ops::sanitize::value_looks_like_secret(value)
 }

@@ -1,9 +1,11 @@
 pub mod config;
 pub mod init;
+pub mod resolve;
 pub mod wizard;
 
 pub use config::*;
 pub use init::*;
+pub use resolve::*;
 pub use wizard::*;
 
 use std::path::PathBuf;

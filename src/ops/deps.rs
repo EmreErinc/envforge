@@ -68,26 +68,21 @@ pub fn find_dependencies(
 ) -> Result<Vec<DepReference>, OpError> {
     let mut refs = Vec::new();
 
-    // 1. EnvForge managed shell files
     for path in managed_files {
         if path.exists() {
             scan_file_for_key(key, path, RefType::Shell, &mut refs);
         }
     }
 
-    // 2. Project .env files
     scan_env_files(key, project_dir, &mut refs);
 
-    // 3. Schema
     let schema_path = project_dir.join(".env.schema");
     if schema_path.exists() {
         scan_file_for_key(key, &schema_path, RefType::Schema, &mut refs);
     }
 
-    // 4. Config files
     scan_config_files(key, project_dir, &mut refs);
 
-    // 5. Source code (optional, slower)
     if include_source {
         scan_source_files(key, project_dir, &mut refs);
     }
@@ -142,11 +137,9 @@ fn scan_env_files(key: &str, dir: &Path, out: &mut Vec<DepReference>) {
 
 /// Scan config files (docker-compose, terraform, k8s, Dockerfiles, GH workflows).
 fn scan_config_files(key: &str, dir: &Path, out: &mut Vec<DepReference>) {
-    // docker-compose files in root
     scan_glob_in_dir(key, dir, "docker-compose", ".yml", RefType::Config, out);
     scan_glob_in_dir(key, dir, "docker-compose", ".yaml", RefType::Config, out);
 
-    // Dockerfiles in root
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
@@ -155,7 +148,6 @@ fn scan_config_files(key: &str, dir: &Path, out: &mut Vec<DepReference>) {
         }
     }
 
-    // Terraform files in root
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
@@ -164,7 +156,6 @@ fn scan_config_files(key: &str, dir: &Path, out: &mut Vec<DepReference>) {
         }
     }
 
-    // k8s / kubernetes subdirs
     for subdir_name in &["k8s", "kubernetes"] {
         let subdir = dir.join(subdir_name);
         if subdir.is_dir() {
@@ -172,7 +163,6 @@ fn scan_config_files(key: &str, dir: &Path, out: &mut Vec<DepReference>) {
         }
     }
 
-    // .github/workflows
     let workflows = dir.join(".github").join("workflows");
     if workflows.is_dir() {
         walk_and_scan(key, &workflows, &["yml", "yaml"], RefType::Config, out);

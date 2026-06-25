@@ -1,6 +1,6 @@
 //! `PoisonFinding` and `Severity`.
 //!
-//! Per ADR-020: no raw-text field. Raw matched text is consumed at `new()`
+//! No raw-text field. Raw matched text is consumed at `new()`
 //! time to compute the SHA-256 and pre-render the redacted marker, then
 //! dropped. No accessor returns the raw matched string.
 

@@ -66,7 +66,6 @@ impl SecretProvider for ConjurProvider {
         let env_vars = self.build_provider_env(credentials);
         let env_refs = env_refs_from_env(&env_vars);
 
-        // Initialize Conjur CLI connection
         let url = credentials.get("url").ok_or_else(|| {
             SecretsError::CredentialError("conjur: missing 'url' credential".to_string())
         })?;
@@ -159,7 +158,6 @@ impl SecretProvider for ConjurProvider {
 
         let account = credentials.get("account").map(|s| s.as_str()).unwrap_or("");
 
-        // List all variables
         let list_output = run_cli("conjur", &["list", "-k", "variable"], &env_refs, "conjur")?;
         let variable_ids = parse_conjur_list(&list_output, account)?;
 
@@ -175,7 +173,6 @@ impl SecretProvider for ConjurProvider {
                 .collect()
         };
 
-        // Get each variable value
         let mut secrets = Vec::new();
         for var_path in &filtered {
             // var_path came from parse_conjur_list which validates labels.
@@ -281,7 +278,7 @@ impl SecretProvider for ConjurProvider {
 impl ConjurProvider {
     /// Validate the Conjur appliance URL (if present): must be http(s), have a
     /// host, and carry no control characters. Conservative SSRF/scheme guard
-    /// (L7) — the URL flows into `CONJUR_APPLIANCE_URL` and `conjur init -u`.
+    /// The URL flows into `CONJUR_APPLIANCE_URL` and `conjur init -u`.
     fn validate_appliance_url(credentials: &HashMap<String, String>) -> Result<(), SecretsError> {
         let Some(url) = credentials.get("url") else {
             return Ok(());

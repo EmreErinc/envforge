@@ -26,7 +26,6 @@ pub fn compute_diff(
     let mut modified = Vec::new();
     let mut removed = Vec::new();
 
-    // Keys in local but not in snapshot → added
     for (key, value) in &local_map {
         if !snapshot_map.contains_key(key) {
             added.push(DiffEntry {
@@ -37,7 +36,6 @@ pub fn compute_diff(
         }
     }
 
-    // Keys in both but values differ → modified
     for (key, local_val) in &local_map {
         if let Some(snapshot_val) = snapshot_map.get(key) {
             if local_val != snapshot_val {
@@ -50,7 +48,6 @@ pub fn compute_diff(
         }
     }
 
-    // Keys in snapshot but not in local → removed
     for (key, value) in &snapshot_map {
         if !local_map.contains_key(key) {
             removed.push(DiffEntry {

@@ -132,7 +132,6 @@ pub fn detect_project_config(start: &Path) -> Option<DetectedConfig> {
             }
         }
 
-        // Move to parent
         match current.parent() {
             Some(parent) if parent != current => {
                 current = parent.to_path_buf();

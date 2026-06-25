@@ -59,11 +59,11 @@ impl<'de> Deserialize<'de> for SyncEncryptionPolicy {
                 if v {
                     Ok(SyncEncryptionPolicy::Mandatory)
                 } else {
-                    // M3: legacy `require_encryption = false` previously mapped to a
+                    // Legacy `require_encryption = false` previously mapped to a
                     // year-2099 window — an effectively permanent plaintext bypass that
                     // fails *open*, and which a relative window can't safely bound (no
                     // date anchor exists in the legacy bool). Treat the legacy opt-out
-                    // as Mandatory (fail-safe, NFR4). Operators needing a real, bounded
+                    // as Mandatory (fail-safe). Operators needing a real, bounded
                     // migration window must declare it explicitly as
                     // `migration-until <RFC3339 date>`; the `--force-migration` flag
                     // remains for audited, explicit bypass.

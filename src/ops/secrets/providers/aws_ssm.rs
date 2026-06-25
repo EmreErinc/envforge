@@ -112,7 +112,6 @@ impl SecretProvider for AwsSsmProvider {
             let mut page = parse_ssm_output(&output, path)?;
             all_results.append(&mut page);
 
-            // Check for pagination token
             let json: serde_json::Value =
                 serde_json::from_str(&output).unwrap_or(serde_json::Value::Null);
             match json.get("NextToken").and_then(|t| t.as_str()) {

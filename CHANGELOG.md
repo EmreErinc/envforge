@@ -5,6 +5,153 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-06-23
+
+### Added
+
+- **Environment-aware `.env` IDE support, driven by `.envforge.project.toml`.**
+  The project manifest's `[[environments]]` list is now the source of truth for
+  which env files a project has. The LSP resolves that into a recognized
+  env-file set (root-contained; absolute / `..`-escaping paths dropped),
+  reloads it live on manifest save, and falls back to the conventional `.env*`
+  set when no manifest is present. A malformed manifest surfaces an
+  `envforge-project` diagnostic and retains the last-good set.
+  - **Key & value completion across environments** — typing a key offers the
+    project's known keys (the union across all declared environments); typing a
+    value offers that key's values from other environments. Sensitive keys
+    never surface a raw cross-environment value (redaction parity). Project keys
+    rank above globally-managed shell vars so they are not buried in a project
+    env file.
+  - **Value `${KEY}` references to machine & profile vars** — the value popup
+    now lists, at the bottom (below the managed marker and concrete values),
+    `${KEY}` reference suggestions sourced from this machine's envforge-managed
+    shell vars ("machine env") and the project's other environments ("profile:
+    …"). Surfaced without first typing `$`; inserts the braced `${KEY}` form.
+    Sensitive keys are excluded so secret names cannot be enumerated through
+    reference completion, machine refs are capped at 20, and a key already
+    offered here is not repeated by the `$`-triggered file-ref list. When the
+    key being edited is itself a managed shell var, a dedicated "inherit from
+    shell env" `${KEY}` self-reference is offered just under the managed
+    marker — even for sensitive keys (the name is already typed, so the ref
+    leaks nothing and the value is still never inserted).
+  - **Per-environment hover** — shows which environments set a key (with a
+    `(sensitive)` marker); never emits raw values, honoring the LSP's read-only
+    display boundary.
+  - **Cross-environment missing-key diagnostic** (`envforge-env`, Warning) —
+    flags a key set in another environment but absent from the one being edited.
+  - **Go-to-definition across environments** — jumps to a key's definitions in
+    every recognized env file plus the schema.
+  - **Schema sensitivity union** — a key marked `sensitive` in `.env.schema` is
+    redacted everywhere even when the key-name heuristic would miss it.
+  - Recognition + features are computed server-side and deterministic, so all
+    clients behave identically. (Client attach for non-`.env*` `extra_files`
+    names is a documented limitation — see `docs/envforge-project-toml.md`.)
+  - New: `docs/envforge-project-toml.md` (manifest schema + recognition +
+    precedence), `docs/prd.md`, `docs/epics.md`, `docs/architecture.md`.
+
+### Changed
+
+- **LSP / IDE attach scope narrowed — attach only to EnvForge's own files.** The
+  Language Server and the first-party VS Code, IntelliJ, and Neovim clients now
+  attach only to EnvForge's own files (`.env*`, `.env.schema*`, and the MCP
+  config files). They no longer attach to whole source languages
+  (TS/JS/Python/Rust/Go/Java/Kotlin/Ruby/PHP/C#/Shell): routing every source
+  buffer through the LSP to serve one niche feature (goto-definition from an
+  env-var read back to the schema) degraded the editor and, in lsp4ij-style
+  clients, broke native code intelligence. The from-source-code goto-definition
+  is no longer delivered by the first-party clients; the server still implements
+  it for generic LSP clients that opt in via their own source-language document
+  selectors.
+
+### Fixed
+
+- **`.env` value completion no longer floods the popup with `${VAR}`
+  references.** When editing a value (after `=`), the completer emitted a
+  `${OTHER}` reference for every other key in the file on every keystroke,
+  burying the real value suggestions under a wall of identical-looking
+  `${...}` entries. References are now surfaced only once the user starts a
+  `$` reference, and are prefix-filtered by the identifier typed after the
+  `$`/`${`. Blank lines, comments and keyless lines (parsed as entries with
+  an empty key to keep positions aligned) no longer leak in as empty `${}`
+  suggestions, and a key declared more than once in the file is offered as a
+  single reference.
+- **Accepting an informational value marker no longer wipes the line.** The
+  "(managed by envforge)", "(sensitive, use your secret)" and
+  "(sensitive — set per environment)" placeholders carried `text_edit: None`
+  plus an empty `filter_text`; clients (lsp4ij / Zed) fell back to a
+  destructive replace, clearing the whole value on accept and filtering the
+  rest of the popup to nothing. Markers now carry an explicit no-op empty
+  edit and no `filter_text` — accept is harmless and the raw secret still
+  never reaches the buffer.
+- **Schema per-environment overrides (`[VAR.environment]`) now apply.** The
+  idiomatic TOML form parses as a *sub-table* of `VAR`, but
+  `parse_schema_content` only scanned for dotted top-level keys, so
+  `env_overrides` stayed empty and `validate`/`resolve_effective` silently
+  ignored every environment-specific rule. The parser now lifts nested
+  sub-tables into `env_overrides` (the quoted `["VAR.environment"]` literal form
+  still works for backward compatibility).
+
+### Tests
+
+- **2,806 tests passing** — fmt / clippy (`-D warnings`) clean, debug + release
+  builds clean. (+204 edge-case coverage tests for `ops` units — +43 pure units:
+  `validation_utils` validators, `sanitize` UTF-8 slicing / secret heuristic /
+  diff-aware redaction, `redact` message masking, `uri_resolve` URI + content
+  parsing, `export_format` format/extension mapping; +17 for `schema`
+  (`generate_docs`, numeric min/max, nested + quoted env-override parsing &
+  resolution, url/port/regex validation, drift) and the `fence`
+  create/status/remove/apply lifecycle
+  (destructive `remove_fence` dry-run guarantee, idempotency, config-gated
+  skipping, `apply_tool` error paths); +26 for `crud` rename/soft-delete
+  (`rename_entry_at` bounds/type errors, rename collision, `soft_delete`/
+  `undo_delete` round-trip), `proxy` request routing (status matrix, key-format
+  validation, allowlist filtering, lease bypass), and `offset`/`reference`
+  (safe-zone boundaries, unclosed protected blocks, managed-zone detection,
+  source-directive injection, move-to-reference); +12 for `crud` mutation
+  (`add_entry` duplicate / no-safe-zone, `edit_entry` missing / ambiguous,
+  `ensure_managed_zone`) and `fuzzy` search (empty-query passthrough, key vs
+  value matching, no-match, score ordering); +11 for `canary::v2` forensic
+  token codec (HMAC round-trip, forgery detection, multi-key resolution, format
+  errors, timestamp/age math) and `conflict` (external-edit detection via stored
+  hash, unified-diff generation); +7 for `check` (`CheckCategory`
+  name/parse/display round-trips, `parse_category_filter`, `CheckReport` status
+  counts) and `snapshot::diff_snapshot` (Added/Removed/Changed/Same); +10 IO
+  round-trips (`HOME`/`ENVFORGE_CONFIG_DIR`-isolated, serialized): `snapshot`
+  create/list/load/delete/prune, `profile` create/delete + name validation, and
+  pure `sync::diff` compute_diff/compute_status; +8 for `sync` pure
+  parsers/validators (git status/log parsing, remote-URL validation with SSH
+  enforcement + `ext::`/`file://`/dash/control-char injection guards,
+  `export_to_snapshot`, three-way `compute_pull_changes`); +9 for security/parse
+  helpers — `ai_guard::is_sensitive_path` (AI Read-tool gate: blocks
+  `.env`/`.pem`/`.key`/`.ssh`/`credentials`/`id_rsa`, allows `.env.schema`/
+  `.example`/`.template` variants, case-insensitive) and `dotenv`
+  (`parse_dotenv_content`, `is_sensitive_key` keyboard exception, `export_safe`
+  redaction); +11 for `secrets::modes` (`glob_match` wildcard matcher,
+  `VolatileMode` accessors, `zeroize_secrets`) and `audit::tamper::ChainState`
+  (hash-chain head tracking per log file); +13 for `hardening` adversarial-input
+  layers (control-char/homoglyph strip, base64 decode, split-string assembly,
+  pipeline) and a fixture-heavy `sync` push round-trip (real git repo +
+  age-encrypted snapshot, no-remote / dry-run / no-keys / nothing-to-sync) and a
+  full bare-remote round-trip (+2: push lands the encrypted snapshot on a real
+  remote verified by independent clone; pull picks up another machine's change
+  fast-forward without conflict); +8 for `scanner` (sensitive-entry filtering,
+  on-disk leaked-secret detection with masked match output) and `secure_memory`
+  (zeroize strings/bytes, core-dump disable); +12 for `ci_trust::classifier`
+  (GitHub Actions trust matrix — fork PR / pull_request_target / external comment
+  classify Untrusted, fail-closed on unknown events) and
+  `external_scanner::ScannerRegistry` (enabled-filtered lookup/iteration); +9
+  for `ci_trust::quarantine::apply` (secret scrubbing — GITHUB_TOKEN always
+  removed, key-name + value-shape detection, allow-list) and
+  `envbom::serializer` (SHA-256 digest/subject vectors); +6 for `envbom::builder`
+  (value-state classification, audit-summary counts, deterministic canonical
+  JSON) and `envbom::differ` (added/removed/changed BOM diff); +31 for the
+  environment-aware `.env` IDE feature: manifest
+  resolution, unified key-set, cross-env completion/hover/diagnostics, schema
+  sensitivity union, cross-client conformance; +2 for value-position `$VAR`
+  reference gating and blank/duplicate-line ref filtering; +2 for always-on
+  machine/profile `${KEY}` value references; +1 for the self-inherit
+  `${KEY}` shell-reference.)
+
 ## [0.8.3] - 2026-06-20
 
 Broad expansion of AI-tool and editor coverage so EnvForge's secret-fencing,

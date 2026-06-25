@@ -433,7 +433,7 @@ pub fn ensure_managed_zone(shell_file: &mut ShellFile) -> bool {
         original_text: ENVFORGE_END_MARKER.to_string(),
     };
 
-    // M9: marker positions can exceed the line count on a short/marker-less rc
+    // Marker positions can exceed the line count on a short/marker-less rc
     // (e.g. the (None, None) branch returns `len`, and the end search returns
     // `len + 1`). Clamp both insert indices to the current length so the markers
     // simply append instead of panicking with "insertion index > len".
@@ -538,7 +538,7 @@ mod tests {
         parse_shell_content(content, Path::new("/test/.zshrc")).unwrap()
     }
 
-    // ─── ensure_managed_zone (M9: no panic on short/empty files) ──
+    // ─── ensure_managed_zone (no panic on short/empty files) ──
 
     #[test]
     fn test_ensure_managed_zone_empty_file_no_panic() {

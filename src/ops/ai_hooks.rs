@@ -50,7 +50,7 @@ const CLAUDE_PRE_TOOL_COMMAND: &str =
 const CLAUDE_POST_TOOL_MATCHER: &str = "Write|Edit|Bash|MultiEdit";
 const CLAUDE_POST_TOOL_COMMAND: &str =
     "envforge ai-guard post-tool \"$TOOL_NAME\" \"$TOOL_INPUT\" 2>/dev/null; true";
-// MCP supply-chain verification at session start (Bolt 080)
+// MCP supply-chain verification at session start
 const CLAUDE_SESSION_START_MATCHER: &str = "";
 const CLAUDE_SESSION_START_COMMAND: &str = "envforge mcp verify --json 2>/dev/null; true";
 
@@ -93,7 +93,6 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
 
     let hooks_obj = hooks.as_object_mut().ok_or("hooks is not an object")?;
 
-    // Check if already installed (check all three stages)
     let pre_arr = hooks_obj
         .get("PreToolUse")
         .and_then(|v| v.as_array())
@@ -122,7 +121,6 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
         });
     }
 
-    // Install PreToolUse hook
     let pre_tool_use = hooks_obj
         .entry("PreToolUse")
         .or_insert_with(|| serde_json::json!([]));
@@ -134,7 +132,6 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
         "hook": CLAUDE_PRE_TOOL_COMMAND,
     }));
 
-    // Install PostToolUse hook
     let post_tool_use = hooks_obj
         .entry("PostToolUse")
         .or_insert_with(|| serde_json::json!([]));
@@ -146,7 +143,7 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
         "hook": CLAUDE_POST_TOOL_COMMAND,
     }));
 
-    // Install SessionStart hook for MCP pin verification (Bolt 080)
+    // Install SessionStart hook for MCP pin verification
     let session_start = hooks_obj
         .entry("SessionStart")
         .or_insert_with(|| serde_json::json!([]));
@@ -158,7 +155,6 @@ fn install_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpE
         "hook": CLAUDE_SESSION_START_COMMAND,
     }));
 
-    // Write back
     if let Some(parent) = settings_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -205,7 +201,6 @@ fn remove_claude_code_hook(project_dir: &Path) -> Result<HookInstallResult, OpEr
 
     let mut removed = false;
     if let Some(hooks) = settings.get_mut("hooks") {
-        // Remove from all hook stages
         for stage in &["PreToolUse", "PostToolUse", "SessionStart"] {
             if let Some(stage_val) = hooks.get_mut(*stage) {
                 if let Some(arr) = stage_val.as_array_mut() {
@@ -336,14 +331,12 @@ fn remove_cursor_hook(project_dir: &Path) -> Result<HookInstallResult, OpError> 
                 result.push_str(line);
                 result.push('\n');
             }
-            // Skip lines inside the block
             continue;
         }
         result.push_str(line);
         result.push('\n');
     }
 
-    // Trim trailing whitespace
     let result = result.trim_end().to_string();
     if result.is_empty() {
         std::fs::remove_file(&rules_path)?;
@@ -491,7 +484,7 @@ mod tests {
             "Write|Edit|Bash|MultiEdit"
         );
 
-        // SessionStart hook for MCP pin verification (Bolt 080)
+        // SessionStart hook for MCP pin verification
         let session = &content["hooks"]["SessionStart"];
         assert!(session.is_array());
         assert_eq!(session.as_array().unwrap().len(), 1);

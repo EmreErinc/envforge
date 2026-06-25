@@ -29,7 +29,7 @@ pub struct EnvDocEntry {
 
 /// Parse a .env-style document into positioned entries with line type tracking.
 pub fn parse_env_document(content: &str) -> Vec<EnvDocEntry> {
-    // L10: bound the per-document entry count. The 1 MiB byte cap upstream still
+    // Bound the per-document entry count. The 1 MiB byte cap upstream still
     // allows ~500K single-char lines (~hundreds of MB of transient entries);
     // cap the line count so a malformed/hostile document can't exhaust memory.
     const MAX_LINES: usize = 50_000;

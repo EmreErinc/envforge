@@ -9,7 +9,7 @@ pub mod registry;
 
 /// The AI-tool fence targets EnvForge can manage.
 ///
-/// This enum is the single source of truth for the target set (NFR10).
+/// This enum is the single source of truth for the target set.
 /// No other module may define or enumerate these targets independently.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize,
@@ -84,7 +84,7 @@ pub struct ResolvedTarget {
 /// - Subset enabled → `"fence: cursor_ignore,copilot (2/9)"`
 /// - None enabled → `"fence: none (0/9)"`
 ///
-/// This is a pure function with no I/O so it is directly unit-testable (FR16 / NFR10).
+/// This is a pure function with no I/O so it is directly unit-testable.
 ///
 /// # Examples
 ///
@@ -123,7 +123,7 @@ pub fn fence_target_summary(resolved: &[ResolvedTarget]) -> String {
 /// If a field matches the default (`true`), source is `Default`; otherwise `Global`.
 /// The Growth per-project layer would add a third `ConfigSource::Project` here.
 ///
-/// Reads config once per call (NFR4).
+/// Reads config once per call.
 #[must_use]
 pub fn resolve_fence_targets(cfg: &FenceConfig) -> Vec<ResolvedTarget> {
     registry::REGISTRY
@@ -182,7 +182,7 @@ pub fn detect_installed_targets(project_dir: &std::path::Path) -> Vec<FenceTarge
 ///
 /// On any `ConfigError` (IO or parse), emits a monitor warning and returns
 /// `FenceConfig::default()` (all targets enabled). This ensures fence activation
-/// fails-safe: a broken config file never blocks protection (FR19, NFR2).
+/// fails-safe: a broken config file never blocks protection.
 fn load_fence_config_or_safe_default() -> FenceConfig {
     match crate::config::load_or_create_default() {
         Ok(cfg) => cfg.fence,
@@ -209,7 +209,7 @@ pub struct FenceResult {
     pub files_skipped: Vec<PathBuf>,
     /// Per-file failures `(path, error)`. One target failing does not abort
     /// the others — failures are collected here so callers can report partial
-    /// results and set a non-zero exit code (NFR-R4 / FR1).
+    /// results and set a non-zero exit code.
     pub files_failed: Vec<(PathBuf, String)>,
 }
 
@@ -236,14 +236,14 @@ pub enum FenceCompleteness {
     Partial(Vec<FenceFileStatus>),
 }
 
-/// Per-target coverage state (Story 1.6 / FR7, FR11).
+/// Per-target coverage state.
 ///
 /// `covered` = a tool with a real ignore mechanism, fully fenced.
 /// `fallback` = a tool with NO ignore file (rules/deny only), protection
 ///   applied via its available mechanism — honest about being weaker than a
-///   hard ignore (FR2b).
+///   hard ignore.
 /// `unfenced` = expected but not (fully) fenced.
-/// `not_installed` = detected as absent (populated by detection, Story 1.7).
+/// `not_installed` = detected as absent (populated by detection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetCoverage {
@@ -253,13 +253,13 @@ pub enum TargetCoverage {
     NotInstalled,
 }
 
-/// Per-target coverage entry — the honest, named view (Story 1.6/1.7).
+/// Per-target coverage entry — the honest, named view.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TargetStatus {
     pub id: String,
     pub tool: String,
     pub state: TargetCoverage,
-    /// Whether the tool was detected as present in the workspace (Story 1.7).
+    /// Whether the tool was detected as present in the workspace.
     /// EnvForge-owned targets (empty detection hints) are always `true`.
     pub installed: bool,
     pub files: Vec<FenceFileStatus>,
@@ -271,11 +271,11 @@ pub struct FenceStatus {
     pub files: Vec<FenceFileStatus>,
     /// Derived convenience field — `true` when every enabled target is
     /// `covered` or `fallback` (no target left `unfenced`). This is the
-    /// honest aggregate behind the "AI BLOCKED" indicator (FR11).
+    /// honest aggregate behind the "AI BLOCKED" indicator.
     pub all_fenced: bool,
     /// Structured completeness assessment.
     pub completeness: FenceCompleteness,
-    /// Per-target coverage states (FR7) — the named view plugins/CLI render.
+    /// Per-target coverage states — the named view plugins/CLI render.
     pub targets: Vec<TargetStatus>,
 }
 
@@ -337,7 +337,7 @@ pub(super) const AGENTS_MD_BLOCK: &str = "\
 /// Loads the fence config with a fail-safe fallback (all targets enabled if
 /// config is missing or malformed) then delegates to [`create_fence_with`].
 /// All four existing callers (CLI, TUI, LSP, plugins-via-CLI) use this
-/// signature unchanged (NFR8).
+/// signature unchanged.
 pub fn create_fence(project_dir: &Path, dry_run: bool) -> Result<FenceResult, OpError> {
     let cfg = load_fence_config_or_safe_default();
     create_fence_with(project_dir, dry_run, &cfg)
@@ -354,7 +354,6 @@ pub fn create_fence_with(
     dry_run: bool,
     cfg: &FenceConfig,
 ) -> Result<FenceResult, OpError> {
-    // Emit monitor event
     crate::ops::monitor::emit_event(crate::ops::monitor::RuntimeEvent {
         source: crate::ops::monitor::EventSource::Fence,
         key: None,
@@ -375,9 +374,9 @@ pub fn create_fence_with(
 
     // Iterate the registry in canonical order. Enabled targets are written;
     // disabled targets push each file path to files_skipped. Writers are
-    // dispatched by FileKind/Ownership (Story 1.2). A single file's failure is
+    // dispatched by FileKind/Ownership. A single file's failure is
     // captured in files_failed and does NOT abort the remaining targets
-    // (NFR-R4) — fencing the rest of the toolchain still proceeds.
+    // — fencing the rest of the toolchain still proceeds.
     for spec in registry::REGISTRY {
         let target = spec.target;
         if cfg.targets.is_enabled(target) {
@@ -524,7 +523,6 @@ fn write_deny_rule(
             ))
         })?;
 
-        // Check which deny rules are already present
         let existing_deny = json
             .pointer("/permissions/deny")
             .and_then(|v| v.as_array())
@@ -549,7 +547,6 @@ fn write_deny_rule(
         }
 
         if !dry_run {
-            // Merge deny rules into existing JSON
             let permissions = json
                 .as_object_mut()
                 .ok_or_else(|| OpError::Other("settings.json is not a JSON object".into()))?
@@ -964,7 +961,7 @@ pub fn check_fence_status_with(
     // Build per-target coverage for enabled targets only. A target is fenced
     // iff ALL of its files are fenced (multi-file targets need every file).
     // `covered` vs `fallback` distinguishes a real ignore mechanism from a
-    // rules/deny-only fallback (has_real_ignore) — FR7/FR2b honesty.
+    // rules/deny-only fallback (has_real_ignore) — honesty.
     let mut targets: Vec<TargetStatus> = Vec::new();
     let mut files: Vec<FenceFileStatus> = Vec::new();
     for spec in registry::REGISTRY
@@ -977,11 +974,10 @@ pub fn check_fence_status_with(
             .map(|f| check_file_status(project_dir, f.path))
             .collect();
         let target_fenced = !f_stats.is_empty() && f_stats.iter().all(|f| f.fenced);
-        // Detection (Story 1.7): a target is "installed" if any detection hint
+        // Detection: a target is "installed" if any detection hint
         // exists in the workspace. EnvForge-owned targets (no hints) are always
-        // applicable. An installed-but-unfenced tool is the dangerous case
-        // (FR8); an absent tool is `not_installed` and does NOT break the
-        // aggregate (FR11).
+        // applicable. An installed-but-unfenced tool is the dangerous case;
+        // an absent tool is `not_installed` and does NOT break the aggregate.
         // Detection logic is centralised in `detect_installed_targets` (DRY).
         let installed = detected_list.contains(&spec.target);
         let state = if target_fenced {
@@ -1007,7 +1003,7 @@ pub fn check_fence_status_with(
 
     // Aggregate is honest: protected unless some DETECTED target is unfenced.
     // not_installed targets are not exposure and do not break the aggregate
-    // (FR11). Only an installed-but-unfenced target flips it to false.
+    // Only an installed-but-unfenced target flips it to false.
     let all_fenced = targets.iter().all(|t| t.state != TargetCoverage::Unfenced);
     // Completeness lists only the files of installed-but-unfenced targets.
     let unfenced: Vec<FenceFileStatus> = targets
@@ -1046,7 +1042,7 @@ pub const KNOWN_TOOLS: &[(&str, &str)] = &[
 ///
 /// This is the shared implementation used by both the `project init` CLI flag
 /// path and the `project wizard` interactive hardening step. It is the single
-/// source of truth for "fence a specific subset of targets" (DRY / NFR10).
+/// source of truth for "fence a specific subset of targets" (DRY).
 ///
 /// # Errors
 ///
@@ -1148,7 +1144,6 @@ pub fn apply_tool(project_dir: &Path, tool: &str, dry_run: bool) -> Result<PathB
         return Ok(target);
     }
 
-    // Create parent directories if needed
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -1347,7 +1342,7 @@ mod tests {
 
     // ─── FenceConfig / FenceTarget / Resolution Tests ──────────────
 
-    /// Absent config → all five targets enabled (NFR5 / AC3 from Story 1.1).
+    /// Absent config → all five targets enabled.
     #[test]
     fn test_fence_config_absent_all_enabled() {
         let cfg = FenceConfig::default();
@@ -1437,7 +1432,7 @@ mod tests {
             .any(|p| p.ends_with("settings.json")));
     }
 
-    /// Byte-identical default: no config → same files as current behavior (NFR5).
+    /// Byte-identical default: no config → same files as current behavior.
     #[test]
     fn test_fence_config_default_byte_identical_output() {
         let tmp = TempDir::new().unwrap();
@@ -1549,7 +1544,7 @@ mod tests {
         );
     }
 
-    /// Story 1.5: remove_fence operates on all targets regardless of config.
+    /// remove_fence operates on all targets regardless of config.
     #[test]
     fn test_remove_fence_config_independent_cleans_disabled_target() {
         let tmp = TempDir::new().unwrap();
@@ -1593,7 +1588,7 @@ mod tests {
         }
     }
 
-    // ─── Story 1.2: FileKind-dispatched writer/stripper round-trip tests ──────
+    // ─── FileKind-dispatched writer/stripper round-trip tests ──────
 
     /// NFR-S4 / R1: Shared Ignore file round-trip preserves user content.
     /// Pre-write `.cursorignore` with user content, create fence (appends block),
@@ -1781,7 +1776,7 @@ mod tests {
         }
     }
 
-    // ─── Story 1.3: New tool round-trip tests ─────────────────────────────────
+    // ─── New tool round-trip tests ─────────────────────────────────
 
     /// Windsurf: create_fence writes .codeiumignore + .windsurf/rules/envforge.md;
     /// remove_fence cleans both.
@@ -1934,7 +1929,7 @@ mod tests {
         );
     }
 
-    /// Story 1.6: per-target coverage states — covered vs fallback vs unfenced.
+    /// Per-target coverage states — covered vs fallback vs unfenced.
     #[test]
     fn test_target_coverage_states() {
         let tmp = TempDir::new().unwrap();
@@ -1953,7 +1948,7 @@ mod tests {
         // Real-ignore tool, fenced → Covered.
         assert_eq!(by_id("cursor_ignore"), TargetCoverage::Covered);
         assert_eq!(by_id("aider"), TargetCoverage::Covered);
-        // No-ignore tools, protected via rules/deny → Fallback (honest, FR2b).
+        // No-ignore tools, protected via rules/deny → Fallback (honest).
         assert_eq!(by_id("copilot"), TargetCoverage::Fallback);
         assert_eq!(by_id("claude_code"), TargetCoverage::Fallback);
         assert_eq!(by_id("agents_md"), TargetCoverage::Fallback);
@@ -1961,7 +1956,7 @@ mod tests {
         assert_eq!(by_id("windsurf"), TargetCoverage::Covered);
     }
 
-    /// Story 1.6 / FR11: aggregate "AI BLOCKED" only when no target is unfenced.
+    /// Aggregate "AI BLOCKED" only when no target is unfenced.
     #[test]
     fn test_aggregate_protected_only_when_all_covered() {
         let tmp = TempDir::new().unwrap();
@@ -1997,7 +1992,7 @@ mod tests {
             .all(|t| matches!(t.state, TargetCoverage::Covered | TargetCoverage::Fallback)));
     }
 
-    /// Story 1.7: a tool present in the workspace but not fenced is the
+    /// A tool present in the workspace but not fenced is the
     /// dangerous installed-but-unfenced case — distinct from not_installed.
     #[test]
     fn test_detection_installed_but_unfenced() {
@@ -2032,7 +2027,7 @@ mod tests {
         assert_eq!(claude.state, TargetCoverage::NotInstalled);
     }
 
-    /// Story 1.7 / FR11: not_installed tools do not break the aggregate. A repo
+    /// not_installed tools do not break the aggregate. A repo
     /// with one fenced tool and the rest absent is protected.
     #[test]
     fn test_not_installed_does_not_break_aggregate() {
@@ -2056,7 +2051,7 @@ mod tests {
         );
     }
 
-    /// Story 1.6: a multi-file target needs ALL its files fenced to be covered.
+    /// A multi-file target needs ALL its files fenced to be covered.
     #[test]
     fn test_multifile_target_unfenced_if_one_file_missing() {
         let tmp = TempDir::new().unwrap();
@@ -2077,7 +2072,7 @@ mod tests {
         );
     }
 
-    /// Story 1.5 / NFR-R4: one target failing does not abort the others.
+    /// One target failing does not abort the others.
     /// A directory placed where a fence file should go makes that target fail;
     /// the rest must still be written and the failure captured (not swallowed).
     #[test]
@@ -2107,7 +2102,7 @@ mod tests {
         );
     }
 
-    /// Story 1.5 / NFR-P1: a full fence pass completes well under 500 ms.
+    /// A full fence pass completes well under 500 ms.
     #[test]
     fn test_fence_full_pass_under_budget() {
         let tmp = TempDir::new().unwrap();
@@ -2120,7 +2115,7 @@ mod tests {
         );
     }
 
-    /// Story 1.4: AGENTS.md cross-tool target round-trips and preserves user content.
+    /// AGENTS.md cross-tool target round-trips and preserves user content.
     #[test]
     fn test_agents_md_fence_roundtrip_preserves_user_content() {
         let tmp = TempDir::new().unwrap();
@@ -2158,7 +2153,7 @@ mod tests {
         );
     }
 
-    /// Story 1.4: Amazon Q rules fallback (no ignore file) round-trips.
+    /// Amazon Q rules fallback (no ignore file) round-trips.
     #[test]
     fn test_amazon_q_fence_roundtrip() {
         let tmp = TempDir::new().unwrap();
@@ -2183,7 +2178,7 @@ mod tests {
         );
     }
 
-    /// Story 1.4 / FR2b: no-ignore-file tools are marked has_real_ignore=false
+    /// No-ignore-file tools are marked has_real_ignore=false
     /// so status reports a fallback, never a false "covered".
     #[test]
     fn test_fallback_tools_marked_no_real_ignore() {
@@ -2217,7 +2212,7 @@ mod tests {
         }
     }
 
-    /// FR3 / NFR-S4: .codeiumignore preserves user content across create + remove.
+    /// .codeiumignore preserves user content across create + remove.
     #[test]
     fn test_codeiumignore_preserves_user_content() {
         let tmp = TempDir::new().unwrap();

@@ -56,6 +56,15 @@ pub struct Backend {
     /// side effects (reveal, fence toggle, sync push, etc.). Tracked so
     /// the audit log records which LSP endpoint triggered the mutation.
     request_method: RwLock<String>,
+    /// Env-file set resolved from the project manifest (`.envforge.project.toml`).
+    /// `None` when no manifest exists — recognition then falls back to the
+    /// conventional `.env*` set. On a malformed manifest the
+    /// last successfully resolved set is retained.
+    project_env_set: RwLock<Option<crate::ops::project::ResolvedEnvSet>>,
+    /// Unified key-set with per-environment values, rebuilt from
+    /// `project_env_set` on manifest change and from a recognized env file on
+    /// save. Feeds key/value completion and later hover/diagnostics.
+    env_keyset: RwLock<crate::ops::env_keyset::EnvKeySet>,
 }
 
 impl Backend {
@@ -75,6 +84,8 @@ impl Backend {
             security_policy: LspSecurityPolicy::default(),
             audit_logger,
             request_method: RwLock::new(String::new()),
+            project_env_set: RwLock::new(None),
+            env_keyset: RwLock::new(crate::ops::env_keyset::EnvKeySet::default()),
         }
     }
 
@@ -89,6 +100,145 @@ impl Backend {
         let path = uri.path();
         let fname = path.rsplit('/').next().unwrap_or("");
         fname == ".env" || fname.starts_with(".env.") || fname.ends_with(".env") || fname == "env"
+    }
+
+    /// Is `uri` the project manifest (`.envforge.project.toml` / `.yaml` /
+    /// `.yml` / `.json`)? Used to trigger a manifest reload on save.
+    fn is_project_manifest_file(uri: &Url) -> bool {
+        let fname = uri.path().rsplit('/').next().unwrap_or("");
+        matches!(
+            fname,
+            ".envforge.project.toml"
+                | ".envforge.project.yaml"
+                | ".envforge.project.yml"
+                | ".envforge.project.json"
+        )
+    }
+
+    /// Recognition predicate: an EnvForge-owned env file is either a
+    /// conventional `.env*` file (fallback) OR a file declared by the
+    /// project manifest's resolved set. This is a strict superset of
+    /// [`Self::is_env_file`] — conventional files are always recognized, so
+    /// projects without a manifest behave exactly as before.
+    fn is_recognized_env_file(&self, uri: &Url) -> bool {
+        if Backend::is_env_file(uri) {
+            return true;
+        }
+        let Ok(path) = uri.to_file_path() else {
+            return false;
+        };
+        self.project_env_set
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|set| set.recognizes(&path)))
+            .unwrap_or(false)
+    }
+
+    /// Load (or reload) the project manifest and resolve its env-file set.
+    ///
+    /// - No manifest found → clear the set; recognition falls back to
+    ///   conventional `.env*`.
+    /// - Valid manifest → store the resolved set and clear any prior manifest
+    ///   diagnostic.
+    /// - Malformed manifest → publish a diagnostic on the manifest file and
+    ///   **retain** the last good set — never crash, never
+    ///   silently drop recognition.
+    fn load_project_manifest(&self) {
+        let root = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|r| r.clone())
+            .and_then(|u| u.to_file_path().ok());
+        let Some(root_path) = root else {
+            eprintln!("envforge LSP: manifest load skipped — no workspace root");
+            return;
+        };
+
+        match crate::ops::project::detect_project_config(&root_path) {
+            Some(detected) => match crate::ops::project::load_project_config(&detected) {
+                Ok(config) => {
+                    let set = crate::ops::project::resolve_env_set(&config, &detected.project_root);
+                    eprintln!(
+                        "envforge LSP: manifest {} → {} recognized env file(s)",
+                        detected.config_path.display(),
+                        set.envs.len()
+                    );
+                    if let Ok(mut w) = self.project_env_set.write() {
+                        *w = Some(set);
+                    }
+                    self.clear_manifest_diagnostic(&detected.config_path);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "envforge LSP: manifest {} failed to parse: {e}",
+                        detected.config_path.display()
+                    );
+                    // Keep the last good set; surface the parse error.
+                    self.publish_manifest_diagnostic(&detected.config_path, &e.to_string());
+                }
+            },
+            None => {
+                eprintln!(
+                    "envforge LSP: no .envforge.project.toml found from {}",
+                    root_path.display()
+                );
+                if let Ok(mut w) = self.project_env_set.write() {
+                    *w = None;
+                }
+            }
+        }
+        self.rebuild_env_keyset();
+    }
+
+    /// Rebuild the unified key-set from the current resolved env-file set.
+    /// No manifest / empty set → an empty key-set.
+    fn rebuild_env_keyset(&self) {
+        let set = self.project_env_set.read().ok().and_then(|g| g.clone());
+        let mut keyset = match set {
+            Some(s) => crate::ops::env_keyset::build_env_keyset(&s),
+            None => crate::ops::env_keyset::EnvKeySet::default(),
+        };
+        // Union schema-declared sensitivity into the key-set so a key
+        // marked sensitive in `.env.schema` is redacted across every variant
+        // even when the key-name heuristic would not flag it.
+        if let Some(schema) = self.schema.read().ok().and_then(|r| r.clone()) {
+            keyset.apply_schema_sensitivity(&schema);
+        }
+        eprintln!(
+            "envforge LSP: env key-set rebuilt — {} key(s)",
+            keyset.keys.len()
+        );
+        if let Ok(mut w) = self.env_keyset.write() {
+            *w = keyset;
+        }
+    }
+
+    fn publish_manifest_diagnostic(&self, config_path: &std::path::Path, detail: &str) {
+        let Ok(uri) = Url::from_file_path(config_path) else {
+            return;
+        };
+        let diag = Diagnostic {
+            range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+            severity: Some(DiagnosticSeverity::ERROR),
+            source: Some("envforge-project".to_string()),
+            message: format!("Invalid .envforge.project.toml: {detail}"),
+            ..Default::default()
+        };
+        let client = self.client.clone();
+        tokio::spawn(async move {
+            client.publish_diagnostics(uri, vec![diag], None).await;
+        });
+    }
+
+    fn clear_manifest_diagnostic(&self, config_path: &std::path::Path) {
+        let Ok(uri) = Url::from_file_path(config_path) else {
+            return;
+        };
+        let client = self.client.clone();
+        tokio::spawn(async move {
+            client.publish_diagnostics(uri, vec![], None).await;
+        });
     }
 
     fn is_schema_file(uri: &Url) -> bool {
@@ -131,7 +281,7 @@ impl Backend {
         let fname = path.rsplit('/').next().unwrap_or("");
         // Cross-tool MCP/agent config filenames (matches `mcp.json` in any
         // dir, so `.vscode/mcp.json` and `.cursor/mcp.json` are covered).
-        // Story 3.1 (FR18) widens coverage to Windsurf, Cline, Claude Code.
+        // Coverage extends to Windsurf, Cline, Claude Code.
         if matches!(
             fname,
             "mcp.json"
@@ -382,7 +532,7 @@ impl Backend {
     /// unknown URIs or non-env files rather than erroring so plugin
     /// clients can safely poll on every keystroke.
     pub fn exposure_for(&self, uri: &Url) -> Vec<ExposureEntry> {
-        if !Self::is_env_file(uri) {
+        if !self.is_recognized_env_file(uri) {
             return Vec::new();
         }
         let doc = self
@@ -406,9 +556,82 @@ impl Backend {
         compute_exposure_map(&doc.entries, schema.as_ref(), fence_active)
     }
 
+    /// Cross-environment "key missing in this environment" diagnostics.
+    ///
+    /// For a recognized env file that maps to a project environment, flag every
+    /// key present in at least one *other* environment but absent here. Anchored
+    /// at end-of-file, tagged `envforge-env`, severity Warning. Returns empty
+    /// for files with no manifest / no environment mapping (no false positives
+    /// on conventional `.env*` projects).
+    fn cross_env_diagnostics(&self, uri: &Url, content: &str) -> Vec<Diagnostic> {
+        let Ok(path) = uri.to_file_path() else {
+            return Vec::new();
+        };
+        let env_name = self.project_env_set.read().ok().and_then(|g| {
+            g.as_ref()
+                .and_then(|s| s.env_name_for(&path).map(String::from))
+        });
+        let Some(env_name) = env_name else {
+            return Vec::new();
+        };
+        let Ok(keyset) = self.env_keyset.read() else {
+            return Vec::new();
+        };
+        let last_line = content.lines().count().saturating_sub(1) as u32;
+        let range = Range::new(Position::new(last_line, 0), Position::new(last_line, 0));
+        keyset
+            .missing_in(&env_name)
+            .into_iter()
+            .map(|(key, envs)| Diagnostic {
+                range,
+                severity: Some(DiagnosticSeverity::WARNING),
+                source: Some("envforge-env".to_string()),
+                message: format!(
+                    "Key '{}' is set in {} but missing here.",
+                    key,
+                    envs.join(", ")
+                ),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    /// Locations of a key's assignment across recognized env files,
+    /// from the unified key-set. Excludes the cursor's own occurrence so
+    /// goto-definition jumps to the *other* environments' definitions.
+    fn cross_env_definition_locations(
+        &self,
+        key: &str,
+        exclude_uri: &Url,
+        exclude_line: u32,
+    ) -> Vec<Location> {
+        let Ok(keyset) = self.env_keyset.read() else {
+            return Vec::new();
+        };
+        let Some(entry) = keyset.entry(key) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for occ in entry.values.values() {
+            let Ok(uri) = Url::from_file_path(&occ.file) else {
+                continue;
+            };
+            let line = occ.line as u32;
+            if &uri == exclude_uri && line == exclude_line {
+                continue;
+            }
+            out.push(Location {
+                uri,
+                range: Range::new(Position::new(line, 0), Position::new(line, 0)),
+            });
+        }
+        out
+    }
+
     fn publish_diagnostics_for(&self, uri: &Url, doc: &DocumentState) {
         let schema = self.schema.read().ok().and_then(|r| r.clone());
-        let diags = compute_diagnostics(&doc.entries, schema.as_ref());
+        let mut diags = compute_diagnostics(&doc.entries, schema.as_ref());
+        diags.extend(self.cross_env_diagnostics(uri, &doc.content));
         let client = self.client.clone();
         let uri = uri.clone();
         let version = doc.version;
@@ -426,6 +649,7 @@ impl Backend {
         let schema = self.schema.read().ok().and_then(|r| r.clone());
         let mut diags = compute_diagnostics(&doc.entries, schema.as_ref());
         diags.extend(compute_ai_guard_diagnostics(&doc.content));
+        diags.extend(self.cross_env_diagnostics(uri, &doc.content));
         let client = self.client.clone();
         let uri = uri.clone();
         let version = doc.version;
@@ -518,42 +742,14 @@ impl LanguageServer for Backend {
     async fn initialized(&self, _: InitializedParams) {
         self.load_schema_from_workspace();
         self.load_managed_vars();
+        self.load_project_manifest();
         self.client
             .log_message(MessageType::INFO, "envforge LSP initialized")
             .await;
-
-        let managed_count = self.managed_vars.read().map(|m| m.len()).unwrap_or(0);
-        let root_path_opt = self
-            .workspace_root
-            .read()
-            .ok()
-            .and_then(|r| r.clone())
-            .and_then(|u| u.to_file_path().ok());
-        if managed_count > 0 {
-            if let Some(root_path) = root_path_opt {
-                match crate::ops::fence::check_fence_status(&root_path) {
-                    Ok(status) if !status.all_fenced => {
-                        match crate::ops::fence::create_fence(&root_path, false) {
-                            Ok(_) => {
-                                self.client
-                                    .log_message(
-                                        MessageType::INFO,
-                                        "envforge: auto-enabled AI secret fence",
-                                    )
-                                    .await;
-                            }
-                            Err(e) => {
-                                eprintln!("LSP: failed to auto-create fence: {}", e);
-                            }
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("LSP: fence status check failed: {}", e);
-                    }
-                }
-            }
-        }
+        // NOTE: the LSP never auto-creates a fence. Fencing writes files into the
+        // user's project (.envforgeignore, .cursorignore, .github/copilot-instructions.md,
+        // .claude/settings.json, …) and must only happen on an explicit user action
+        // (the `envforge.fenceToggle` command or the `envforge fence` CLI).
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -608,7 +804,7 @@ impl LanguageServer for Backend {
             return;
         }
 
-        if !Self::is_env_file(&uri) {
+        if !self.is_recognized_env_file(&uri) {
             return;
         }
 
@@ -698,7 +894,7 @@ impl LanguageServer for Backend {
             return;
         }
 
-        if !Self::is_env_file(&uri) {
+        if !self.is_recognized_env_file(&uri) {
             return;
         }
 
@@ -729,13 +925,26 @@ impl LanguageServer for Backend {
         }
         self.set_request_method("textDocument/did_save");
 
-        if Self::is_schema_file(&uri) {
-            self.load_schema_from_workspace();
+        // A manifest save re-resolves the recognized env-file set
+        // live (no restart). Republish so recognition changes take effect.
+        if Self::is_project_manifest_file(&uri) {
+            self.load_project_manifest();
             self.republish_all();
             return;
         }
 
-        if Self::is_env_file(&uri) {
+        if Self::is_schema_file(&uri) {
+            self.load_schema_from_workspace();
+            // Schema sensitivity feeds the key-set's redaction flags — refresh.
+            self.rebuild_env_keyset();
+            self.republish_all();
+            return;
+        }
+
+        if self.is_recognized_env_file(&uri) {
+            // A recognized env file changed on disk — refresh the cross-env
+            // key-set so completion/hover reflect the new values.
+            self.rebuild_env_keyset();
             let doc = self
                 .documents
                 .read()
@@ -793,7 +1002,14 @@ impl LanguageServer for Backend {
             .ok()
             .map(|m| m.clone())
             .unwrap_or_default();
-        Ok(hover_info(pos, &doc.entries, schema.as_ref(), &managed))
+        let env_keyset = self.env_keyset.read().ok().map(|k| k.clone());
+        Ok(hover_info(
+            pos,
+            &doc.entries,
+            schema.as_ref(),
+            &managed,
+            env_keyset.as_ref(),
+        ))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -831,7 +1047,15 @@ impl LanguageServer for Backend {
             .ok()
             .map(|m| m.clone())
             .unwrap_or_default();
-        let items = completions(pos, &doc.content, &doc.entries, schema.as_ref(), &managed);
+        let env_keyset = self.env_keyset.read().ok().map(|k| k.clone());
+        let items = completions(
+            pos,
+            &doc.content,
+            &doc.entries,
+            schema.as_ref(),
+            &managed,
+            env_keyset.as_ref(),
+        );
 
         if items.is_empty() {
             Ok(None)
@@ -859,20 +1083,41 @@ impl LanguageServer for Backend {
             .map(|lines| lines.clone())
             .unwrap_or_default();
 
-        // .env file → existing key → schema dispatch.
-        if Self::is_env_file(uri) {
+        // .env file → key → schema definition PLUS the key's definitions in
+        // other recognized environments.
+        if self.is_recognized_env_file(uri) {
             let doc = self
                 .documents
                 .read()
                 .ok()
                 .and_then(|docs| docs.get(uri).cloned());
             let Some(doc) = doc else { return Ok(None) };
-            return Ok(goto_definition(
-                pos,
-                &doc.entries,
-                schema_uri.as_ref(),
-                &schema_lines,
-            ));
+
+            let mut locations: Vec<Location> = Vec::new();
+            match goto_definition(pos, &doc.entries, schema_uri.as_ref(), &schema_lines) {
+                Some(GotoDefinitionResponse::Scalar(loc)) => locations.push(loc),
+                Some(GotoDefinitionResponse::Array(arr)) => locations.extend(arr),
+                _ => {}
+            }
+
+            // Append cross-environment occurrences of the key under the cursor.
+            if let Some(key) = doc
+                .entries
+                .iter()
+                .find(|e| {
+                    e.line == pos.line
+                        && pos.character >= e.key_range.start.character
+                        && pos.character <= e.value_range.end.character
+                })
+                .map(|e| e.key.clone())
+            {
+                locations.extend(self.cross_env_definition_locations(&key, uri, pos.line));
+            }
+
+            if locations.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(GotoDefinitionResponse::Array(locations)));
         }
 
         // Source-file dispatch — extract the UPPER_SNAKE_CASE identifier
@@ -995,7 +1240,7 @@ impl LanguageServer for Backend {
         };
 
         // MCP config files: offer quick-fixes that replace hardcoded credentials
-        // with `${ENV_VAR}` references (FR19 / Story 3.2). Skip the env/schema
+        // with `${ENV_VAR}` references. Skip the env/schema
         // code-action path for these files — it does not apply to JSON configs.
         if Self::is_mcp_config_file(uri) {
             let actions = mcp_config_code_actions(uri, &doc.content, &params.context.diagnostics);
@@ -1097,7 +1342,7 @@ impl LanguageServer for Backend {
         .await;
 
         let uri = &params.text_document.uri;
-        if !Self::is_env_file(uri) {
+        if !self.is_recognized_env_file(uri) {
             return Ok(None);
         }
 
@@ -1124,7 +1369,7 @@ impl LanguageServer for Backend {
         }
 
         let uri = &params.text_document.uri;
-        if !Self::is_env_file(uri) {
+        if !self.is_recognized_env_file(uri) {
             return Ok(None);
         }
 
@@ -1156,8 +1401,8 @@ impl LanguageServer for Backend {
 
         // Resolve cursor → key. Mirrors rename's resolution: env files
         // use document entry hit-testing; source files use the same
-        // UPPER_SNAKE_CASE extraction as L4 go-to-def.
-        let key = if Self::is_env_file(uri) {
+        // UPPER_SNAKE_CASE extraction as go-to-def.
+        let key = if self.is_recognized_env_file(uri) {
             let docs = match self.documents.read() {
                 Ok(g) => g,
                 Err(_) => return Ok(None),
@@ -1224,7 +1469,7 @@ impl LanguageServer for Backend {
         let new_name = params.new_name;
 
         // Resolve the key at the cursor.
-        let old_key = if Self::is_env_file(uri) {
+        let old_key = if self.is_recognized_env_file(uri) {
             let docs = match self.documents.read() {
                 Ok(g) => g,
                 Err(_) => return Ok(None),
@@ -1409,7 +1654,7 @@ impl Backend {
         })
     }
 
-    // ── EnvForge custom LSP requests (H4) ──────────────────────────────
+    // ── EnvForge custom LSP requests ───────────────────────────────────
     // Constrained, *named* security operations. The generic
     // `workspace/executeCommand` is permanently disabled (arbitrary-command
     // surface); each method below instead maps to exactly ONE fixed command
@@ -1515,7 +1760,7 @@ pub async fn serve() {
 
     let (service, socket) = LspService::build(Backend::new)
         .custom_method("envforge/exposureMap", Backend::exposure_map)
-        // H4: constrained, named security requests (NOT generic executeCommand).
+        // Constrained, named security requests (NOT generic executeCommand).
         .custom_method("envforge/fenceStatus", Backend::fence_status)
         .custom_method("envforge/fenceToggle", Backend::fence_toggle)
         .custom_method("envforge/canaryScan", Backend::canary_scan)
@@ -1536,7 +1781,7 @@ mod mcp_config_match_tests {
         Backend::is_mcp_config_file(&Url::parse(&format!("file://{p}")).unwrap())
     }
 
-    /// Story 3.1 (FR18): the widened MCP/agent config filename set is recognized.
+    /// The widened MCP/agent config filename set is recognized.
     #[test]
     fn test_mcp_config_recognized_paths() {
         // Pre-existing coverage.

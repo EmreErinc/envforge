@@ -912,7 +912,7 @@ fn pos_on_key(entries: &[EnvDocEntry], key: &str) -> Position {
 fn test_hover_returns_none_for_unknown_key() {
     let entries = parse_entries("FOO=bar\n");
     let pos = pos_on_key(&entries, "FOO");
-    let result = hover::hover_info(pos, &entries, None, &[]);
+    let result = hover::hover_info(pos, &entries, None, &[], None);
     assert!(result.is_none());
 }
 
@@ -935,7 +935,7 @@ fn test_hover_includes_schema_info() {
     );
 
     let pos = pos_on_key(&entries, "DB_HOST");
-    let h = hover::hover_info(pos, &entries, Some(&schema), &[]).expect("hover");
+    let h = hover::hover_info(pos, &entries, Some(&schema), &[], None).expect("hover");
     let md = hover_markdown(h);
     assert!(md.contains("**DB_HOST**"));
     assert!(md.contains("Type: `string`"));
@@ -966,7 +966,7 @@ fn test_hover_provenance_managed_var() {
     );
 
     let pos = pos_on_key(&entries, "DB_HOST");
-    let h = hover::hover_info(pos, &entries, Some(&schema), &managed).expect("hover");
+    let h = hover::hover_info(pos, &entries, Some(&schema), &managed, None).expect("hover");
     let md = hover_markdown(h);
     assert!(md.contains("Defined by: `schema + local`"));
     // redact_for_label always returns "***" — full redaction, no prefix/char-count leak.
@@ -994,7 +994,7 @@ fn test_hover_provenance_redacts_sensitive() {
     );
 
     let pos = pos_on_key(&entries, "API_KEY");
-    let h = hover::hover_info(pos, &entries, Some(&schema), &managed).expect("hover");
+    let h = hover::hover_info(pos, &entries, Some(&schema), &managed, None).expect("hover");
     let md = hover_markdown(h);
     assert!(md.contains("Sensitive: **yes**"));
     assert!(!md.contains("supersecretvalue"));
@@ -1010,7 +1010,7 @@ fn test_hover_provenance_sensitive_by_key_name_without_schema_flag() {
     }];
 
     let pos = pos_on_key(&entries, "AWS_SECRET_ACCESS_KEY");
-    let h = hover::hover_info(pos, &entries, None, &managed).expect("hover");
+    let h = hover::hover_info(pos, &entries, None, &managed, None).expect("hover");
     let md = hover_markdown(h);
     assert!(!md.contains("AKIAEXAMPLEPAYLOAD"));
     assert!(md.contains("Defined by: `local (managed by envforge)`"));
@@ -1026,7 +1026,7 @@ fn test_hover_provenance_unset_managed_value() {
     }];
 
     let pos = pos_on_key(&entries, "OPTIONAL_VAR");
-    let h = hover::hover_info(pos, &entries, None, &managed).expect("hover");
+    let h = hover::hover_info(pos, &entries, None, &managed, None).expect("hover");
     let md = hover_markdown(h);
     assert!(md.contains("Current value: `not set`"));
 }
@@ -1593,7 +1593,7 @@ fn test_completion_key_position_lists_schema_keys() {
         line: 0,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
 
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"DB_HOST"));
@@ -1620,7 +1620,7 @@ fn test_completion_key_position_excludes_already_defined_keys() {
         line: 1,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(!labels.contains(&"DB_HOST"));
     assert!(labels.contains(&"DB_PORT"));
@@ -1648,7 +1648,7 @@ fn test_completion_value_position_enum_lists_allowed_values() {
         line: 0,
         character: 10,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"debug"));
     assert!(labels.contains(&"info"));
@@ -1671,7 +1671,7 @@ fn test_completion_value_position_bool_lists_true_false() {
         line: 0,
         character: 6,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"true"));
     assert!(labels.contains(&"false"));
@@ -1701,16 +1701,18 @@ fn test_completion_value_shows_managed_marker_instead_of_raw_value() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &managed);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &managed, None);
 
     let managed_item = items
         .iter()
         .find(|i| i.detail.as_deref() == Some("managed by envforge"))
         .expect("managed key should show a managed placeholder, not raw value");
     assert_eq!(managed_item.label, "(managed by envforge)");
-    // text_edit must be None — raw secret values must never flow into
-    // completion text_edits (they get persisted in IDE state/telemetry).
-    assert!(managed_item.text_edit.is_none());
+    // Marker inserts nothing — a no-op empty edit. Raw secret values must
+    // never flow into completion text_edits (they get persisted in IDE
+    // state/telemetry). The edit is no longer None: a None+empty-filter item
+    // made clients destructively wipe the value line on accept.
+    assert_eq!(extract_new_text(managed_item), "");
 }
 
 #[test]
@@ -1725,14 +1727,14 @@ fn test_completion_value_shows_managed_marker_for_non_sensitive_keys() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, None, &managed);
+    let items = completion::completions(pos, content, &entries, None, &managed, None);
 
     let managed_item = items
         .iter()
         .find(|i| i.detail.as_deref() == Some("managed by envforge"))
         .expect("non-sensitive managed key should show a managed placeholder");
     assert_eq!(managed_item.label, "(managed by envforge)");
-    assert!(managed_item.text_edit.is_none());
+    assert_eq!(extract_new_text(managed_item), "");
 }
 
 #[test]
@@ -1746,15 +1748,33 @@ fn test_completion_ref_position_lists_other_entries() {
         line: 1,
         character: 1,
     };
-    let items = completion::completions(pos, content, &entries, None, &[]);
+    let items = completion::completions(pos, content, &entries, None, &[], None);
     assert!(items.iter().any(|i| i.label == "BASE"));
 }
 
 #[test]
 fn test_completion_value_position_emits_dollar_refs_for_other_entries() {
-    // Inside a value (after `=`), the completer should still surface
-    // `${OTHER}` references — the label is the substituted form, not
-    // the bare key, because that is what gets inserted on accept.
+    // Inside a value, `${OTHER}` references are surfaced only once the
+    // user has started a `$` reference — the label is the substituted
+    // form, not the bare key, because that is what gets inserted on
+    // accept. Without a `$`, references are suppressed so they don't
+    // bury the real value suggestions.
+    let content = "BASE=https://example.com\nURL=$";
+    let entries = parse_env_document(content);
+
+    let pos = Position {
+        line: 1,
+        character: 5,
+    };
+    let items = completion::completions(pos, content, &entries, None, &[], None);
+    assert!(items.iter().any(|i| i.label == "${BASE}"));
+}
+
+#[test]
+fn test_completion_value_position_no_dollar_suppresses_refs() {
+    // A plain value edit (no `$` typed) must NOT dump a `${OTHER}` ref
+    // for every other key in the file — that wall of references was the
+    // reported bug. References appear only after a `$`.
     let content = "BASE=https://example.com\nURL=";
     let entries = parse_env_document(content);
 
@@ -1762,8 +1782,151 @@ fn test_completion_value_position_emits_dollar_refs_for_other_entries() {
         line: 1,
         character: 4,
     };
-    let items = completion::completions(pos, content, &entries, None, &[]);
-    assert!(items.iter().any(|i| i.label == "${BASE}"));
+    let items = completion::completions(pos, content, &entries, None, &[], None);
+    assert!(!items.iter().any(|i| i.label == "${BASE}"));
+}
+
+#[test]
+fn test_completion_value_refs_skip_blank_comment_and_duplicate_lines() {
+    // Blank lines, comments and keyless lines are parsed as entries with an
+    // empty key so positions stay aligned. They must never become `${}`
+    // reference suggestions, and a key repeated in the file must appear once.
+    let content = "\n# a comment\nBASE=https://example.com\nBASE=dup\n\nURL=$";
+    let entries = parse_env_document(content);
+
+    let pos = Position {
+        line: 5,
+        character: 5,
+    };
+    let items = completion::completions(pos, content, &entries, None, &[], None);
+
+    // No empty `${}` from blank/comment lines.
+    assert!(
+        !items.iter().any(|i| i.label == "${}"),
+        "blank/comment lines must not produce empty `${{}}` refs"
+    );
+    // `${BASE}` present exactly once despite the duplicate declaration.
+    assert_eq!(
+        items.iter().filter(|i| i.label == "${BASE}").count(),
+        1,
+        "duplicate keys must be de-duplicated in refs"
+    );
+}
+
+#[test]
+fn test_completion_value_lists_machine_and_profile_refs_always() {
+    use envforge::ops::env_keyset::build_env_keyset_from_sources;
+    use std::path::Path;
+
+    // Machine env (managed) and profile env (key-set) keys are offered as
+    // `${KEY}` references in the value popup WITHOUT the user typing `$`,
+    // ranked at the bottom. Sensitive keys are excluded from both.
+    let content = "URL=";
+    let entries = parse_env_document(content);
+    let managed = vec![
+        ManagedVar {
+            key: "BASE_URL".into(),
+            source_file: "/home/u/.env".into(),
+        },
+        ManagedVar {
+            key: "AWS_SECRET_ACCESS_KEY".into(), // sensitive by name
+            source_file: "/home/u/.env".into(),
+        },
+    ];
+    let prod = Path::new("/proj/.env.prod");
+    let staging = Path::new("/proj/.env.staging");
+    let keyset = build_env_keyset_from_sources(&[
+        (
+            "prod",
+            prod,
+            "PROD_HOST=p.example.com\nDB_PASSWORD=hunter2\n",
+        ),
+        ("staging", staging, "PROD_HOST=s.example.com\n"),
+    ]);
+
+    let pos = Position {
+        line: 0,
+        character: 4,
+    };
+    let items = completion::completions(pos, content, &entries, None, &managed, Some(&keyset));
+
+    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+    // Machine ref present, no `$` typed.
+    assert!(
+        labels.contains(&"${BASE_URL}"),
+        "machine ref missing: {labels:?}"
+    );
+    // Profile ref present (appears in two envs).
+    assert!(
+        labels.contains(&"${PROD_HOST}"),
+        "profile ref missing: {labels:?}"
+    );
+    // Sensitive keys excluded from both sources.
+    assert!(!labels.contains(&"${AWS_SECRET_ACCESS_KEY}"));
+    assert!(!labels.contains(&"${DB_PASSWORD}"));
+
+    // Refs rank below the managed marker / values (sort_text y0_/y1_).
+    let base = items.iter().find(|i| i.label == "${BASE_URL}").unwrap();
+    assert!(base.sort_text.as_deref().unwrap().starts_with("y0_"));
+    let host = items.iter().find(|i| i.label == "${PROD_HOST}").unwrap();
+    assert!(host.sort_text.as_deref().unwrap().starts_with("y1_"));
+}
+
+#[test]
+fn test_completion_value_offers_self_inherit_ref_for_sensitive_managed_key() {
+    // Editing a key that also exists in the shell env offers `${KEY}` so the
+    // value can inherit the shell value — even when the key is sensitive
+    // (the user already typed the name, so the ref leaks nothing new). It
+    // ranks just under the managed marker and appears exactly once.
+    let content = "AKBANK_SERVICE_PASSWORD=";
+    let entries = parse_env_document(content);
+    let managed = vec![ManagedVar {
+        key: "AKBANK_SERVICE_PASSWORD".into(),
+        source_file: "/home/u/.zshrc".into(),
+    }];
+
+    let pos = Position {
+        line: 0,
+        character: 24,
+    };
+    let items = completion::completions(pos, content, &entries, None, &managed, None);
+
+    let refs: Vec<&CompletionItem> = items
+        .iter()
+        .filter(|i| i.label == "${AKBANK_SERVICE_PASSWORD}")
+        .collect();
+    assert_eq!(refs.len(), 1, "self-inherit ref must appear exactly once");
+    assert_eq!(refs[0].detail.as_deref(), Some("inherit from shell env"));
+    assert_eq!(refs[0].sort_text.as_deref(), Some("0_inherit"));
+    // Managed marker still present for the key.
+    assert!(items
+        .iter()
+        .any(|i| i.detail.as_deref() == Some("managed by envforge")));
+}
+
+#[test]
+fn test_completion_value_machine_ref_not_duplicated_when_dollar_typed() {
+    // A key that is both in this file and machine-managed must appear once,
+    // even after `$` is typed (shared dedup between the always-on machine/
+    // profile refs and the file `$`-ref loop).
+    let content = "BASE_URL=https://x\nURL=$";
+    let entries = parse_env_document(content);
+    let managed = vec![ManagedVar {
+        key: "BASE_URL".into(),
+        source_file: "/home/u/.env".into(),
+    }];
+
+    let pos = Position {
+        line: 1,
+        character: 5,
+    };
+    let items = completion::completions(pos, content, &entries, None, &managed, None);
+
+    assert_eq!(
+        items.iter().filter(|i| i.label == "${BASE_URL}").count(),
+        1,
+        "machine + file ref for same key must be de-duplicated"
+    );
 }
 
 #[test]
@@ -1779,7 +1942,7 @@ fn test_completion_includes_managed_vars_when_no_schema() {
         line: 0,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, None, &managed);
+    let items = completion::completions(pos, content, &entries, None, &managed, None);
     assert!(items.iter().any(|i| i.label == "GLOBAL_VAR"));
 }
 
@@ -1803,7 +1966,7 @@ fn test_completion_key_position_filters_by_prefix() {
         line: 0,
         character: 3,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"DB_HOST"));
     assert!(!labels.contains(&"API_KEY"));
@@ -1825,7 +1988,7 @@ fn test_completion_key_insert_text_includes_default_when_present() {
         line: 0,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let item = items
         .iter()
         .find(|i| i.label == "DB_PORT")
@@ -1858,7 +2021,7 @@ fn test_completion_command_dispatch_marker() {
         line: 0,
         character: 0,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
     let item = items
         .iter()
         .find(|i| i.label == "CANONICAL")
@@ -3053,7 +3216,7 @@ fn test_completion_never_exposes_raw_secret_in_label() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, None, &managed);
+    let items = completion::completions(pos, content, &entries, None, &managed, None);
     // Must not contain any raw-secret-like labels (more than 8 chars of alphanum).
     for item in &items {
         let label = &item.label;
@@ -3094,7 +3257,7 @@ fn test_completion_sensitive_var_suppresses_default_example() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
 
     for item in &items {
         assert!(
@@ -3135,15 +3298,16 @@ fn test_completion_sensitive_var_no_text_edit_for_placeholder() {
         line: 0,
         character: 8,
     };
-    let items = completion::completions(pos, content, &entries, Some(&schema), &[]);
+    let items = completion::completions(pos, content, &entries, Some(&schema), &[], None);
 
     let sensitive_item = items
         .iter()
         .find(|i| i.label.contains("sensitive"))
         .expect("sensitive placeholder should be present");
-    assert!(
-        sensitive_item.text_edit.is_none(),
-        "sensitive placeholder must have no text_edit to prevent value insertion"
+    assert_eq!(
+        extract_new_text(sensitive_item),
+        "",
+        "sensitive placeholder must insert nothing to prevent value insertion"
     );
 }
 

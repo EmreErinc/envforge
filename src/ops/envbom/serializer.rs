@@ -1,5 +1,5 @@
 //! Canonical serialization + digest.
-//! ADR-012: predicate URL `https://envforge.dev/envbom/v1`.
+//! Predicate URL: `https://envforge.dev/envbom/v1`.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
