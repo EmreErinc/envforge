@@ -1,0 +1,8 @@
+# EnvForge secret fence
+.env
+.env.*
+!.env.schema
+!.env.example
+credentials.toml
+*.key
+*.pem

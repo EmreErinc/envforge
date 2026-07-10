@@ -31,7 +31,6 @@ serde = { version = "1", features = ["derive"] }
 toml = "1.1"
 tempfile = "3"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-copypasta = "0.10"
 ratatui = "0.30.0"
 crossterm = "0.29"
 clap = { version = "4", features = ["derive"] }
@@ -69,6 +68,7 @@ unicode-normalization = "0.1"
 rpassword = "7"
 rmcp = { version = "1.7.0", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
 dialoguer = "0.11"
+arboard = "3.6.1"
 
 [features]
 dangerous-execute-command = []

@@ -34,7 +34,7 @@ pub enum ClipboardError {
 ///
 /// Tries copypasta first, falls back to pbcopy on macOS.
 pub fn copy_to_clipboard(text: &str) -> Result<(), ClipboardError> {
-    match copy_via_copypasta(text) {
+    match copy_via_arboard(text) {
         Ok(()) => return Ok(()),
         Err(_) => {
             if cfg!(target_os = "macos") {
@@ -75,13 +75,11 @@ pub fn copy_key_value(entry: &EnvEntry) -> Result<(), ClipboardError> {
     copy_to_clipboard(&text)
 }
 
-fn copy_via_copypasta(text: &str) -> Result<(), ClipboardError> {
-    use copypasta::{ClipboardContext, ClipboardProvider};
-
+fn copy_via_arboard(text: &str) -> Result<(), ClipboardError> {
     let mut ctx =
-        ClipboardContext::new().map_err(|e| ClipboardError::Unavailable(e.to_string()))?;
+        arboard::Clipboard::new().map_err(|e| ClipboardError::Unavailable(e.to_string()))?;
 
-    ctx.set_contents(text.to_string())
+    ctx.set_text(text.to_string())
         .map_err(|e| ClipboardError::Unavailable(e.to_string()))?;
 
     Ok(())
@@ -118,9 +116,9 @@ fn copy_via_pbcopy(text: &str) -> Result<(), ClipboardError> {
 /// Get the path to the clipboard provider (for diagnostics).
 pub fn clipboard_provider_name() -> &'static str {
     if cfg!(target_os = "macos") {
-        "copypasta (pbcopy fallback)"
+        "arboard (pbcopy fallback)"
     } else {
-        "copypasta (X11/Wayland)"
+        "arboard (X11/Wayland)"
     }
 }
 
@@ -159,9 +157,8 @@ pub fn copy_to_clipboard_with_ttl(text: &str, ttl_secs: u64) -> Result<(), Clipb
 }
 
 fn current_clipboard() -> Result<String, ClipboardError> {
-    use copypasta::{ClipboardContext, ClipboardProvider};
     let mut ctx =
-        ClipboardContext::new().map_err(|e| ClipboardError::Unavailable(e.to_string()))?;
-    ctx.get_contents()
+        arboard::Clipboard::new().map_err(|e| ClipboardError::Unavailable(e.to_string()))?;
+    ctx.get_text()
         .map_err(|e| ClipboardError::Unavailable(e.to_string()))
 }
