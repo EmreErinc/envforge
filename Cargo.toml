@@ -39,7 +39,7 @@ fuzzy-matcher = "0.3.7"
 clap_complete = { version = "4.6.5", features = ["default"] }
 clap_complete_fig = "4"
 carapace_spec_clap = "1.2.0"
-age = { version = "0.11.2", default-features = false, features = ["armor"] }
+age = { version = "0.12.1", default-features = false, features = ["armor"] }
 base64 = "0.22.1"
 hex = "0.4"
 hostname = "0.4"
@@ -56,7 +56,7 @@ libc = "0.2"
 # TLS + cert parsing for MCP remote-server pinning (ADR-015)
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 webpki-roots = "1.0"
-x509-cert = { version = "0.2", features = ["std"] }
+x509-cert = { version = "0.3", features = ["std"] }
 
 # Gzip decompress for bundled MCP reputation feed (ADR-018)
 flate2 = "1"
@@ -66,8 +66,8 @@ unicode-normalization = "0.1"
 
 # Masked password input for project wizard sensitive values
 rpassword = "7"
-rmcp = { version = "1.7.0", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
-dialoguer = "0.11"
+rmcp = { version = "2.2.0", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
+dialoguer = "0.12"
 arboard = "3.6.1"
 
 [features]
