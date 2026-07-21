@@ -11,7 +11,10 @@ EnvForge is a Rust CLI + TUI tool that safely manages environment variables in s
 
 > **Why AI Safety?** GitGuardian's 2026 report found AI-assisted commits leak secrets at **2x the baseline rate**. 24,000+ credentials were found in MCP config files. EnvForge is the first env management tool built to protect secrets FROM AI agents.
 
+![EnvForge Demo](assets/envforge_demo.gif)
+
 ## AI Safety Suite
+
 
 EnvForge provides the most comprehensive AI-agent secret protection of any CLI tool:
 

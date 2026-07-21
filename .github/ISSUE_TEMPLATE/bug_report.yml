@@ -1,0 +1,48 @@
+name: Bug Report
+description: Create a report to help us improve EnvForge
+title: '[BUG] '
+labels: ['bug']
+assignees: ''
+
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you expected to happen.
+      placeholder: Describe the bug...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: EnvForge Version
+      placeholder: e.g. v0.8.4
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating System / Architecture
+      placeholder: e.g. macOS Sonoma (aarch64), Ubuntu 24.04 (x86_64), Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps To Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Run command '...'
+        2. See error '...'
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal Output / Logs
+      description: Please copy and paste any relevant terminal output or log snippets.
+      render: shell

@@ -1,0 +1,31 @@
+name: Feature Request
+description: Suggest an idea for EnvForge
+title: '[FEAT] '
+labels: ['enhancement']
+assignees: ''
+
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for suggesting a feature for EnvForge!
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A clear and concise description of what the problem is.
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: A clear and concise description of what you want to happen.
+      placeholder: Describe your solution...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or features you've considered.

@@ -1,0 +1,29 @@
+name: AI Tool Fence Request
+description: Request support or ignore rules for a new AI coding assistant / agent tool
+title: '[FENCE] Request fence support for '
+labels: ['ai-safety', 'enhancement']
+assignees: ''
+
+body:
+  - type: markdown
+    attributes:
+      value: Help us protect secrets across every AI tool in the ecosystem!
+  - type: input
+    id: tool-name
+    attributes:
+      label: AI Tool / Assistant Name
+      placeholder: e.g. SuperAI Code Editor, AgentX CLI
+    validations:
+      required: true
+  - type: input
+    id: ignore-file
+    attributes:
+      label: Ignore File / Config Location
+      placeholder: e.g. .superaiignore, ~/.config/agentx/ignore
+    validations:
+      required: true
+  - type: textarea
+    id: tool-details
+    attributes:
+      label: Additional Context
+      description: Links to documentation or details about how the AI tool reads local files.
