@@ -364,7 +364,7 @@ mod tests {
             "expected API_KEY in title, got: {}",
             action.title
         );
-        assert!(action.is_preferred == Some(true));
+        assert_eq!(action.is_preferred, Some(true));
 
         // Extract the single TextEdit and verify new_text.
         let edit = action.edit.as_ref().expect("edit must be present");
