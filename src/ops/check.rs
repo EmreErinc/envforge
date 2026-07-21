@@ -804,7 +804,7 @@ mod tests {
         assert_eq!(json["summary"]["ok"], 1);
         assert_eq!(json["summary"]["warnings"], 1);
         assert_eq!(json["summary"]["errors"], 1);
-        assert!(json["results"].as_array().unwrap().len() == 3);
+        assert_eq!(json["results"].as_array().unwrap().len(), 3);
     }
 
     #[test]
