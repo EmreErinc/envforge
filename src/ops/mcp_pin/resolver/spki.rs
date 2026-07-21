@@ -114,8 +114,8 @@ impl SpkiExtractor {
                 cause: format!("cert parse: {e}"),
             })?;
         let spki = cert
-            .tbs_certificate
-            .subject_public_key_info
+            .tbs_certificate()
+            .subject_public_key_info()
             .to_der()
             .map_err(|e| ResolverError::TlsHandshake {
                 url: url.to_string(),

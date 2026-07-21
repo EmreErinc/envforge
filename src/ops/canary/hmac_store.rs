@@ -237,7 +237,7 @@ fn stored_key_from(kv: &HmacKeyVersion, is_active: bool) -> StoredKey {
         active: is_active,
         created_at: kv.created_at.clone(),
         retired_at: kv.retired_at.clone(),
-        bytes_b64: base64::engine::general_purpose::STANDARD.encode(kv.bytes.as_ref()),
+        bytes_b64: base64::engine::general_purpose::STANDARD.encode(kv.bytes.as_slice()),
     }
 }
 

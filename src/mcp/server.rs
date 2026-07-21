@@ -15,7 +15,7 @@
 use std::path::Path;
 
 use rmcp::{
-    model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerInfo},
     tool, tool_router,
     transport::stdio,
     ServerHandler, ServiceExt,
@@ -193,7 +193,7 @@ impl EnvForgeMcp {
         let text = serde_json::to_string(&payload).map_err(|e| {
             rmcp::ErrorData::internal_error(format!("JSON serialization failed: {e}"), None)
         })?;
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
     /// Return per-key metadata for schema variables.
@@ -225,7 +225,7 @@ impl EnvForgeMcp {
         let text = serde_json::to_string(&payload).map_err(|e| {
             rmcp::ErrorData::internal_error(format!("JSON serialization failed: {e}"), None)
         })?;
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 }
 
