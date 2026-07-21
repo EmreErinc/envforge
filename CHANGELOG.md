@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-07-22
+
+### Added
+- **Official v1.0.0 Public Release** — General Availability of EnvForge as the AI-safe environment variable manager.
+- **Complete AI Safety Suite (30+ Tools)**: Secret fencing (`envforge fence`) across 11 AI coding assistants (Cursor, Copilot, Claude Code, Windsurf, Aider, Cline, Gemini CLI, etc.), pre/post-execution hooks (`envforge ai-hook`), `.env.ai.md` schema generator, in-memory volatile execution (`envforge run --volatile`), log redaction, local credential proxy, and canary honeypots.
+- **MCP Supply-Chain Protection**: `envforge mcp status/harden/pin/verify` with SPKI pinning, bundled reputation feed, and tool-poisoning detection.
+- **13 Secret Provider Integrations**: Native `vault://` URI resolution for HashiCorp Vault, AWS SSM, GCP Secret Manager, Azure Key Vault, 1Password, Bitwarden, Infisical, and Doppler.
+- **Full IDE & Tooling Suite**: Built-in Language Server (`envforge lsp`) + read-safe MCP Server (`envforge mcp serve`) + native extensions for VS Code, JetBrains IntelliJ, Neovim, and Zed.
+- **Signed ENV-BOM Attestations**: SPDX-compliant environmental Bill of Materials generator (`envforge envbom`).
+
 ## [0.8.4] - 2026-06-23
+
 
 ### Added
 

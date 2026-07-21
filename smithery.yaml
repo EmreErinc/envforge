@@ -10,6 +10,7 @@ startCommand:
 metadata:
   name: envforge
   description: The AI-safe environment variable manager MCP server. Gives AI agents environment metadata without exposing raw secret values.
-  version: 0.8.4
+  version: 1.0.0
   license: Elastic-2.0
+
   homepage: https://github.com/emreerinc/envforge

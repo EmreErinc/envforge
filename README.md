@@ -122,7 +122,8 @@ envforge revoke --all
 | **Monitoring** | `envforge monitor status` — real-time health probes (providers, canary, fence, encryption) + event stream |
 | **Security** | Secret scanning, pre-commit hooks, value masking, credential TTL |
 
-## Security Configuration (v0.8.0+)
+## Security Configuration (v1.0.0+)
+
 
 EnvForge encrypts all provider credentials by default and provides hardened defaults for every security boundary.
 

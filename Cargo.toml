@@ -1,15 +1,17 @@
 [package]
 name = "env-forge-tui"
-version = "0.8.4"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.75"
-description = "Terminal environment variable manager with TUI and CLI"
+
+description = "AI-safe environment variable & secret manager with CLI, TUI, LSP, and MCP"
 license = "Elastic-2.0"
 repository = "https://github.com/emreerinc/envforge"
 homepage = "https://github.com/emreerinc/envforge"
 readme = "README.md"
-keywords = ["env", "environment", "terminal", "tui", "shell"]
+keywords = ["env", "environment", "secrets", "ai-safety", "tui", "shell", "terminal"]
 categories = ["command-line-utilities"]
+
 authors = ["Emre Erinc"]
 exclude = [".specsmd/", "memory-bank/", ".github/", "node_modules/", ".claude/", ".agents/", ".idea", ".vscode", "target/", "plans/"]
 

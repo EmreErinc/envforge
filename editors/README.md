@@ -111,6 +111,9 @@ Add to LSP settings:
 |--------|-----------|--------|
 | [VS Code](vscode/) | `editors/vscode/` | Ready — `.vsix` packaged |
 | [IntelliJ](intellij/) | `editors/intellij/` | Ready — Gradle project |
+| [Neovim](nvim/) | `editors/nvim/` | Ready — Lua plugin |
+| [Zed](zed/) | `editors/zed/` | Ready — Extension manifest |
+
 
 ### Feature Parity
 

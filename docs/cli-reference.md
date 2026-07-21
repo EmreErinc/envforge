@@ -1,6 +1,7 @@
 # EnvForge CLI Reference
 
-> Generated for EnvForge v0.8.4
+> Generated for EnvForge v1.0.0
+
 
 ## Quick Recipes
 
