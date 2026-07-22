@@ -10,18 +10,34 @@ use super::table;
 
 /// Render the complete TUI.
 pub fn render(f: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
+    let constraints = if app.inspector_open {
+        vec![
+            Constraint::Length(3), // header
+            Constraint::Min(5),    // table
+            Constraint::Length(5), // bottom inspector drawer
+            Constraint::Length(3), // footer
+        ]
+    } else {
+        vec![
             Constraint::Length(3), // header
             Constraint::Min(5),    // table
             Constraint::Length(3), // footer
-        ])
+        ]
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
         .split(f.area());
 
     render_header(f, app, chunks[0]);
     render_table(f, app, chunks[1]);
-    render_footer(f, app, chunks[2]);
+    if app.inspector_open {
+        render_bottom_inspector(f, app, chunks[2]);
+        render_footer(f, app, chunks[3]);
+    } else {
+        render_footer(f, app, chunks[2]);
+    }
 
     match &app.mode {
         ViewMode::Editing => dialogs::render_edit_popup(f, app),
@@ -37,7 +53,9 @@ pub fn render(f: &mut Frame, app: &App) {
         }
         ViewMode::ProfileSelector(idx) => dialogs::render_profile_selector(f, app, *idx),
         ViewMode::FirstRun => render_first_run(f),
-        ViewMode::Normal | ViewMode::Searching => {}
+        ViewMode::CommandPalette => dialogs::render_command_palette(f, app),
+        ViewMode::SecretGenerator => dialogs::render_secret_generator(f, app),
+        ViewMode::Normal | ViewMode::Searching | ViewMode::MultiSelect => {}
     }
 }
 
@@ -97,6 +115,44 @@ fn render_first_run(f: &mut Frame) {
 
     f.render_widget(paragraph, popup_area);
 }
+
+fn render_bottom_inspector(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
+    let selected_entry = app.selected_entry();
+    let text = if let Some(entry) = selected_entry {
+        let details = super::inspector::InspectorDetails::from_entry(&entry, &app.config);
+        let status_str = if details.is_active { "Active" } else { "Commented Out" };
+        let value_display = if app.is_masked(&details.key) {
+            "•••••••••• (Press Space to reveal)".to_string()
+        } else {
+            super::sanitize::sanitize_for_display(&details.raw_value)
+        };
+
+        vec![
+            Line::from(vec![
+                Span::styled(format!(" Key: {} ", details.key), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" [{}] ", status_str), Style::default().fg(if details.is_active { Color::Green } else { Color::Gray })),
+                Span::styled(format!(" Location: {} ", details.location_str), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!(" Security: {:.1} bits ({}) ", details.entropy, details.rating), Style::default().fg(Color::Yellow)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Value: ", Style::default().fg(Color::Yellow)),
+                Span::raw(value_display),
+            ]),
+        ]
+    } else {
+        vec![Line::from(Span::styled(" No variable selected", Style::default().fg(Color::DarkGray)))]
+    };
+
+    let block = Paragraph::new(text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Inspector (Tab / i) ")
+            .border_style(Style::default().fg(Color::Yellow)),
+    );
+
+    f.render_widget(block, area);
+}
+
 
 fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let title = if app.mode == ViewMode::Searching {
@@ -224,24 +280,28 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let status_line = Line::from(spans);
 
     let shortcuts = Line::from(vec![
-        Span::styled(" [a]", Style::default().fg(Color::Cyan)),
+        Span::styled(" [Ctrl+P]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Palette "),
+        Span::styled("[Tab]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Inspect "),
+        Span::styled("[G]", Style::default().fg(Color::Cyan)),
+        Span::raw(" GenSecret "),
+        Span::styled("[v]", Style::default().fg(Color::Cyan)),
+        Span::raw(" MultiSelect "),
+        Span::styled("[p]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Profiles "),
+        Span::styled("[I]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Import "),
+        Span::styled("[E]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Export "),
+        Span::styled("[a]", Style::default().fg(Color::Cyan)),
         Span::raw("dd "),
         Span::styled("[e]", Style::default().fg(Color::Cyan)),
         Span::raw("dit "),
-        Span::styled("[d]", Style::default().fg(Color::Cyan)),
-        Span::raw("el "),
-        Span::styled("[c]", Style::default().fg(Color::Cyan)),
-        Span::raw("opy "),
-        Span::styled("[m]", Style::default().fg(Color::Cyan)),
-        Span::raw("ove "),
         Span::styled("[/]", Style::default().fg(Color::Cyan)),
         Span::raw("search "),
         Span::styled("[S]", Style::default().fg(Color::Cyan)),
         Span::raw("ave "),
-        Span::styled("[I]", Style::default().fg(Color::Cyan)),
-        Span::raw("mp "),
-        Span::styled("[E]", Style::default().fg(Color::Cyan)),
-        Span::raw("xp "),
         Span::styled("[?]", Style::default().fg(Color::Cyan)),
         Span::raw("help "),
         Span::styled("[q]", Style::default().fg(Color::Cyan)),

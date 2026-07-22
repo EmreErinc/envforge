@@ -41,6 +41,7 @@ AGENTS.md
 _bmad
 _bmad-output
 .threatmodel
+.superpowers
 
 # Un-ignore editor plugin package files (needed for CI builds)
 !editors/**/package.json

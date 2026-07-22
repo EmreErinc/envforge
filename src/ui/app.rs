@@ -33,8 +33,11 @@ pub enum ViewMode {
     Help,
     Importing,
     Exporting,
-    ProfileSelector(usize), // index in profile list
+    ProfileSelector(usize),
     FirstRun,               // first-run security setup wizard
+    CommandPalette,
+    SecretGenerator,
+    MultiSelect,
 }
 
 /// Which field is active in the Add dialog.
@@ -120,6 +123,13 @@ pub struct App {
     /// Resolved fence targets for the current config — shown read-only in the footer.
     /// Populated once on construction; refreshed when the fence is toggled.
     pub fence_resolved_targets: Vec<crate::ops::fence::ResolvedTarget>,
+    pub inspector_open: bool,
+    pub selected_keys: HashSet<String>,
+    pub palette_query: String,
+    pub palette_selected: usize,
+    pub secret_gen_opts: crate::ui::secret_gen::SecretGenOpts,
+    pub generated_secret: String,
+    pub return_mode: Option<ViewMode>,
 }
 
 impl App {
@@ -229,6 +239,13 @@ impl App {
             fence_enabled: false,
             first_run_completed: false,
             fence_resolved_targets,
+            inspector_open: false,
+            selected_keys: HashSet::new(),
+            palette_query: String::new(),
+            palette_selected: 0,
+            secret_gen_opts: crate::ui::secret_gen::SecretGenOpts::default(),
+            generated_secret: String::new(),
+            return_mode: None,
         })
     }
 
@@ -414,6 +431,42 @@ impl App {
             }
         }
 
+        let profile_idx = if key.modifiers.intersects(KeyModifiers::ALT | KeyModifiers::CONTROL) {
+            if let KeyCode::Char(c @ '1'..='9') = key.code {
+                Some((c as usize) - ('1' as usize))
+            } else {
+                None
+            }
+        } else if self.mode == ViewMode::Normal {
+            if let KeyCode::Char(c) = key.code {
+                match c {
+                    '¡' => Some(0), // Option+1 on macOS
+                    '™' => Some(1), // Option+2 on macOS
+                    '£' => Some(2), // Option+3 on macOS
+                    '¢' => Some(3), // Option+4 on macOS
+                    '∞' => Some(4), // Option+5 on macOS
+                    '§' => Some(5), // Option+6 on macOS
+                    '¶' => Some(6), // Option+7 on macOS
+                    '•' => Some(7), // Option+8 on macOS
+                    'ª' => Some(8), // Option+9 on macOS
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(idx) = profile_idx {
+            let names = self.config.profiles.profile_names();
+            if let Some(name) = names.get(idx) {
+                let target_name = name.clone();
+                self.switch_to_profile(&target_name);
+                return;
+            }
+        }
+
         match &self.mode.clone() {
             ViewMode::Normal => self.handle_normal_key(key),
             ViewMode::Editing => self.handle_edit_key(key),
@@ -426,6 +479,9 @@ impl App {
             ViewMode::Exporting => self.handle_export_key(key),
             ViewMode::ProfileSelector(idx) => self.handle_profile_selector_key(key, *idx),
             ViewMode::FirstRun => self.handle_first_run_key(key),
+            ViewMode::CommandPalette => self.handle_palette_key(key),
+            ViewMode::SecretGenerator => self.handle_secret_gen_key(key),
+            ViewMode::MultiSelect => self.handle_multiselect_key(key),
         }
     }
 
@@ -579,15 +635,7 @@ impl App {
                 }
             }
             KeyCode::Char('v') => {
-                // Toggle reveal for the selected entry's KEY.
-                if let Some(entry) = self.selected_entry() {
-                    let k = entry.key;
-                    if self.revealed.contains(&k) {
-                        self.revealed.remove(&k);
-                    } else {
-                        self.revealed.insert(k);
-                    }
-                }
+                self.mode = ViewMode::MultiSelect;
             }
             KeyCode::Char('L') => {
                 if let Some(entry) = self.selected_entry() {
@@ -613,6 +661,19 @@ impl App {
             KeyCode::Char('/') => {
                 self.search_query.clear();
                 self.mode = ViewMode::Searching;
+            }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.palette_query.clear();
+                self.palette_selected = 0;
+                self.mode = ViewMode::CommandPalette;
+            }
+            KeyCode::Char(':') => {
+                self.palette_query.clear();
+                self.palette_selected = 0;
+                self.mode = ViewMode::CommandPalette;
+            }
+            KeyCode::Char('G') => {
+                self.open_secret_generator();
             }
             KeyCode::Char('S') | KeyCode::Char('s')
                 if key.modifiers.contains(KeyModifiers::CONTROL)
@@ -649,21 +710,7 @@ impl App {
                 }
             }
             KeyCode::Char('u') => {
-                if let Some(undo_entry) = self.undo_stack.pop() {
-                    if let Some(sf) = self.shell_files.get_mut(undo_entry.file_index) {
-                        sf.lines = undo_entry.lines_snapshot;
-                        self.refresh_entries();
-                        self.notify(
-                            &format!("Undone: {}", undo_entry.description),
-                            NotificationLevel::Success,
-                        );
-                        if self.undo_stack.is_empty() {
-                            self.has_unsaved_changes = false;
-                        }
-                    }
-                } else {
-                    self.notify("Nothing to undo", NotificationLevel::Warning);
-                }
+                self.perform_undo();
             }
             KeyCode::Char('I') => {
                 self.input = TextInput::new("~/.env");
@@ -673,7 +720,7 @@ impl App {
                 self.input = TextInput::new("~/.env.export");
                 self.mode = ViewMode::Exporting;
             }
-            KeyCode::Char('P') => {
+            KeyCode::Char('p') | KeyCode::Char('P') => {
                 let names = self.config.profiles.profile_names();
                 let current_idx = names
                     .iter()
@@ -684,9 +731,39 @@ impl App {
             KeyCode::Char('F') => {
                 self.toggle_fence();
             }
-            KeyCode::Tab => {}
+            KeyCode::Tab | KeyCode::Char('i') => {
+                self.inspector_open = !self.inspector_open;
+            }
             _ => {}
         }
+    }
+
+    pub fn switch_to_profile(&mut self, profile_name: &str) {
+        if profile_name != self.config.profiles.active {
+            let name = profile_name.to_string();
+            if let Some(sf) = self.shell_files.first_mut() {
+                match crate::ops::switch_profile(&mut self.config, sf, &name) {
+                    Ok(()) => {
+                        self.has_unsaved_changes = true;
+                        self.entries = crate::ops::load_profile_entries(&self.config, sf);
+                        self.duplicate_keys = crate::ops::duplicate_key_set(&self.shell_files);
+                        self.notify(
+                            &format!("Switched to profile: {}", name),
+                            NotificationLevel::Success,
+                        );
+                    }
+                    Err(e) => {
+                        self.notify(&e.to_string(), NotificationLevel::Error);
+                    }
+                }
+            }
+        } else {
+            self.notify(
+                &format!("Profile '{}' is already active", profile_name),
+                NotificationLevel::Success,
+            );
+        }
+        self.mode = ViewMode::Normal;
     }
 
     fn handle_profile_selector_key(&mut self, key: KeyEvent, selected_idx: usize) {
@@ -694,6 +771,15 @@ impl App {
         let count = names.len();
 
         match key.code {
+            KeyCode::Char(c @ '1'..='9') => {
+                let target_idx = (c as usize) - ('1' as usize);
+                if target_idx < count {
+                    if let Some(name) = names.get(target_idx) {
+                        let target_name = name.clone();
+                        self.switch_to_profile(&target_name);
+                    }
+                }
+            }
             KeyCode::Char('j') | KeyCode::Down if selected_idx < count.saturating_sub(1) => {
                 self.mode = ViewMode::ProfileSelector(selected_idx + 1);
             }
@@ -702,29 +788,13 @@ impl App {
             }
             KeyCode::Enter => {
                 if let Some(name) = names.get(selected_idx) {
-                    let name = name.clone();
-                    if name != self.config.profiles.active {
-                        if let Some(sf) = self.shell_files.first_mut() {
-                            match switch_profile(&mut self.config, sf, &name) {
-                                Ok(()) => {
-                                    self.has_unsaved_changes = true;
-                                    self.entries = load_profile_entries(&self.config, sf);
-                                    self.duplicate_keys = duplicate_key_set(&self.shell_files);
-                                    self.notify(
-                                        &format!("Switched to profile: {}", name),
-                                        NotificationLevel::Success,
-                                    );
-                                }
-                                Err(e) => {
-                                    self.notify(&e.to_string(), NotificationLevel::Error);
-                                }
-                            }
-                        }
-                    }
+                    let target_name = name.clone();
+                    self.switch_to_profile(&target_name);
+                } else {
+                    self.mode = ViewMode::Normal;
                 }
-                self.mode = ViewMode::Normal;
             }
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Char('p') | KeyCode::Char('P') => {
                 self.mode = ViewMode::Normal;
             }
             _ => {}
@@ -769,6 +839,258 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn handle_palette_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = ViewMode::Normal;
+            }
+            KeyCode::Backspace => {
+                self.palette_query.pop();
+                self.palette_selected = 0;
+            }
+            KeyCode::Up => {
+                if self.palette_selected > 0 {
+                    self.palette_selected -= 1;
+                }
+            }
+            KeyCode::Down => {
+                self.palette_selected += 1;
+            }
+            KeyCode::Char(c) => {
+                self.palette_query.push(c);
+                self.palette_selected = 0;
+            }
+            KeyCode::Enter => {
+                let profiles = self.config.profiles.profile_names();
+                let all_items = crate::ui::palette::build_palette_items(&profiles, &self.config.profiles.active);
+                use fuzzy_matcher::skim::SkimMatcherV2;
+                use fuzzy_matcher::FuzzyMatcher;
+                let matcher = SkimMatcherV2::default();
+                let filtered_items: Vec<_> = if self.palette_query.is_empty() {
+                    all_items
+                } else {
+                    let mut scored: Vec<_> = all_items
+                        .into_iter()
+                        .filter_map(|item| {
+                            matcher
+                                .fuzzy_match(&item.label, &self.palette_query)
+                                .map(|score| (score, item))
+                        })
+                        .collect();
+                    scored.sort_by_key(|b| std::cmp::Reverse(b.0));
+                    scored.into_iter().map(|(_, item)| item).collect()
+                };
+
+                if let Some(selected_item) = filtered_items.get(self.palette_selected) {
+                    let action = selected_item.action.clone();
+                    self.mode = ViewMode::Normal;
+                    self.execute_palette_action(action);
+                } else {
+                    self.mode = ViewMode::Normal;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn execute_palette_action(&mut self, action: crate::ui::palette::PaletteAction) {
+        match action {
+            crate::ui::palette::PaletteAction::SwitchProfile(target_profile) => {
+                self.switch_to_profile(&target_profile);
+            }
+            crate::ui::palette::PaletteAction::ToggleFence => {
+                self.toggle_fence();
+            }
+            crate::ui::palette::PaletteAction::RunDoctor => {
+                self.notify("Run doctor from terminal: envforge check", NotificationLevel::Success);
+            }
+            crate::ui::palette::PaletteAction::OpenSecretGenerator => {
+                self.mode = ViewMode::SecretGenerator;
+            }
+            crate::ui::palette::PaletteAction::ToggleInspector => {
+                self.inspector_open = !self.inspector_open;
+            }
+            crate::ui::palette::PaletteAction::ToggleGrouping => {
+                self.grouping_enabled = !self.grouping_enabled;
+            }
+            crate::ui::palette::PaletteAction::ImportDotEnv => {
+                self.mode = ViewMode::Importing;
+            }
+            crate::ui::palette::PaletteAction::ExportDotEnv => {
+                self.mode = ViewMode::Exporting;
+            }
+            crate::ui::palette::PaletteAction::Undo => {
+                self.perform_undo();
+            }
+        }
+    }
+
+    pub fn perform_undo(&mut self) {
+        if let Some(undo_entry) = self.undo_stack.pop() {
+            if let Some(sf) = self.shell_files.get_mut(undo_entry.file_index) {
+                sf.lines = undo_entry.lines_snapshot;
+                self.refresh_entries();
+                self.notify(
+                    &format!("Undone: {}", undo_entry.description),
+                    NotificationLevel::Success,
+                );
+                if self.undo_stack.is_empty() {
+                    self.has_unsaved_changes = false;
+                }
+            }
+        } else {
+            self.notify("Nothing to undo", NotificationLevel::Success);
+        }
+    }
+
+    pub fn open_secret_generator(&mut self) {
+        self.open_secret_generator_with_return(ViewMode::Normal);
+    }
+
+    pub fn open_secret_generator_with_return(&mut self, caller_mode: ViewMode) {
+        self.return_mode = Some(caller_mode);
+        self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+        self.mode = ViewMode::SecretGenerator;
+    }
+
+    fn handle_secret_gen_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = self.return_mode.take().unwrap_or(ViewMode::Normal);
+            }
+            KeyCode::Char('c') | KeyCode::Char('C') => {
+                match arboard::Clipboard::new() {
+                    Ok(mut clipboard) => {
+                        if clipboard.set_text(&self.generated_secret).is_ok() {
+                            self.notify("Copied generated secret to clipboard", NotificationLevel::Success);
+                        }
+                    }
+                    Err(e) => {
+                        self.notify(&format!("Clipboard error: {}", e), NotificationLevel::Error);
+                    }
+                }
+            }
+            KeyCode::Char('r') => {
+                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+            }
+            KeyCode::Left => {
+                use crate::ui::secret_gen::SecretGenFormat;
+                self.secret_gen_opts.format = match self.secret_gen_opts.format {
+                    SecretGenFormat::AlphaNumericSpecial => SecretGenFormat::UuidV4,
+                    SecretGenFormat::AlphaNumericOnly => SecretGenFormat::AlphaNumericSpecial,
+                    SecretGenFormat::Hex => SecretGenFormat::AlphaNumericOnly,
+                    SecretGenFormat::Base64 => SecretGenFormat::Hex,
+                    SecretGenFormat::UuidV4 => SecretGenFormat::Base64,
+                };
+                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+            }
+            KeyCode::Right => {
+                use crate::ui::secret_gen::SecretGenFormat;
+                self.secret_gen_opts.format = match self.secret_gen_opts.format {
+                    SecretGenFormat::AlphaNumericSpecial => SecretGenFormat::AlphaNumericOnly,
+                    SecretGenFormat::AlphaNumericOnly => SecretGenFormat::Hex,
+                    SecretGenFormat::Hex => SecretGenFormat::Base64,
+                    SecretGenFormat::Base64 => SecretGenFormat::UuidV4,
+                    SecretGenFormat::UuidV4 => SecretGenFormat::AlphaNumericSpecial,
+                };
+                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+            }
+            KeyCode::Up => {
+                self.secret_gen_opts.length = (self.secret_gen_opts.length + 4).min(128);
+                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+            }
+            KeyCode::Down => {
+                self.secret_gen_opts.length = (self.secret_gen_opts.length.saturating_sub(4)).max(8);
+                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+            }
+            KeyCode::Enter => {
+                let secret = self.generated_secret.clone();
+                let return_mode = self.return_mode.take().unwrap_or(ViewMode::Normal);
+                match return_mode {
+                    ViewMode::Editing => {
+                        self.input = TextInput::new(&secret);
+                        self.mode = ViewMode::Editing;
+                        self.notify("Applied generated secret to value field", NotificationLevel::Success);
+                    }
+                    ViewMode::Adding(_) => {
+                        self.add_value_input = TextInput::new(&secret);
+                        self.mode = ViewMode::Adding(AddField::Value);
+                        self.notify("Applied generated secret to value field", NotificationLevel::Success);
+                    }
+                    _ => {
+                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                            let _ = cb.set_text(&secret);
+                        }
+                        self.mode = ViewMode::Normal;
+                        self.notify("Copied generated secret to clipboard", NotificationLevel::Success);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_multiselect_key(&mut self, key: KeyEvent) {
+        let rows = self.visible_rows();
+        let row_count = rows.len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('v') => {
+                self.mode = ViewMode::Normal;
+            }
+            KeyCode::Char('j') | KeyCode::Down if self.selected < row_count.saturating_sub(1) => {
+                self.selected += 1;
+            }
+            KeyCode::Char('k') | KeyCode::Up if self.selected > 0 => {
+                self.selected -= 1;
+            }
+            KeyCode::Char(' ') => {
+                if let Some(entry) = self.selected_entry() {
+                    let key_name = entry.key;
+                    if self.selected_keys.contains(&key_name) {
+                        self.selected_keys.remove(&key_name);
+                    } else {
+                        self.selected_keys.insert(key_name);
+                    }
+                }
+            }
+            KeyCode::Char('c') => {
+                if !self.selected_keys.is_empty() {
+                    self.bulk_comment_selected();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn bulk_comment_selected(&mut self) {
+        if self.selected_keys.is_empty() {
+            return;
+        }
+        let count = self.selected_keys.len();
+        if let Some(sf) = self.shell_files.first() {
+            self.undo_stack.push(0, &sf.lines, &format!("bulk comment {} keys", count));
+        }
+        let keys_to_toggle: Vec<_> = self.selected_keys.iter().cloned().collect();
+        for key in keys_to_toggle {
+            if let Some(entry) = self.entries.iter().find(|e| e.key == key) {
+                let source_path = entry.source_file.clone();
+                if let Some(fi) = self.shell_files.iter().position(|sf| sf.path == source_path) {
+                    let is_commented = entry.location == EntryLocation::Commented;
+                    if is_commented {
+                        let _ = crate::ops::undo_delete(&mut self.shell_files[fi], &key);
+                    } else {
+                        let _ = crate::ops::soft_delete(&mut self.shell_files[fi], &key);
+                    }
+                }
+            }
+        }
+        self.refresh_entries();
+        self.has_unsaved_changes = true;
+        self.selected_keys.clear();
+        self.mode = ViewMode::Normal;
+        self.notify(&format!("Toggled comments for {} keys", count), NotificationLevel::Success);
     }
 
     fn toggle_fence(&mut self) {
@@ -941,6 +1263,11 @@ impl App {
             KeyCode::Right => self.input.move_right(),
             KeyCode::Home => self.input.move_home(),
             KeyCode::End => self.input.move_end(),
+            KeyCode::Char('g') | KeyCode::Char('G')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.open_secret_generator_with_return(ViewMode::Editing);
+            }
             KeyCode::Char(c) => self.input.insert(c),
             _ => {}
         }
@@ -1020,6 +1347,11 @@ impl App {
                 AddField::Key => self.add_key_input.backspace(),
                 AddField::Value => self.add_value_input.backspace(),
             },
+            KeyCode::Char('g') | KeyCode::Char('G')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.open_secret_generator_with_return(ViewMode::Adding(field));
+            }
             KeyCode::Char(c) => match field {
                 AddField::Key => self.add_key_input.insert(c),
                 AddField::Value => self.add_value_input.insert(c),

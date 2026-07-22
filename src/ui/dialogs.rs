@@ -50,7 +50,7 @@ pub fn render_edit_popup(f: &mut Frame, app: &App) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Enter: save  Esc: cancel",
+            "Ctrl+G: generate secret  Enter: save  Esc: cancel",
             Style::default().fg(Color::DarkGray),
         )),
     ];
@@ -132,7 +132,7 @@ pub fn render_add_popup(f: &mut Frame, app: &App, field: &AddField) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Tab: switch field  Ctrl+T: toggle target  Enter: next/save  Esc: cancel",
+            "Tab: switch field  Ctrl+G: generate secret  Enter: next/save  Esc: cancel",
             Style::default().fg(Color::DarkGray),
         )),
     ];
@@ -259,18 +259,17 @@ pub fn render_path_input(f: &mut Frame, app: &App, title: &str, prompt: &str) {
     f.render_widget(popup, area);
 }
 
-/// Render the profile selector popup.
+/// Render the profile selector popup (p).
 pub fn render_profile_selector(f: &mut Frame, app: &App, selected_idx: usize) {
     let names = app.config.profiles.profile_names();
-    let height = (names.len() as u16 + 6).min(20);
-    let area = centered_popup(f.area(), 40, height.max(10));
+    let area = centered_popup(f.area(), 75, 45);
     f.render_widget(Clear, area);
 
     let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled(
-            "Select a profile:",
-            Style::default().fg(Color::Yellow),
+            " Select a profile to activate:",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
@@ -278,40 +277,53 @@ pub fn render_profile_selector(f: &mut Frame, app: &App, selected_idx: usize) {
     for (i, name) in names.iter().enumerate() {
         let is_active = *name == app.config.profiles.active;
         let is_selected = i == selected_idx;
+        let num_badge = if i < 9 { format!("  [{}] ", i + 1) } else { "      ".to_string() };
         let marker = if is_selected { "▸ " } else { "  " };
-        let badge = if is_active { " (active)" } else { "" };
 
-        let style = if is_selected {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
+        let file_path = app.config.profiles.entries.get(name)
+            .map(|e| e.file.clone())
+            .unwrap_or_else(|| format!("~/.env_managed.{}", name));
+
+        let name_style = if is_selected {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
         } else if is_active {
-            Style::default().fg(Color::Magenta)
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
-            Style::default()
+            Style::default().fg(Color::White)
         };
 
-        lines.push(Line::from(Span::styled(
-            format!("{}{}{}", marker, name, badge),
-            style,
-        )));
+        let mut spans = vec![
+            Span::styled(num_badge, Style::default().fg(Color::Yellow)),
+            Span::styled(marker, Style::default().fg(Color::Cyan)),
+            Span::styled(format!("{:<15}", name), name_style),
+            Span::styled(format!(" {:<24}", file_path), Style::default().fg(Color::DarkGray)),
+        ];
+
+        if is_active {
+            spans.push(Span::styled(" [ACTIVE]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+        }
+
+        lines.push(Line::from(spans));
     }
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Enter: select  Esc: cancel",
+        " 1-9: Select profile | \u{2191}/\u{2193}: Navigate | Enter: Confirm | Esc: Cancel",
         Style::default().fg(Color::DarkGray),
     )));
 
+    let title = format!(" Switch Profile ({} profiles available) ", names.len());
     let popup = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Switch Profile ")
+            .title(title)
             .border_style(Style::default().fg(Color::Magenta)),
     );
 
     f.render_widget(popup, area);
 }
+
+
 
 /// Build a help shortcut line with styled key and description.
 fn help_shortcut(key: &str, desc: &str) -> Line<'static> {
@@ -342,37 +354,33 @@ fn help_footer() -> Line<'static> {
 /// Build page 1: Keyboard Shortcuts.
 fn help_page_shortcuts() -> Vec<Line<'static>> {
     vec![
-        help_section("Navigation"),
+        help_section("Navigation & Palette"),
         help_shortcut("j/\u{2193}", "Move down"),
         help_shortcut("k/\u{2191}", "Move up"),
-        help_shortcut("G", "Jump to bottom"),
-        help_shortcut("gg", "Jump to top"),
+        help_shortcut("p / P", "Profile Switcher (press 1-9 to pick)"),
+        help_shortcut("Ctrl+P / :", "Command Palette (Fuzzy Search)"),
+        help_shortcut("Ctrl+1..9 / Opt+1..9", "Quick profile jump"),
         help_shortcut("/", "Search / filter"),
         help_shortcut("Esc", "Clear search / close dialog"),
         Line::from(""),
         help_section("Actions"),
-        help_shortcut("Space", "Toggle active/passive"),
-        help_shortcut("e", "Edit selected value"),
         help_shortcut("a", "Add new variable"),
+        help_shortcut("e", "Edit selected value"),
         help_shortcut("d", "Delete (soft-delete)"),
-        help_shortcut("r", "Restore deleted variable"),
         help_shortcut("u", "Undo last operation"),
         help_shortcut("c", "Copy value to clipboard"),
         help_shortcut("K", "Copy key name to clipboard"),
         help_shortcut("C", "Copy KEY=VALUE to clipboard"),
         help_shortcut("m", "Move to reference file"),
+        help_shortcut("G / Ctrl+G", "Secret Generator (Password/Token)"),
+        help_shortcut("v", "Toggle multi-select mode"),
         Line::from(""),
-        help_section("Display"),
-        help_shortcut("v", "Toggle value masking"),
-        help_shortcut("g", "Toggle grouping"),
-        help_shortcut("\u{2192}/Enter", "Expand group"),
-        help_shortcut("\u{2190}", "Collapse group"),
-        Line::from(""),
-        help_section("Profile & Files"),
-        help_shortcut("P", "Switch profile"),
+        help_section("Display & Files"),
+        help_shortcut("Tab / i", "Toggle Bottom Inspector Drawer"),
+        help_shortcut("Space", "Toggle secret value masking"),
         help_shortcut("I", "Import from .env file"),
         help_shortcut("E", "Export to .env file"),
-        help_shortcut("S", "Save changes (Ctrl+S also works)"),
+        help_shortcut("S / Ctrl+S", "Save changes"),
         Line::from(""),
         help_shortcut("?", "This help"),
         help_shortcut("q", "Quit"),
@@ -485,3 +493,119 @@ pub fn render_help(f: &mut Frame, page: usize) {
 
     f.render_widget(popup, area);
 }
+
+/// Render the Command Palette popup (Ctrl+P / :).
+pub fn render_command_palette(f: &mut Frame, app: &App) {
+    use fuzzy_matcher::skim::SkimMatcherV2;
+    use fuzzy_matcher::FuzzyMatcher;
+
+    let area = centered_popup(f.area(), 65, 55);
+    f.render_widget(Clear, area);
+
+    let profiles = app.config.profiles.profile_names();
+    let all_items = super::palette::build_palette_items(&profiles, &app.config.profiles.active);
+
+    let matcher = SkimMatcherV2::default();
+    let filtered_items: Vec<_> = if app.palette_query.is_empty() {
+        all_items
+    } else {
+        let mut scored: Vec<_> = all_items
+            .into_iter()
+            .filter_map(|item| {
+                matcher
+                    .fuzzy_match(&item.label, &app.palette_query)
+                    .map(|score| (score, item))
+            })
+            .collect();
+        scored.sort_by_key(|b| std::cmp::Reverse(b.0));
+        scored.into_iter().map(|(_, item)| item).collect()
+    };
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("> ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw(&app.palette_query),
+            Span::styled("█", Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(Span::styled("───────────────────────────────────────────────────", Style::default().fg(Color::DarkGray))),
+    ];
+
+    if filtered_items.is_empty() {
+        lines.push(Line::from(Span::styled("  No matching commands", Style::default().fg(Color::DarkGray))));
+    } else {
+        for (i, item) in filtered_items.iter().take(8).enumerate() {
+            let is_selected = i == app.palette_selected;
+            let prefix = if is_selected { "▸ " } else { "  " };
+            let style = if is_selected {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let category_badge = match item.category {
+                super::palette::PaletteCategory::Profile => " [profile]",
+                super::palette::PaletteCategory::System => " [action]",
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("{}{}", prefix, item.label), style),
+                Span::styled(category_badge, Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Enter: run command  Esc: cancel", Style::default().fg(Color::DarkGray))));
+
+    let popup = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Command Palette (Ctrl+P / :) ")
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+
+    f.render_widget(popup, area);
+}
+
+/// Render the Secret Generator popup (G).
+pub fn render_secret_generator(f: &mut Frame, app: &App) {
+    let area = centered_popup(f.area(), 60, 50);
+    f.render_widget(Clear, area);
+
+    let format_str = match app.secret_gen_opts.format {
+        super::secret_gen::SecretGenFormat::AlphaNumericSpecial => "AlphaNumeric + Symbols",
+        super::secret_gen::SecretGenFormat::AlphaNumericOnly => "AlphaNumeric Only",
+        super::secret_gen::SecretGenFormat::Hex => "Hex",
+        super::secret_gen::SecretGenFormat::Base64 => "Base64",
+        super::secret_gen::SecretGenFormat::UuidV4 => "UUID v4",
+    };
+
+    let text = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Format (Left/Right): ", Style::default().fg(Color::Yellow)),
+            Span::styled(format_str, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Length (Up/Down):    ", Style::default().fg(Color::Yellow)),
+            Span::styled(format!("{}", app.secret_gen_opts.length), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("  Preview: ", Style::default().fg(Color::Yellow))),
+        Line::from(Span::styled(format!("    {}", app.generated_secret), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  c: copy to clipboard  r: regenerate  Enter: apply secret  Esc: back",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let popup = Paragraph::new(text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Secret Generator (G) ")
+            .border_style(Style::default().fg(Color::Green)),
+    );
+
+    f.render_widget(popup, area);
+}
+
+

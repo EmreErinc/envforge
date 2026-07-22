@@ -140,10 +140,26 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
                     )]
                 };
 
-                let mut spans = vec![Span::styled(
+                let is_selected_key = app.selected_keys.contains(&entry.key);
+                let select_marker = if is_selected_key {
+                    "[*] "
+                } else if app.mode == super::app::ViewMode::MultiSelect {
+                    "[ ] "
+                } else {
+                    ""
+                };
+
+                let mut spans = vec![];
+                if !select_marker.is_empty() {
+                    spans.push(Span::styled(
+                        select_marker,
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ));
+                }
+                spans.push(Span::styled(
                     format!("{}{} ", indent, status_icon),
                     status_style,
-                )];
+                ));
                 spans.extend(key_spans);
                 let key_cell = Cell::from(Line::from(spans));
 
