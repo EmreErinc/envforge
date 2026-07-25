@@ -241,7 +241,8 @@ impl ProfilesConfig {
                     let file_name = entry.file_name();
                     let name_str = file_name.to_string_lossy();
                     if let Some(profile) = name_str.strip_prefix(".env_managed.") {
-                        if profile != "shared" && !profile.ends_with(".bak") && !profile.is_empty() {
+                        if profile != "shared" && !profile.ends_with(".bak") && !profile.is_empty()
+                        {
                             names_set.insert(profile.to_string());
                         }
                     }

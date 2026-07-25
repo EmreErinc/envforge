@@ -90,5 +90,3 @@ pub fn build_palette_items(profiles: &[String], active_profile: &str) -> Vec<Pal
 
     items
 }
-
-

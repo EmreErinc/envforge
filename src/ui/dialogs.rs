@@ -269,7 +269,9 @@ pub fn render_profile_selector(f: &mut Frame, app: &App, selected_idx: usize) {
         Line::from(""),
         Line::from(Span::styled(
             " Select a profile to activate:",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
@@ -277,17 +279,29 @@ pub fn render_profile_selector(f: &mut Frame, app: &App, selected_idx: usize) {
     for (i, name) in names.iter().enumerate() {
         let is_active = *name == app.config.profiles.active;
         let is_selected = i == selected_idx;
-        let num_badge = if i < 9 { format!("  [{}] ", i + 1) } else { "      ".to_string() };
+        let num_badge = if i < 9 {
+            format!("  [{}] ", i + 1)
+        } else {
+            "      ".to_string()
+        };
         let marker = if is_selected { "▸ " } else { "  " };
 
-        let file_path = app.config.profiles.entries.get(name)
+        let file_path = app
+            .config
+            .profiles
+            .entries
+            .get(name)
             .map(|e| e.file.clone())
             .unwrap_or_else(|| format!("~/.env_managed.{}", name));
 
         let name_style = if is_selected {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else if is_active {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };
@@ -296,11 +310,19 @@ pub fn render_profile_selector(f: &mut Frame, app: &App, selected_idx: usize) {
             Span::styled(num_badge, Style::default().fg(Color::Yellow)),
             Span::styled(marker, Style::default().fg(Color::Cyan)),
             Span::styled(format!("{:<15}", name), name_style),
-            Span::styled(format!(" {:<24}", file_path), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!(" {:<24}", file_path),
+                Style::default().fg(Color::DarkGray),
+            ),
         ];
 
         if is_active {
-            spans.push(Span::styled(" [ACTIVE]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(
+                " [ACTIVE]",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ));
         }
 
         lines.push(Line::from(spans));
@@ -322,8 +344,6 @@ pub fn render_profile_selector(f: &mut Frame, app: &App, selected_idx: usize) {
 
     f.render_widget(popup, area);
 }
-
-
 
 /// Build a help shortcut line with styled key and description.
 fn help_shortcut(key: &str, desc: &str) -> Line<'static> {
@@ -523,21 +543,34 @@ pub fn render_command_palette(f: &mut Frame, app: &App) {
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("> ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "> ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(&app.palette_query),
             Span::styled("█", Style::default().fg(Color::Cyan)),
         ]),
-        Line::from(Span::styled("───────────────────────────────────────────────────", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "───────────────────────────────────────────────────",
+            Style::default().fg(Color::DarkGray),
+        )),
     ];
 
     if filtered_items.is_empty() {
-        lines.push(Line::from(Span::styled("  No matching commands", Style::default().fg(Color::DarkGray))));
+        lines.push(Line::from(Span::styled(
+            "  No matching commands",
+            Style::default().fg(Color::DarkGray),
+        )));
     } else {
         for (i, item) in filtered_items.iter().take(8).enumerate() {
             let is_selected = i == app.palette_selected;
             let prefix = if is_selected { "▸ " } else { "  " };
             let style = if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
@@ -553,7 +586,10 @@ pub fn render_command_palette(f: &mut Frame, app: &App) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Enter: run command  Esc: cancel", Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(Span::styled(
+        "Enter: run command  Esc: cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let popup = Paragraph::new(lines).block(
         Block::default()
@@ -581,16 +617,40 @@ pub fn render_secret_generator(f: &mut Frame, app: &App) {
     let text = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Format (Left/Right): ", Style::default().fg(Color::Yellow)),
-            Span::styled(format_str, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  Format (Left/Right): ",
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::styled(
+                format_str,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("  Length (Up/Down):    ", Style::default().fg(Color::Yellow)),
-            Span::styled(format!("{}", app.secret_gen_opts.length), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  Length (Up/Down):    ",
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::styled(
+                format!("{}", app.secret_gen_opts.length),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
-        Line::from(Span::styled("  Preview: ", Style::default().fg(Color::Yellow))),
-        Line::from(Span::styled(format!("    {}", app.generated_secret), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "  Preview: ",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(Span::styled(
+            format!("    {}", app.generated_secret),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
         Line::from(Span::styled(
             "  c: copy to clipboard  r: regenerate  Enter: apply secret  Esc: back",
@@ -620,10 +680,15 @@ pub fn render_health_audit_dialog(f: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(
                 " Audit Summary: ",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{} Errors, {} Warnings", report.error_count, report.warning_count),
+                format!(
+                    "{} Errors, {} Warnings",
+                    report.error_count, report.warning_count
+                ),
                 Style::default().fg(Color::White),
             ),
         ]),
@@ -633,7 +698,9 @@ pub fn render_health_audit_dialog(f: &mut Frame, app: &App, area: Rect) {
     if report.issues.is_empty() {
         lines.push(Line::from(Span::styled(
             "  ✔ No health or schema issues detected.",
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
         )));
     } else {
         for (i, issue) in report.issues.iter().enumerate() {
@@ -647,7 +714,9 @@ pub fn render_health_audit_dialog(f: &mut Frame, app: &App, area: Rect) {
             };
 
             let line_style = if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
@@ -659,7 +728,9 @@ pub fn render_health_audit_dialog(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(marker, Style::default().fg(Color::Cyan)),
                 Span::styled(
                     format!("{:<10} ", badge_str),
-                    Style::default().fg(badge_color).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(badge_color)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(format!("{:<20} ", sanitized_key), line_style),
                 Span::styled(sanitized_msg, Style::default().fg(Color::DarkGray)),
@@ -753,17 +824,15 @@ pub fn render_profile_matrix_dialog(f: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ),
-        Cell::from("SHARED").style(
-            if app.matrix_data.selected_col == 0 {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-            } else {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            },
-        ),
+        Cell::from("SHARED").style(if app.matrix_data.selected_col == 0 {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        }),
     ];
 
     for (i, p_name) in app.matrix_data.profiles.iter().enumerate() {
@@ -812,7 +881,8 @@ pub fn render_profile_matrix_dialog(f: &mut Frame, app: &App, area: Rect) {
 
         // Shared column (col 0)
         let is_shared_selected = is_row_selected && app.matrix_data.selected_col == 0;
-        let (shared_text, shared_color) = format_matrix_cell_value(&row_data.key, &row_data.shared_status, app);
+        let (shared_text, shared_color) =
+            format_matrix_cell_value(&row_data.key, &row_data.shared_status, app);
         let shared_style = if is_shared_selected {
             Style::default()
                 .fg(Color::Black)
@@ -865,7 +935,3 @@ pub fn render_profile_matrix_dialog(f: &mut Frame, app: &App, area: Rect) {
     let footer = Paragraph::new(footer_text).alignment(ratatui::layout::Alignment::Center);
     f.render_widget(footer, chunks[1]);
 }
-
-
-
-

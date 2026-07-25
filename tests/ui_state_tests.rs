@@ -147,6 +147,3 @@ fn test_matrix_view_scaffolding() {
     assert!(content.contains("[MISSING]"));
     assert!(content.contains("Navigate Grid"));
 }
-
-
-

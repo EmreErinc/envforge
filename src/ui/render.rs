@@ -57,9 +57,7 @@ pub fn render(f: &mut Frame, app: &App) {
         ViewMode::SecretGenerator => dialogs::render_secret_generator(f, app),
         ViewMode::HealthAudit => dialogs::render_health_audit_dialog(f, app, f.area()),
         ViewMode::ProfileMatrix => dialogs::render_profile_matrix_dialog(f, app, f.area()),
-        ViewMode::Normal
-        | ViewMode::Searching
-        | ViewMode::MultiSelect => {}
+        ViewMode::Normal | ViewMode::Searching | ViewMode::MultiSelect => {}
     }
 }
 
@@ -124,7 +122,11 @@ fn render_bottom_inspector(f: &mut Frame, app: &App, area: ratatui::layout::Rect
     let selected_entry = app.selected_entry();
     let text = if let Some(entry) = selected_entry {
         let details = super::inspector::InspectorDetails::from_entry(&entry, &app.config);
-        let status_str = if details.is_active { "Active" } else { "Commented Out" };
+        let status_str = if details.is_active {
+            "Active"
+        } else {
+            "Commented Out"
+        };
         let value_display = if app.is_masked(&details.key) {
             "•••••••••• (Press Space to reveal)".to_string()
         } else {
@@ -133,10 +135,31 @@ fn render_bottom_inspector(f: &mut Frame, app: &App, area: ratatui::layout::Rect
 
         vec![
             Line::from(vec![
-                Span::styled(format!(" Key: {} ", details.key), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(format!(" [{}] ", status_str), Style::default().fg(if details.is_active { Color::Green } else { Color::Gray })),
-                Span::styled(format!(" Location: {} ", details.location_str), Style::default().fg(Color::DarkGray)),
-                Span::styled(format!(" Security: {:.1} bits ({}) ", details.entropy, details.rating), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format!(" Key: {} ", details.key),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" [{}] ", status_str),
+                    Style::default().fg(if details.is_active {
+                        Color::Green
+                    } else {
+                        Color::Gray
+                    }),
+                ),
+                Span::styled(
+                    format!(" Location: {} ", details.location_str),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    format!(
+                        " Security: {:.1} bits ({}) ",
+                        details.entropy, details.rating
+                    ),
+                    Style::default().fg(Color::Yellow),
+                ),
             ]),
             Line::from(vec![
                 Span::styled(" Value: ", Style::default().fg(Color::Yellow)),
@@ -144,7 +167,10 @@ fn render_bottom_inspector(f: &mut Frame, app: &App, area: ratatui::layout::Rect
             ]),
         ]
     } else {
-        vec![Line::from(Span::styled(" No variable selected", Style::default().fg(Color::DarkGray)))]
+        vec![Line::from(Span::styled(
+            " No variable selected",
+            Style::default().fg(Color::DarkGray),
+        ))]
     };
 
     let block = Paragraph::new(text).block(
@@ -156,7 +182,6 @@ fn render_bottom_inspector(f: &mut Frame, app: &App, area: ratatui::layout::Rect
 
     f.render_widget(block, area);
 }
-
 
 fn render_header(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let title = if app.mode == ViewMode::Searching {
@@ -262,7 +287,9 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 
     spans.push(Span::styled(
         format!(" {} ", health_text),
-        Style::default().fg(health_color).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(health_color)
+            .add_modifier(Modifier::BOLD),
     ));
 
     if app.has_unsaved_changes {

@@ -34,7 +34,7 @@ pub enum ViewMode {
     Importing,
     Exporting,
     ProfileSelector(usize),
-    FirstRun,               // first-run security setup wizard
+    FirstRun, // first-run security setup wizard
     CommandPalette,
     SecretGenerator,
     MultiSelect,
@@ -481,7 +481,10 @@ impl App {
             }
         }
 
-        let profile_idx = if key.modifiers.intersects(KeyModifiers::ALT | KeyModifiers::CONTROL) {
+        let profile_idx = if key
+            .modifiers
+            .intersects(KeyModifiers::ALT | KeyModifiers::CONTROL)
+        {
             if let KeyCode::Char(c @ '1'..='9') = key.code {
                 Some((c as usize) - ('1' as usize))
             } else {
@@ -814,7 +817,8 @@ impl App {
             }
             KeyCode::Enter => {
                 if !self.health_report.issues.is_empty() {
-                    let target_key = &self.health_report.issues[self.health_report.selected_index].key;
+                    let target_key =
+                        &self.health_report.issues[self.health_report.selected_index].key;
                     if let Some(pos) = self.entries.iter().position(|e| &e.key == target_key) {
                         self.selected = pos;
                     }
@@ -859,13 +863,24 @@ impl App {
                     let key_str = row.key.clone();
 
                     let val_opt = match &row.shared_status {
-                        MatrixCellStatus::Set(v) | MatrixCellStatus::Overridden(v) => Some(v.clone()),
-                        MatrixCellStatus::Missing => {
-                            row.profile_statuses.iter().find_map(|(_, status)| match status {
-                                MatrixCellStatus::Set(v) | MatrixCellStatus::Overridden(v) => Some(v.clone()),
-                                MatrixCellStatus::Missing => None,
-                            }).or_else(|| self.entries.iter().find(|e| e.key == key_str).map(|e| e.value.clone()))
+                        MatrixCellStatus::Set(v) | MatrixCellStatus::Overridden(v) => {
+                            Some(v.clone())
                         }
+                        MatrixCellStatus::Missing => row
+                            .profile_statuses
+                            .iter()
+                            .find_map(|(_, status)| match status {
+                                MatrixCellStatus::Set(v) | MatrixCellStatus::Overridden(v) => {
+                                    Some(v.clone())
+                                }
+                                MatrixCellStatus::Missing => None,
+                            })
+                            .or_else(|| {
+                                self.entries
+                                    .iter()
+                                    .find(|e| e.key == key_str)
+                                    .map(|e| e.value.clone())
+                            }),
                     };
 
                     if let Some(value_str) = val_opt {
@@ -1037,11 +1052,17 @@ impl App {
             }
             KeyCode::Enter => {
                 let profiles = self.config.profiles.profile_names();
-                let all_items = crate::ui::palette::build_palette_items(&profiles, &self.config.profiles.active);
+                let all_items = crate::ui::palette::build_palette_items(
+                    &profiles,
+                    &self.config.profiles.active,
+                );
                 use fuzzy_matcher::skim::SkimMatcherV2;
                 use fuzzy_matcher::FuzzyMatcher;
                 let matcher = SkimMatcherV2::default();
-                let clean_query = self.palette_query.strip_prefix(':').unwrap_or(&self.palette_query);
+                let clean_query = self
+                    .palette_query
+                    .strip_prefix(':')
+                    .unwrap_or(&self.palette_query);
                 let filtered_items: Vec<_> = if clean_query.is_empty() {
                     all_items
                 } else {
@@ -1078,7 +1099,10 @@ impl App {
                 self.toggle_fence();
             }
             crate::ui::palette::PaletteAction::RunDoctor => {
-                self.notify("Run doctor from terminal: envforge check", NotificationLevel::Success);
+                self.notify(
+                    "Run doctor from terminal: envforge check",
+                    NotificationLevel::Success,
+                );
             }
             crate::ui::palette::PaletteAction::OpenSecretGenerator => {
                 self.mode = ViewMode::SecretGenerator;
@@ -1296,20 +1320,22 @@ impl App {
             KeyCode::Esc => {
                 self.mode = self.return_mode.take().unwrap_or(ViewMode::Normal);
             }
-            KeyCode::Char('c') | KeyCode::Char('C') => {
-                match arboard::Clipboard::new() {
-                    Ok(mut clipboard) => {
-                        if clipboard.set_text(&self.generated_secret).is_ok() {
-                            self.notify("Copied generated secret to clipboard", NotificationLevel::Success);
-                        }
-                    }
-                    Err(e) => {
-                        self.notify(&format!("Clipboard error: {}", e), NotificationLevel::Error);
+            KeyCode::Char('c') | KeyCode::Char('C') => match arboard::Clipboard::new() {
+                Ok(mut clipboard) => {
+                    if clipboard.set_text(&self.generated_secret).is_ok() {
+                        self.notify(
+                            "Copied generated secret to clipboard",
+                            NotificationLevel::Success,
+                        );
                     }
                 }
-            }
+                Err(e) => {
+                    self.notify(&format!("Clipboard error: {}", e), NotificationLevel::Error);
+                }
+            },
             KeyCode::Char('r') => {
-                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+                self.generated_secret =
+                    crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
             }
             KeyCode::Left => {
                 use crate::ui::secret_gen::SecretGenFormat;
@@ -1320,7 +1346,8 @@ impl App {
                     SecretGenFormat::Base64 => SecretGenFormat::Hex,
                     SecretGenFormat::UuidV4 => SecretGenFormat::Base64,
                 };
-                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+                self.generated_secret =
+                    crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
             }
             KeyCode::Right => {
                 use crate::ui::secret_gen::SecretGenFormat;
@@ -1331,15 +1358,19 @@ impl App {
                     SecretGenFormat::Base64 => SecretGenFormat::UuidV4,
                     SecretGenFormat::UuidV4 => SecretGenFormat::AlphaNumericSpecial,
                 };
-                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+                self.generated_secret =
+                    crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
             }
             KeyCode::Up => {
                 self.secret_gen_opts.length = (self.secret_gen_opts.length + 4).min(128);
-                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+                self.generated_secret =
+                    crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
             }
             KeyCode::Down => {
-                self.secret_gen_opts.length = (self.secret_gen_opts.length.saturating_sub(4)).max(8);
-                self.generated_secret = crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
+                self.secret_gen_opts.length =
+                    (self.secret_gen_opts.length.saturating_sub(4)).max(8);
+                self.generated_secret =
+                    crate::ui::secret_gen::generate_secret(&self.secret_gen_opts);
             }
             KeyCode::Enter => {
                 let secret = self.generated_secret.clone();
@@ -1348,19 +1379,28 @@ impl App {
                     ViewMode::Editing => {
                         self.input = TextInput::new(&secret);
                         self.mode = ViewMode::Editing;
-                        self.notify("Applied generated secret to value field", NotificationLevel::Success);
+                        self.notify(
+                            "Applied generated secret to value field",
+                            NotificationLevel::Success,
+                        );
                     }
                     ViewMode::Adding(_) => {
                         self.add_value_input = TextInput::new(&secret);
                         self.mode = ViewMode::Adding(AddField::Value);
-                        self.notify("Applied generated secret to value field", NotificationLevel::Success);
+                        self.notify(
+                            "Applied generated secret to value field",
+                            NotificationLevel::Success,
+                        );
                     }
                     _ => {
                         if let Ok(mut cb) = arboard::Clipboard::new() {
                             let _ = cb.set_text(&secret);
                         }
                         self.mode = ViewMode::Normal;
-                        self.notify("Copied generated secret to clipboard", NotificationLevel::Success);
+                        self.notify(
+                            "Copied generated secret to clipboard",
+                            NotificationLevel::Success,
+                        );
                     }
                 }
             }
@@ -1406,13 +1446,18 @@ impl App {
         }
         let count = self.selected_keys.len();
         if let Some(sf) = self.shell_files.first() {
-            self.undo_stack.push(0, &sf.lines, &format!("bulk comment {} keys", count));
+            self.undo_stack
+                .push(0, &sf.lines, &format!("bulk comment {} keys", count));
         }
         let keys_to_toggle: Vec<_> = self.selected_keys.iter().cloned().collect();
         for key in keys_to_toggle {
             if let Some(entry) = self.entries.iter().find(|e| e.key == key) {
                 let source_path = entry.source_file.clone();
-                if let Some(fi) = self.shell_files.iter().position(|sf| sf.path == source_path) {
+                if let Some(fi) = self
+                    .shell_files
+                    .iter()
+                    .position(|sf| sf.path == source_path)
+                {
                     let is_commented = entry.location == EntryLocation::Commented;
                     if is_commented {
                         let _ = crate::ops::undo_delete(&mut self.shell_files[fi], &key);
@@ -1426,7 +1471,10 @@ impl App {
         self.has_unsaved_changes = true;
         self.selected_keys.clear();
         self.mode = ViewMode::Normal;
-        self.notify(&format!("Toggled comments for {} keys", count), NotificationLevel::Success);
+        self.notify(
+            &format!("Toggled comments for {} keys", count),
+            NotificationLevel::Success,
+        );
     }
 
     fn toggle_fence(&mut self) {

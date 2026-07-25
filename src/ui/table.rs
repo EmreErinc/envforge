@@ -153,7 +153,9 @@ pub fn build_table(app: &App) -> (Table<'_>, TableState) {
                 if !select_marker.is_empty() {
                     spans.push(Span::styled(
                         select_marker,
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
                     ));
                 }
                 spans.push(Span::styled(
