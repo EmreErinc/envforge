@@ -586,8 +586,9 @@ fn test_doctor_runs_without_panic() {
     use envforge::ops::doctor::run_doctor;
     let report = run_doctor();
     assert!(report.checks.len() >= 9); // at least 9 checks (10 with AI safety)
-    assert!(
-        report.ok_count() + report.warning_count() + report.error_count() == report.checks.len()
+    assert_eq!(
+        report.ok_count() + report.warning_count() + report.error_count(),
+        report.checks.len()
     );
 }
 
