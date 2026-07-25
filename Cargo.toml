@@ -9,7 +9,7 @@ license = "Elastic-2.0"
 repository = "https://github.com/emreerinc/envforge"
 homepage = "https://github.com/emreerinc/envforge"
 readme = "README.md"
-keywords = ["env", "environment", "secrets", "ai-safety", "tui", "shell", "terminal"]
+keywords = ["env", "secrets", "ai-safety", "tui", "terminal"]
 categories = ["command-line-utilities"]
 
 authors = ["Emre Erinc"]
