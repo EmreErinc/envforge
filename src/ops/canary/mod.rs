@@ -99,11 +99,11 @@ pub fn generate_fake_value(pattern: &str) -> String {
         .collect();
 
     match pattern {
-        "aws_key" => format!("AKIA{}", &suffix[..16].to_uppercase()),
-        "github_token" => format!("ghp_{}", &suffix),
-        "stripe_key" => format!("sk_live_{}", &suffix),
-        "slack_token" => format!("xoxb-0000-0000-{}", &suffix),
-        "gitlab_token" => format!("glpat-{}", &suffix),
+        "aws_key" => format!("AKIA{}", suffix[..16].to_uppercase()),
+        "github_token" => format!("ghp_{}", suffix),
+        "stripe_key" => format!("sk_live_{}", suffix),
+        "slack_token" => format!("xoxb-0000-0000-{}", suffix),
+        "gitlab_token" => format!("glpat-{}", suffix),
         "database_url" => format!(
             "postgres://canary_user:{}@canary-host:5432/canary_db",
             &suffix[..12]
@@ -118,7 +118,7 @@ pub fn generate_fake_value(pattern: &str) -> String {
             let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&suffix[..16]);
             format!("{}.{}.{}", header, payload, signature)
         }
-        "openai_key" => format!("sk-canary-{}", &suffix),
+        "openai_key" => format!("sk-canary-{}", suffix),
         "private_key_pem" => {
             let body = base64::engine::general_purpose::STANDARD.encode(suffix.repeat(8));
             format!(
@@ -128,7 +128,7 @@ pub fn generate_fake_value(pattern: &str) -> String {
         }
         "smtp_credential" => format!("smtp://canary_user:{}@smtp.canary.local:587", &suffix[..12]),
         "ftp_credential" => format!("ftp://canary_user:{}@ftp.canary.local:21", &suffix[..12]),
-        _ => format!("CANARY_{}", &suffix),
+        _ => format!("CANARY_{}", suffix),
     }
 }
 
