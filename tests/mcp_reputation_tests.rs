@@ -425,7 +425,7 @@ fn test_bundled_feed_version_is_iso_date() {
     let feed = FeedDecoder::decode_bundled().unwrap();
     // version is a YYYY-MM-DD-like stamp; basic shape check
     assert!(feed.feed_version.len() >= 10);
-    assert!(feed.feed_version.chars().nth(4) == Some('-'));
+    assert_eq!(feed.feed_version.chars().nth(4), Some('-'));
 }
 
 #[test]
