@@ -32,6 +32,8 @@ After `1.0.0`:
 
 ## Release Process
 
+For the full pre-release checklist, readiness gates, CI pipeline, and post-release steps, see [docs/release-preparation-guide.md](docs/release-preparation-guide.md).
+
 ### Creating a Release
 
 1. Update version in `Cargo.toml`

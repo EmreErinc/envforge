@@ -22,6 +22,8 @@ pub enum PaletteAction {
     ImportDotEnv,
     ExportDotEnv,
     Undo,
+    OpenHealthAudit,
+    OpenProfileMatrix,
 }
 
 pub fn build_palette_items(profiles: &[String], active_profile: &str) -> Vec<PaletteItem> {
@@ -40,6 +42,16 @@ pub fn build_palette_items(profiles: &[String], active_profile: &str) -> Vec<Pal
         });
     }
 
+    items.push(PaletteItem {
+        label: "Health Audit (H)".to_string(),
+        category: PaletteCategory::System,
+        action: PaletteAction::OpenHealthAudit,
+    });
+    items.push(PaletteItem {
+        label: "Profile Matrix Grid (M)".to_string(),
+        category: PaletteCategory::System,
+        action: PaletteAction::OpenProfileMatrix,
+    });
     items.push(PaletteItem {
         label: "Generate Secret Password / Token (G)".to_string(),
         category: PaletteCategory::System,
@@ -78,4 +90,5 @@ pub fn build_palette_items(profiles: &[String], active_profile: &str) -> Vec<Pal
 
     items
 }
+
 

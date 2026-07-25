@@ -55,7 +55,11 @@ pub fn render(f: &mut Frame, app: &App) {
         ViewMode::FirstRun => render_first_run(f),
         ViewMode::CommandPalette => dialogs::render_command_palette(f, app),
         ViewMode::SecretGenerator => dialogs::render_secret_generator(f, app),
-        ViewMode::Normal | ViewMode::Searching | ViewMode::MultiSelect => {}
+        ViewMode::HealthAudit => dialogs::render_health_audit_dialog(f, app, f.area()),
+        ViewMode::ProfileMatrix => dialogs::render_profile_matrix_dialog(f, app, f.area()),
+        ViewMode::Normal
+        | ViewMode::Searching
+        | ViewMode::MultiSelect => {}
     }
 }
 
@@ -235,6 +239,31 @@ fn render_footer(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             ));
         }
     }
+
+    // Health badge
+    let (health_text, health_color) = if app.health_report.error_count > 0 {
+        let text = if app.health_report.warning_count > 0 {
+            format!(
+                "[● Health: {} Errors, {} Warnings]",
+                app.health_report.error_count, app.health_report.warning_count
+            )
+        } else {
+            format!("[● Health: {} Errors]", app.health_report.error_count)
+        };
+        (text, Color::Red)
+    } else if app.health_report.warning_count > 0 {
+        (
+            format!("[● Health: {} Warnings]", app.health_report.warning_count),
+            Color::Yellow,
+        )
+    } else {
+        ("[● Health: Clean]".to_string(), Color::Green)
+    };
+
+    spans.push(Span::styled(
+        format!(" {} ", health_text),
+        Style::default().fg(health_color).add_modifier(Modifier::BOLD),
+    ));
 
     if app.has_unsaved_changes {
         spans.push(Span::styled(

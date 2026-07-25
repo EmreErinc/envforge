@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use super::app::{AddField, App, ConfirmAction};
+use super::app::{AddField, App, ConfirmAction, HealthSeverity, MatrixCellStatus};
 
 /// Render a centered popup area.
 pub fn centered_popup(area: Rect, width_pct: u16, height_pct: u16) -> Rect {
@@ -607,5 +607,265 @@ pub fn render_secret_generator(f: &mut Frame, app: &App) {
 
     f.render_widget(popup, area);
 }
+
+/// Render the health audit dialog (H).
+pub fn render_health_audit_dialog(f: &mut Frame, app: &App, area: Rect) {
+    let popup_area = centered_popup(area, 75, 60);
+    f.render_widget(Clear, popup_area);
+
+    let report = &app.health_report;
+
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                " Audit Summary: ",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{} Errors, {} Warnings", report.error_count, report.warning_count),
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(""),
+    ];
+
+    if report.issues.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  ✔ No health or schema issues detected.",
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        )));
+    } else {
+        for (i, issue) in report.issues.iter().enumerate() {
+            let is_selected = i == report.selected_index;
+            let marker = if is_selected { "▸ " } else { "  " };
+
+            let (badge_str, badge_color) = match issue.severity {
+                HealthSeverity::Error => ("[ERROR]", Color::Red),
+                HealthSeverity::Warning => ("[WARNING]", Color::Yellow),
+                HealthSeverity::Info => ("[INFO]", Color::Cyan),
+            };
+
+            let line_style = if is_selected {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let sanitized_key = super::sanitize::sanitize_for_display(&issue.key);
+            let sanitized_msg = super::sanitize::sanitize_for_display(&issue.message);
+
+            lines.push(Line::from(vec![
+                Span::styled(marker, Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    format!("{:<10} ", badge_str),
+                    Style::default().fg(badge_color).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!("{:<20} ", sanitized_key), line_style),
+                Span::styled(sanitized_msg, Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "[↑/↓] Navigate  [Enter] Jump to Variable  [Esc] Close",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let popup = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Environment & Schema Health Audit (H) ")
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+
+    f.render_widget(popup, popup_area);
+}
+
+fn format_matrix_cell_value(key: &str, status: &MatrixCellStatus, app: &App) -> (String, Color) {
+    match status {
+        MatrixCellStatus::Missing => ("[MISSING]".to_string(), Color::Red),
+        MatrixCellStatus::Overridden(val) => {
+            let display_val = if app.is_masked(key) {
+                "•••••".to_string()
+            } else {
+                let sanitized = super::sanitize::sanitize_for_display(val);
+                if sanitized.chars().count() > 12 {
+                    format!("{}...", sanitized.chars().take(10).collect::<String>())
+                } else {
+                    sanitized
+                }
+            };
+            if display_val.is_empty() {
+                ("[OVERRIDDEN]".to_string(), Color::Yellow)
+            } else {
+                (format!("[OVERRIDDEN] {}", display_val), Color::Yellow)
+            }
+        }
+        MatrixCellStatus::Set(val) => {
+            let display_val = if app.is_masked(key) {
+                "•••••".to_string()
+            } else {
+                let sanitized = super::sanitize::sanitize_for_display(val);
+                if sanitized.chars().count() > 12 {
+                    format!("{}...", sanitized.chars().take(10).collect::<String>())
+                } else {
+                    sanitized
+                }
+            };
+            if display_val.is_empty() {
+                ("[SET]".to_string(), Color::Green)
+            } else {
+                (format!("[SET] {}", display_val), Color::Green)
+            }
+        }
+    }
+}
+
+/// Render the multi-environment profile matrix dialog (M).
+pub fn render_profile_matrix_dialog(f: &mut Frame, app: &App, area: Rect) {
+    use ratatui::widgets::{Cell, Row, Table, TableState};
+
+    let popup_area = centered_popup(area, 85, 75);
+    f.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Profile Matrix & Multi-Environment Grid (M) ")
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let inner_area = block.inner(popup_area);
+    f.render_widget(block, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(3),    // Table
+            Constraint::Length(1), // Footer help text
+        ])
+        .split(inner_area);
+
+    // Build Header
+    let mut header_cells = vec![
+        Cell::from("KEY").style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Cell::from("SHARED").style(
+            if app.matrix_data.selected_col == 0 {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            } else {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            },
+        ),
+    ];
+
+    for (i, p_name) in app.matrix_data.profiles.iter().enumerate() {
+        let is_selected_col = app.matrix_data.selected_col == i + 1;
+        let cell_style = if is_selected_col {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        };
+        header_cells.push(Cell::from(p_name.to_uppercase()).style(cell_style));
+    }
+
+    let header_row = Row::new(header_cells).height(1);
+
+    // Build Constraints
+    let mut constraints = vec![Constraint::Length(22), Constraint::Length(18)];
+    for _ in &app.matrix_data.profiles {
+        constraints.push(Constraint::Length(18));
+    }
+
+    // Build Rows
+    let mut table_rows = Vec::new();
+    for (r_idx, row_data) in app.matrix_data.rows.iter().enumerate() {
+        let is_row_selected = r_idx == app.matrix_data.selected_row;
+
+        let key_display = super::sanitize::sanitize_for_display(&row_data.key);
+        let (key_str, key_style) = if is_row_selected {
+            (
+                format!("▸ {}", key_display),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            (
+                format!("  {}", key_display),
+                Style::default().fg(Color::White),
+            )
+        };
+
+        let mut row_cells = vec![Cell::from(key_str).style(key_style)];
+
+        // Shared column (col 0)
+        let is_shared_selected = is_row_selected && app.matrix_data.selected_col == 0;
+        let (shared_text, shared_color) = format_matrix_cell_value(&row_data.key, &row_data.shared_status, app);
+        let shared_style = if is_shared_selected {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(shared_color)
+        };
+        row_cells.push(Cell::from(shared_text).style(shared_style));
+
+        // Profile columns (col 1..=profiles.len())
+        for (c_idx, (_, status)) in row_data.profile_statuses.iter().enumerate() {
+            let is_cell_selected = is_row_selected && app.matrix_data.selected_col == c_idx + 1;
+            let (cell_text, cell_color) = format_matrix_cell_value(&row_data.key, status, app);
+            let cell_style = if is_cell_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(cell_color)
+            };
+            row_cells.push(Cell::from(cell_text).style(cell_style));
+        }
+
+        table_rows.push(Row::new(row_cells));
+    }
+
+    let table = Table::new(table_rows, constraints)
+        .header(header_row)
+        .column_spacing(1);
+
+    let mut state = TableState::default();
+    if !app.matrix_data.rows.is_empty() {
+        state.select(Some(app.matrix_data.selected_row));
+    }
+
+    f.render_stateful_widget(table, chunks[0], &mut state);
+
+    // Footer Help Text
+    let footer_text = Line::from(vec![
+        Span::styled("[↑/↓/←/→]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Navigate Grid  "),
+        Span::styled("[c]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Scaffold Missing Key  "),
+        Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Close"),
+    ]);
+
+    let footer = Paragraph::new(footer_text).alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(footer, chunks[1]);
+}
+
+
 
 
