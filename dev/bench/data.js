@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782394689665,
+  "lastUpdate": 1784990903892,
   "repoUrl": "https://github.com/EmreErinc/envforge",
   "entries": {
     "Benchmark": [
@@ -419,6 +419,52 @@ window.BENCHMARK_DATA = {
             "name": "security/redact_secrets_in_message",
             "value": 364,
             "range": "± 1",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "emreerinc@emre-MacBook-Air.local",
+            "name": "emre erinc"
+          },
+          "committer": {
+            "email": "emreerinc@emre-MacBook-Air.local",
+            "name": "emre erinc"
+          },
+          "distinct": true,
+          "id": "9acaedee120a6f662e66ad89da2bd7d868f5b583",
+          "message": "fix tests",
+          "timestamp": "2026-07-25T17:37:42+03:00",
+          "tree_id": "b1b01bd184f85c1e928daac46000412085f4fcbd",
+          "url": "https://github.com/EmreErinc/envforge/commit/9acaedee120a6f662e66ad89da2bd7d868f5b583"
+        },
+        "date": 1784990902742,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parser/roundtrip_small",
+            "value": 2114,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parser/roundtrip_large_500_exports",
+            "value": 786756,
+            "range": "± 10800",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sync/compute_diff_small",
+            "value": 379,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "security/redact_secrets_in_message",
+            "value": 390,
+            "range": "± 2",
             "unit": "ns/iter"
           }
         ]
