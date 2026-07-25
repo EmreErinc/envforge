@@ -49,7 +49,11 @@ pub fn switch_profile(
 ) -> Result<(), ProfileError> {
     validate_profile_name(new_profile)?;
     if !config.profiles.entries.contains_key(new_profile) {
-        return Err(ProfileError::NotFound(new_profile.to_string()));
+        let file_path = format!("~/.env_managed.{}", new_profile);
+        config
+            .profiles
+            .entries
+            .insert(new_profile.to_string(), ProfileEntry { file: file_path });
     }
 
     let old_file = config.profiles.active_file().unwrap_or_default();

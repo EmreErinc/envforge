@@ -1,8 +1,11 @@
 mod app;
-mod dialogs;
+pub mod dialogs;
 mod input;
-mod render;
+pub mod inspector;
+pub mod palette;
+pub mod render;
 mod sanitize;
+pub mod secret_gen;
 mod table;
 
 pub use app::*;

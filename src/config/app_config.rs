@@ -223,9 +223,34 @@ impl ProfilesConfig {
         self.active_entry().map(|e| e.file.clone())
     }
 
-    /// Get all profile names (sorted).
+    /// Get all profile names (sorted), merging config entries, active profile, and disk discovery.
     pub fn profile_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.entries.keys().cloned().collect();
+        let mut names_set = std::collections::HashSet::new();
+
+        for k in self.entries.keys() {
+            names_set.insert(k.clone());
+        }
+
+        if !self.active.is_empty() {
+            names_set.insert(self.active.clone());
+        }
+
+        if let Some(home) = dirs::home_dir() {
+            if let Ok(read_dir) = std::fs::read_dir(&home) {
+                for entry in read_dir.flatten() {
+                    let file_name = entry.file_name();
+                    let name_str = file_name.to_string_lossy();
+                    if let Some(profile) = name_str.strip_prefix(".env_managed.") {
+                        if profile != "shared" && !profile.ends_with(".bak") && !profile.is_empty()
+                        {
+                            names_set.insert(profile.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut names: Vec<_> = names_set.into_iter().collect();
         names.sort();
         names
     }
