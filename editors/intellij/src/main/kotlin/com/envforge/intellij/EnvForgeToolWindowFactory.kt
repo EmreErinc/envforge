@@ -105,7 +105,12 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
         val group = DefaultActionGroup().apply {
             add(createGearMenu())
             addSeparator()
-            add(object : AnAction("Load into Run Configs", "Inject env vars into IDE run configurations", com.intellij.icons.AllIcons.Actions.Execute) {
+            add(object : com.envforge.intellij.actions.EnvForgeAction() {
+                init {
+                    templatePresentation.text = "Load into Run Configs"
+                    templatePresentation.description = "Inject env vars into IDE run configurations"
+                    templatePresentation.icon = com.intellij.icons.AllIcons.Actions.Execute
+                }
                 override fun actionPerformed(e: AnActionEvent) {
                     val confirmed = Messages.showYesNoDialog(
                         project,
@@ -119,7 +124,12 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
                 }
             })
             addSeparator()
-            add(object : AnAction("Toggle Grouping", "Toggle variable grouping", com.intellij.icons.AllIcons.Actions.GroupBy) {
+            add(object : com.envforge.intellij.actions.EnvForgeAction() {
+                init {
+                    templatePresentation.text = "Toggle Grouping"
+                    templatePresentation.description = "Toggle variable grouping"
+                    templatePresentation.icon = com.intellij.icons.AllIcons.Actions.GroupBy
+                }
                 override fun actionPerformed(e: AnActionEvent) {
                     grouped = !grouped
                     if (searchField.text.isEmpty()) {
@@ -140,13 +150,23 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
             templatePresentation.icon = com.intellij.icons.AllIcons.General.Settings
         }
 
-        gearGroup.add(object : AnAction("Refresh All", "Refresh everything", com.intellij.icons.AllIcons.Actions.Refresh) {
+        gearGroup.add(object : com.envforge.intellij.actions.EnvForgeAction() {
+            init {
+                templatePresentation.text = "Refresh All"
+                templatePresentation.description = "Refresh everything"
+                templatePresentation.icon = com.intellij.icons.AllIcons.Actions.Refresh
+            }
             override fun actionPerformed(e: AnActionEvent) = refresh()
         })
 
         gearGroup.addSeparator()
 
-        gearGroup.add(object : AnAction("Add Variable...", "Set a new variable", com.intellij.icons.AllIcons.General.Add) {
+        gearGroup.add(object : com.envforge.intellij.actions.EnvForgeAction() {
+            init {
+                templatePresentation.text = "Add Variable..."
+                templatePresentation.description = "Set a new variable"
+                templatePresentation.icon = com.intellij.icons.AllIcons.General.Add
+            }
             override fun actionPerformed(e: AnActionEvent) {
                 val input = Messages.showInputDialog(project, "Enter key=value:", "Add Variable", null)
                 if (!input.isNullOrBlank() && input.contains("=")) {
@@ -294,7 +314,16 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
     }
 
     private fun loadVariables() {
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
+        val binary = try { EnvForgeLspFactory.findEnvforgeBinary() } catch (_: Exception) { "" }
+        if (binary.isEmpty()) {
+            val root = DefaultMutableTreeNode("Variables")
+            root.add(DefaultMutableTreeNode("EnvForge CLI is disabled or not found — Run 'cargo install env-forge-tui'"))
+            SwingUtilities.invokeLater {
+                varModel.setRoot(root)
+                varModel.reload()
+            }
+            return
+        }
         Thread {
             try {
                 val process = ProcessBuilder(binary, "list", "--json", "--reveal")

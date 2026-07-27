@@ -22,6 +22,28 @@ function M.setup(opts)
   local bin = opts.bin or "envforge"
   M.bin = bin
 
+  -- Always register welcome/tips/install commands
+  vim.api.nvim_create_user_command("EnvForgeWelcome", function()
+    require("envforge.welcome").show_welcome()
+  end, { desc = "Show EnvForge Welcome & Setup screen" })
+  vim.api.nvim_create_user_command("EnvForgeTips", function()
+    require("envforge.welcome").show_tip()
+  end, { desc = "Show EnvForge CLI tip" })
+  vim.api.nvim_create_user_command("EnvForgeInstall", function()
+    require("envforge.welcome").install_cli()
+  end, { desc = "Install EnvForge CLI via cargo" })
+
+  -- Check CLI availability
+  if vim.fn.executable(bin) == 0 then
+    M.disabled = true
+    local msg = "EnvForge CLI ('" .. bin .. "') is not installed or not found on PATH.\n"
+      .. "Run :EnvForgeWelcome or :EnvForgeInstall for instructions."
+    vim.notify(msg, vim.log.levels.WARN, { title = "EnvForge CLI Missing" })
+    return
+  end
+
+  M.disabled = false
+
   -- .env* filetype detection → `dotenv`.
   vim.filetype.add({
     filename = { [".env"] = "dotenv" },
@@ -61,6 +83,9 @@ end
 --- Statusline component: returns e.g. "12 vars · AI BLOCKED".
 --- Use in lualine/heirline, or: vim.o.statusline = "%{v:lua.require'envforge'.statusline()}"
 function M.statusline()
+  if M.disabled then
+    return "EnvForge: CLI Disabled (:EnvForgeWelcome)"
+  end
   return require("envforge.status").line()
 end
 

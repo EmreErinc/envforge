@@ -65,8 +65,17 @@ class EnvForgeFileActionGroup : ActionGroup() {
 
     override fun update(e: AnActionEvent) {
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE)
-        val visible = file != null && isEnvFile(file.name)
-        e.presentation.isEnabledAndVisible = visible
+        val isEnv = file != null && isEnvFile(file.name)
+        val hasCli = try {
+            com.envforge.intellij.EnvForgeLspFactory.findEnvforgeBinary().isNotEmpty()
+        } catch (_: Throwable) {
+            false
+        }
+        e.presentation.isVisible = isEnv
+        e.presentation.isEnabled = isEnv && hasCli
+        if (isEnv && !hasCli) {
+            e.presentation.text = "EnvForge (CLI Not Installed)"
+        }
     }
 
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT

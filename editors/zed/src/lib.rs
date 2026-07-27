@@ -23,10 +23,14 @@ impl zed::Extension for EnvForgeExtension {
     fn language_server_command(
         &mut self,
         _language_server_id: &zed::LanguageServerId,
-        _worktree: &zed::Worktree,
+        worktree: &zed::Worktree,
     ) -> zed::Result<zed::Command> {
+        let path = worktree.which("envforge");
+        if path.is_none() {
+            return Err("EnvForge CLI ('envforge') is not installed or not found in system PATH.\n\nTo install, run:\n  cargo install env-forge-tui\n\nAfter installing, restart Zed or reload extensions.".into());
+        }
         Ok(zed::Command {
-            command: "envforge".to_string(),
+            command: path.unwrap(),
             args: vec!["lsp".to_string()],
             env: Default::default(),
         })

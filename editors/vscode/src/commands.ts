@@ -4,12 +4,20 @@ import { getEnvforgePath, getOutputChannel, getClient } from './extension';
 import { StatusBar } from './statusbar';
 import { EnvTreeProvider, ProfileTreeProvider } from './treeview';
 
+import { WelcomeWebviewPanel } from './welcome';
+
 export function registerCommands(
   context: vscode.ExtensionContext,
   statusBar: StatusBar,
   treeProvider: EnvTreeProvider,
   profileProvider: ProfileTreeProvider,
 ) {
+  context.subscriptions.push(
+    vscode.commands.registerCommand('envforge.showWelcome', () => {
+      WelcomeWebviewPanel.show(context);
+    })
+  );
+
   const fileAwareCommands: [string, (uri?: vscode.Uri) => Promise<void>][] = [
     ['envforge.validate', cmdValidate],
     ['envforge.scan', cmdScan],

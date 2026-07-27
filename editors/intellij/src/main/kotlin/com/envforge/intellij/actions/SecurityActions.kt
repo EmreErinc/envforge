@@ -9,7 +9,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.wm.ToolWindowManager
 
-class ToggleFenceAction : AnAction() {
+class ToggleFenceAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
 
@@ -47,7 +47,7 @@ class ToggleFenceAction : AnAction() {
     }
 }
 
-class ToggleGuardAction : AnAction() {
+class ToggleGuardAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
 
@@ -132,7 +132,7 @@ class ToggleGuardAction : AnAction() {
     }
 }
 
-class RunMcpScanAction : AnAction() {
+class RunMcpScanAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("mcp-scan"), "MCP Scan") {
@@ -141,7 +141,7 @@ class RunMcpScanAction : AnAction() {
     }
 }
 
-class AddCanaryAction : AnAction() {
+class AddCanaryAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val key = Messages.showInputDialog(
@@ -165,7 +165,7 @@ class AddCanaryAction : AnAction() {
     }
 }
 
-class RemoveCanaryAction : AnAction() {
+class RemoveCanaryAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val binary = EnvForgeLspFactory.findEnvforgeBinary()

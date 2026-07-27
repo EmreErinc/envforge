@@ -111,6 +111,22 @@ export class SecurityTreeProvider implements vscode.TreeDataProvider<SecurityNod
   }
 
   getChildren(element?: SecurityNode): SecurityNode[] {
+    if (!getEnvforgePath()) {
+      if (!element) {
+        const item = new SecurityDetailNode(
+          'EnvForge CLI is disabled',
+          'Click to open install page',
+          'warning'
+        );
+        item.command = {
+          command: 'envforge.showWelcome',
+          title: 'Install EnvForge CLI',
+        };
+        return [item];
+      }
+      return [];
+    }
+
     if (this.loadError) {
       if (!element) {
         return [new SecurityDetailNode('Error', this.loadError, 'error')];

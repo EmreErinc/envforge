@@ -192,6 +192,20 @@ export class EnvTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   getChildren(element?: TreeNode): TreeNode[] {
+    if (!getEnvforgePath()) {
+      if (!element) {
+        const item = new vscode.TreeItem('EnvForge CLI is disabled');
+        item.description = 'Click to open install page';
+        item.iconPath = new vscode.ThemeIcon('warning');
+        item.command = {
+          command: 'envforge.showWelcome',
+          title: 'Install EnvForge CLI',
+        };
+        return [item as any];
+      }
+      return [];
+    }
+
     if (this.filteredVars !== undefined) {
       if (!element) {
         return this.filteredVars;
@@ -260,6 +274,16 @@ export class ProfileTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
   }
 
   getChildren(): vscode.TreeItem[] {
+    if (!getEnvforgePath()) {
+      const item = new vscode.TreeItem('EnvForge CLI is disabled');
+      item.description = 'Click to open install page';
+      item.iconPath = new vscode.ThemeIcon('warning');
+      item.command = {
+        command: 'envforge.showWelcome',
+        title: 'Install EnvForge CLI',
+      };
+      return [item];
+    }
     if (this.profiles.length === 0) {
       const item = new vscode.TreeItem('No profiles');
       item.description = 'Run: envforge profile create <name>';

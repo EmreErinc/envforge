@@ -1,54 +1,71 @@
 package com.envforge.intellij.actions
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.envforge.intellij.EnvForgeRunner
 import com.envforge.intellij.EnvForgeLspFactory
 
-class ValidateAction : AnAction() {
+abstract class EnvForgeAction : AnAction() {
+    override fun update(e: AnActionEvent) {
+        val hasCli = try {
+            EnvForgeLspFactory.findEnvforgeBinary().isNotEmpty()
+        } catch (_: Throwable) {
+            false
+        }
+        e.presentation.isEnabled = hasCli
+        if (!hasCli) {
+            e.presentation.description = "EnvForge CLI is not installed"
+        }
+    }
+
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+}
+
+class ValidateAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("validate"), "Schema Validation")
     }
 }
 
-class RunWizardAction : AnAction() {
+class RunWizardAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("project", "wizard"), "Project Wizard")
     }
 }
 
-class ProjectInitAction : AnAction() {
+class ProjectInitAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("project", "init"), "Project Init")
     }
 }
 
-class ScanAction : AnAction() {
+class ScanAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("scan"), "Secret Scan")
     }
 }
 
-class DoctorAction : AnAction() {
+class DoctorAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("doctor"), "Health Check")
     }
 }
 
-class CheckAction : AnAction() {
+class CheckAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("check"), "All Checks")
     }
 }
 
-class ExportAction : AnAction() {
+class ExportAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val formats = listOf("dotenv", "json", "yaml", "toml", "docker", "k8s", "tfvars")
@@ -64,28 +81,28 @@ class ExportAction : AnAction() {
     }
 }
 
-class SyncPushAction : AnAction() {
+class SyncPushAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("sync", "push"), "Sync Push")
     }
 }
 
-class SyncPullAction : AnAction() {
+class SyncPullAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("sync", "pull"), "Sync Pull")
     }
 }
 
-class SyncStatusAction : AnAction() {
+class SyncStatusAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("sync", "status"), "Sync Status")
     }
 }
 
-class SchemaGenerateAction : AnAction() {
+class SchemaGenerateAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(
@@ -96,14 +113,14 @@ class SchemaGenerateAction : AnAction() {
     }
 }
 
-class ListAction : AnAction() {
+class ListAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         EnvForgeRunner.run(project, listOf("list"), "Variables")
     }
 }
 
-class ProfileSwitchAction : AnAction() {
+class ProfileSwitchAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val binary = EnvForgeLspFactory.findEnvforgeBinary()
@@ -141,7 +158,7 @@ class ProfileSwitchAction : AnAction() {
     }
 }
 
-class ProfileDiffAction : AnAction() {
+class ProfileDiffAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val binary = EnvForgeLspFactory.findEnvforgeBinary()

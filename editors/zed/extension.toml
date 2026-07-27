@@ -1,6 +1,6 @@
 id = "envforge"
 name = "EnvForge"
-version = "0.1.9"
+version = "0.2.0"
 schema_version = 1
 authors = ["EnvForge"]
 description = "AI-safe environment & secrets: EnvForge LSP diagnostics + read-safe MCP server."

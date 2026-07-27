@@ -45,9 +45,18 @@ class ProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     fun refresh() {
+        val binary = try { EnvForgeLspFactory.findEnvforgeBinary() } catch (_: Exception) { "" }
+        if (binary.isEmpty()) {
+            val root = DefaultMutableTreeNode("Profiles")
+            root.add(DefaultMutableTreeNode("EnvForge CLI is disabled or not found — Run 'cargo install env-forge-tui'"))
+            SwingUtilities.invokeLater {
+                model.setRoot(root)
+                model.reload()
+            }
+            return
+        }
         Thread {
             try {
-                val binary = EnvForgeLspFactory.findEnvforgeBinary()
                 val process = ProcessBuilder(binary, "profile", "list")
                     .directory(project.basePath?.let { java.io.File(it) })
                     .redirectErrorStream(true)
@@ -195,10 +204,20 @@ class ProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun createToolbar(): JComponent {
         val group = DefaultActionGroup().apply {
-            add(object : AnAction("Refresh", "Refresh profiles", com.intellij.icons.AllIcons.Actions.Refresh) {
+            add(object : com.envforge.intellij.actions.EnvForgeAction() {
+                init {
+                    templatePresentation.text = "Refresh"
+                    templatePresentation.description = "Refresh profiles"
+                    templatePresentation.icon = com.intellij.icons.AllIcons.Actions.Refresh
+                }
                 override fun actionPerformed(e: AnActionEvent) = refresh()
             })
-            add(object : AnAction("Add Profile...", "Create a new profile", com.intellij.icons.AllIcons.General.Add) {
+            add(object : com.envforge.intellij.actions.EnvForgeAction() {
+                init {
+                    templatePresentation.text = "Add Profile..."
+                    templatePresentation.description = "Create a new profile"
+                    templatePresentation.icon = com.intellij.icons.AllIcons.General.Add
+                }
                 override fun actionPerformed(e: AnActionEvent) {
                     val name = com.intellij.openapi.ui.Messages.showInputDialog(project, "Enter profile name:", "Add Profile", null)
                     if (!name.isNullOrBlank()) {

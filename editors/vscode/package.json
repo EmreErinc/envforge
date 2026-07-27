@@ -1,7 +1,7 @@
 {
   "publisher": "emreerinc",
   "name": "envforge-env-manager",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "displayName": "EnvForge - AI-Safe Environment Manager",
   "description": "Manage environment variables with schema validation, secret scanning, and multi-profile support — built to protect your secrets from AI coding agents.",
   "license": "Elastic-2.0",
@@ -63,6 +63,7 @@
     "onCommand:envforge.restartLsp",
     "onCommand:envforge.searchVariables",
     "onCommand:envforge.addVariable",
+    "onCommand:envforge.showWelcome",
     "onView:envforgeSecurity"
   ],
   "main": "./dist/extension.js",
@@ -166,7 +167,23 @@
     "viewsWelcome": [
       {
         "view": "envforgeVariables",
-        "contents": "No EnvForge configuration found.\n\nTo get started:\n1. Create a `.env` file in your project root\n2. Run the setup wizard:\n\n[Run Setup Wizard](command:envforge.doctor)\n\nOr generate a schema from existing variables:\n\n[Generate Schema](command:envforge.schemaGenerate)\n\n[Learn More](https://github.com/emreerinc/envforge)"
+        "contents": "EnvForge CLI is not installed or not found.\n\n[Install EnvForge CLI](command:envforge.showWelcome)\n\n[Configure Executable Path](command:workbench.action.openSettings?%22envforge.path%22)",
+        "when": "!envforge.cliAvailable"
+      },
+      {
+        "view": "envforgeProfiles",
+        "contents": "EnvForge CLI is not installed or not found.\n\n[Install EnvForge CLI](command:envforge.showWelcome)\n\n[Configure Executable Path](command:workbench.action.openSettings?%22envforge.path%22)",
+        "when": "!envforge.cliAvailable"
+      },
+      {
+        "view": "envforgeSecurity",
+        "contents": "EnvForge CLI is not installed or not found.\n\n[Install EnvForge CLI](command:envforge.showWelcome)\n\n[Configure Executable Path](command:workbench.action.openSettings?%22envforge.path%22)",
+        "when": "!envforge.cliAvailable"
+      },
+      {
+        "view": "envforgeVariables",
+        "contents": "No EnvForge configuration found.\n\nTo get started:\n1. Create a `.env` file in your project root\n2. Run the setup wizard:\n\n[Run Setup Wizard](command:envforge.doctor)\n\nOr generate a schema from existing variables:\n\n[Generate Schema](command:envforge.schemaGenerate)\n\n[Learn More](https://github.com/emreerinc/envforge)",
+        "when": "envforge.cliAvailable"
       }
     ],
     "walkthroughs": [
@@ -231,6 +248,10 @@
       }
     },
     "commands": [
+      {
+        "command": "envforge.showWelcome",
+        "title": "EnvForge: Welcome & Installer"
+      },
       {
         "command": "envforge.list",
         "title": "EnvForge: List Variables"
@@ -462,6 +483,9 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "envforge.showWelcome"
+        },
+        {
           "command": "envforge.list"
         },
         {
@@ -586,47 +610,47 @@
       "view/title": [
       {
         "command": "envforge.searchVariables",
-        "when": "view == envforgeVariables",
+        "when": "envforge.cliAvailable && view == envforgeVariables",
         "group": "navigation@1"
       },
       {
         "command": "envforge.clearSearch",
-        "when": "view == envforgeVariables",
+        "when": "envforge.cliAvailable && view == envforgeVariables",
         "group": "navigation@2"
       },
       {
         "command": "envforge.addVariable",
-        "when": "view == envforgeVariables",
+        "when": "envforge.cliAvailable && view == envforgeVariables",
         "group": "navigation@3"
       },
       {
         "command": "envforge.toggleGrouping",
-        "when": "view == envforgeVariables",
+        "when": "envforge.cliAvailable && view == envforgeVariables",
         "group": "navigation@4"
       },
       {
         "command": "envforge.refreshSecurity",
-        "when": "view == envforgeSecurity",
+        "when": "envforge.cliAvailable && view == envforgeSecurity",
         "group": "navigation"
       },
       {
         "command": "envforge.toggleFence",
-        "when": "view == envforgeSecurity",
+        "when": "envforge.cliAvailable && view == envforgeSecurity",
         "group": "navigation"
       },
       {
         "command": "envforge.toggleGuard",
-        "when": "view == envforgeSecurity",
+        "when": "envforge.cliAvailable && view == envforgeSecurity",
         "group": "navigation"
       },
       {
         "command": "envforge.runMcpScan",
-        "when": "view == envforgeSecurity",
+        "when": "envforge.cliAvailable && view == envforgeSecurity",
         "group": "navigation"
       },
       {
         "command": "envforge.addCanary",
-        "when": "view == envforgeSecurity",
+        "when": "envforge.cliAvailable && view == envforgeSecurity",
         "group": "navigation"
       }
     ],

@@ -10,6 +10,7 @@ import { EnvTreeProvider, ProfileTreeProvider } from './treeview';
 import { SecurityTreeProvider, registerSecurityCommands } from './security';
 import { ExposureRenderer } from './exposure';
 import { EnvFileDecorationProvider } from './decorations';
+import { WelcomeWebviewPanel } from './welcome';
 
 let client: LanguageClient | undefined;
 let statusBar: StatusBar;
@@ -57,27 +58,29 @@ export async function activate(context: vscode.ExtensionContext) {
     // Now check binary
     const binaryPath = getEnvforgePath();
     const binaryExists = await checkBinary(binaryPath);
+    await vscode.commands.executeCommand('setContext', 'envforge.cliAvailable', binaryExists);
 
     if (!binaryExists) {
-        const msg = `EnvForge binary not found. Install: cargo install env-forge-tui`;
+        const installCmd = 'cargo install env-forge-tui';
+        const msg = `EnvForge CLI is not installed or not found. Run '${installCmd}' to install.`;
         outputChannel.appendLine(`ERROR: ${msg}`);
+        
+        // Show Welcome Installer Webview panel
+        WelcomeWebviewPanel.show(context);
+
         vscode.window.showWarningMessage(
             msg,
-            'Set Path',
-            'Open Settings',
+            'Install CLI (Webview)',
+            'Copy Command',
+            'Reload Window'
         ).then(action => {
-            if (action === 'Set Path') {
-                vscode.window.showInputBox({
-                    prompt: 'Full path to envforge binary',
-                    placeHolder: '/Users/you/.cargo/bin/envforge',
-                }).then(p => {
-                    if (p) {
-                        vscode.workspace.getConfiguration('envforge').update('path', p, true);
-                        vscode.window.showInformationMessage('Path set. Reload window to apply.');
-                    }
-                });
-            } else if (action === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'envforge.path');
+            if (action === 'Install CLI (Webview)') {
+                WelcomeWebviewPanel.show(context);
+            } else if (action === 'Copy Command') {
+                vscode.env.clipboard.writeText(installCmd);
+                vscode.window.showInformationMessage(`Copied '${installCmd}' to clipboard!`);
+            } else if (action === 'Reload Window') {
+                vscode.commands.executeCommand('workbench.action.reloadWindow');
             }
         });
         outputChannel.appendLine('Extension activated (binary not found — limited mode)');

@@ -18,7 +18,7 @@ import com.intellij.openapi.project.Project
  * A confirmation dialog is shown first (same UX pattern as the VS Code
  * "Reload Window" prompt that `restartLsp` surfaces).
  */
-class RestartLspAction : AnAction() {
+class RestartLspAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
 

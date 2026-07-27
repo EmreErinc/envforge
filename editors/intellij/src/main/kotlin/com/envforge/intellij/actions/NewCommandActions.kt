@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
  * `envforge.run.volatile` command is by construction — both sides emit
  * `envforge run --volatile <ttl> -- <command>`.
  */
-class RunVolatileAction : AnAction() {
+class RunVolatileAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
 
@@ -75,7 +75,7 @@ class RunVolatileAction : AnAction() {
  * confirm dialog. Audit lives on the LSP / monitor bus; the subprocess
  * path emits its own audit event server-side.
  */
-class RevealValueAction : AnAction() {
+class RevealValueAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
 
@@ -211,7 +211,7 @@ class RevealValueAction : AnAction() {
  * Mirrors the VS Code `cmdVolatileExtend` UX so subprocess and LSP
  * paths produce indistinguishable results.
  */
-class ExtendLeaseAction : AnAction() {
+class ExtendLeaseAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val binary = EnvForgeLspFactory.findEnvforgeBinary()
@@ -315,7 +315,7 @@ class ExtendLeaseAction : AnAction() {
  * having to plumb stdin through `EnvForgeRunner`. The tempfile is
  * deleted in a `finally` regardless of outcome.
  */
-class CanaryScanAction : AnAction() {
+class CanaryScanAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val binary = EnvForgeLspFactory.findEnvforgeBinary()
@@ -490,7 +490,7 @@ class CanaryScanAction : AnAction() {
  * results to a single dialog summary plus an IDE notification at the
  * appropriate severity (error when any tripped, info when quiet).
  */
-class CanaryCheckAction : AnAction() {
+class CanaryCheckAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val binary = EnvForgeLspFactory.findEnvforgeBinary()

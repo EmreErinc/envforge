@@ -55,9 +55,18 @@ class SecurityPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun ActionToolbar.context_as_data_context(): DataContext = DataContext.EMPTY_CONTEXT
 
     fun refresh() {
+        val binary = try { EnvForgeLspFactory.findEnvforgeBinary() } catch (_: Exception) { "" }
+        if (binary.isEmpty()) {
+            val root = DefaultMutableTreeNode("Security")
+            root.add(DefaultMutableTreeNode("EnvForge CLI is disabled or not found — Run 'cargo install env-forge-tui'"))
+            SwingUtilities.invokeLater {
+                model.setRoot(root)
+                model.reload()
+            }
+            return
+        }
         Thread {
             try {
-                val binary = EnvForgeLspFactory.findEnvforgeBinary()
                 val workDir = project.basePath?.let { java.io.File(it) }
 
                 val fenceJson = runCli(binary, listOf("fence", "--status", "--json"), workDir)
