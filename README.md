@@ -176,6 +176,11 @@ Volatile mode is **On by default** with a 5-minute TTL. Credentials auto-clear f
 
 ## Installation
 
+### Homebrew (macOS / Linux)
+```bash
+brew install emreerinc/tap/envforge
+```
+
 ### From source (Rust 1.75+)
 ```bash
 git clone https://github.com/emreerinc/envforge.git

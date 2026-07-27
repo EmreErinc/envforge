@@ -154,6 +154,14 @@ jobs:
           fi
           echo "$BODY" > release-notes.md
 
+      - name: Prepare Homebrew Formula Artifact
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TARBALL_URL="https://github.com/emreerinc/envforge/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          sed -i "s|url \".*\"|url \"${TARBALL_URL}\"|" Formula/envforge.rb
+          mkdir -p artifacts/formula
+          cp Formula/envforge.rb artifacts/formula/envforge.rb
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -161,3 +169,4 @@ jobs:
           generate_release_notes: false
           make_latest: true
           files: artifacts/**/*
+

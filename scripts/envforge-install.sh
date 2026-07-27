@@ -4,6 +4,7 @@
 #
 #   ./scripts/envforge-install.sh            # install/update everything detected
 #   ./scripts/envforge-install.sh app        # CLI only
+#   ./scripts/envforge-install.sh brew       # Homebrew formula test only
 #   ./scripts/envforge-install.sh vscode     # VS Code extension only
 #   ./scripts/envforge-install.sh intellij   # IntelliJ plugin only
 #   ./scripts/envforge-install.sh zed        # Zed (prints dev-extension steps)
@@ -87,8 +88,20 @@ install_zed() {
   echo "      (requires rustup wasm32-wasip1 target — added above if rustup present)"
 }
 
+# ---------------------------------------------------------------- Homebrew formula
+install_brew() {
+  bold "==> Homebrew formula test"
+  if ! command -v brew >/dev/null; then skip "brew CLI not installed — skipping"; return 0; fi
+  if [ -f "$REPO/Formula/envforge.rb" ]; then
+    ok "Formula/envforge.rb present ($(brew --version 2>/dev/null | head -1))"
+  else
+    fail "Formula/envforge.rb not found"
+  fi
+}
+
 run() { want "$1" && { "install_$1"; echo; }; }
 run app
+run brew
 run vscode
 run intellij
 run nvim
