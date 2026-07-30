@@ -35,18 +35,16 @@ Manage environment variables with schema validation, secret scanning, and multi-
 - **AI-Guard Diagnostics** — Save-time prompt-injection scan on `.env` files. Detects canary token payloads and adversarial input patterns.
 - **Canary Tripwire Glyphs** — Gutter icons mark lines containing canary honeypot tokens.
 
-## Requirements
+## Requirements & Execution Modes
 
-### 1. EnvForge CLI
+- **Standalone Mode (Zero External Dependencies):** The plugin works out-of-the-box without downloading an external CLI binary for native syntax highlighting, file decorators, and sidebar UI.
+- **Full AI Security & LSP Validation Mode:** Auto-downloading via the welcome page or installing the CLI binary (`brew install envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
 
 ```bash
+# Optional manual terminal installation
+brew install envforge
+# OR
 cargo install env-forge-tui
-```
-
-Verify:
-
-```bash
-envforge --version
 ```
 
 ### 2. LSP4IJ Plugin

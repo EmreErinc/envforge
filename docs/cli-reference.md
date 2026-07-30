@@ -4231,10 +4231,14 @@ The LSP server communicates over stdio (stdin/stdout) and is launched automatica
 **IDE Extensions:**
 
 - **VS Code** — Install from [Marketplace](https://marketplace.visualstudio.com/items?itemName=emreerinc.envforge-env-manager) or `ext install emreerinc.envforge-env-manager`
-- **IntelliJ IDEA** — Install from [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/31385-envforge) (requires LSP4IJ plugin)
+- **IntelliJ IDEA** — Install from [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/31385-envforge)
 - **Neovim** — Configure via `nvim-lspconfig` (see `editors/README.md`)
 - **Helix** — Add to `languages.toml` (see `editors/README.md`)
 - **Sublime Text** — Configure via LSP package (see `editors/README.md`)
+
+**Execution Modes in IDE Extensions:**
+- **Standalone Mode (Zero External Dependencies):** VS Code and IntelliJ extensions work out-of-the-box without downloading an external CLI binary for native syntax highlighting, file decorators, and sidebar UI.
+- **Full AI Security & LSP Validation Mode:** Auto-downloading via the welcome page or installing the CLI binary (`brew install envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
 
 ---
 

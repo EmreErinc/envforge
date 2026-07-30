@@ -1,6 +1,6 @@
 # EnvForge
 
-The AI-safe environment variable manager. Protect your secrets from AI coding agents while managing env vars across machines, providers, and profiles.
+An AI agent is a process with read access to your working directory and an outbound network connection. EnvForge is designed for that.
 
 EnvForge is a Rust CLI + TUI tool that safely manages environment variables in shell configuration files (`.zshrc`, `.bashrc`, etc.) with **30+ AI safety tools** + signed ENV-BOM compliance attestations, 13 secret provider integrations, encrypted sync, MCP supply-chain integrity (pin + reputation + tool-poisoning detection), and 130+ commands. Ships with a Language Server (`envforge lsp`) and first-party editor integrations: native in-editor UI (gutter/sign-column exposure heatmap, fence shield in the status bar, volatile-lease countdown, canary tripwire glyphs) in VS Code, IntelliJ, and Neovim, plus LSP + MCP integration for Zed (diagnostics, hover, completion — Zed's extension API does not yet expose gutter or status-bar UI). These surface the AI-safety story directly in the editor, along with environment-aware `.env` intelligence (recognizes a project's env files via `.envforge.project.toml`, completes keys/values across environments, and flags keys missing from an environment). Fences 11 AI-tool targets (Cursor, Copilot, Claude Code, Windsurf, Cline, Aider, Gemini CLI, Amazon Q, the `AGENTS.md` standard, and more), individually configurable via `envforge fence config`, with honest per-tool coverage status. Also ships a read-safe MCP server (`envforge mcp serve`) that gives AI agents env metadata without exposing raw secrets. **2,800+ tests passing.**
 
@@ -9,7 +9,7 @@ EnvForge is a Rust CLI + TUI tool that safely manages environment variables in s
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-blue.svg)
 ![AI Safe](https://img.shields.io/badge/AI--Safe-Secrets%20Protected-brightgreen.svg)
 
-> **Why AI Safety?** GitGuardian's 2026 report found AI-assisted commits leak secrets at **2x the baseline rate**. 24,000+ credentials were found in MCP config files. EnvForge is the first env management tool built to protect secrets FROM AI agents.
+> **Why AI Safety?** GitGuardian's 2026 report found AI-assisted commits leak secrets at 2x the baseline rate, and 24,000+ credentials sitting in MCP config files. An AI agent is a process with read access to your working directory and an outbound network connection. Most secrets tooling isn't designed for that. EnvForge is.
 
 ![EnvForge Demo](assets/envforge_demo.gif)
 
@@ -1598,7 +1598,9 @@ Settings > Plugins > Marketplace > Search "EnvForge"
 | Commands | Validate, scan, export, sync, health check, schema generate |
 | Status bar | Variable count |
 
-Requires `envforge` CLI installed. Extensions use `envforge lsp` for language features and `envforge <cmd> --json` for commands.
+**CLI & Execution Modes:**
+- **Standalone Mode (Zero External Dependencies):** IDE extensions work out-of-the-box without downloading an external CLI binary for native syntax highlighting, file decorators, and sidebar UI.
+- **Full AI Security & LSP Validation Mode:** Auto-downloading or installing the CLI binary (`brew install envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
 
 See [`editors/`](editors/) for detailed setup guides, Neovim/Helix/Sublime configs, and feature parity table.
 
