@@ -314,7 +314,7 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
     }
 
     private fun loadVariables() {
-        val binary = try { EnvForgeLspFactory.findEnvforgeBinary() } catch (_: Exception) { "" }
+        val binary = try { EnvForgeLspFactory.findEnvforgeBinary(project) } catch (_: Exception) { "" }
         if (binary.isEmpty()) {
             val root = DefaultMutableTreeNode("Variables")
             root.add(DefaultMutableTreeNode("EnvForge CLI is disabled or not found — Run 'cargo install env-forge-tui'"))
@@ -340,7 +340,8 @@ class EnvForgeToolWindowPanel(private val project: Project) : JPanel(BorderLayou
     }
 
     private fun searchVariables(query: String) {
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
+        val binary = try { EnvForgeLspFactory.findEnvforgeBinary(project) } catch (_: Exception) { "" }
+        if (binary.isEmpty()) return
         Thread {
             try {
                 val process = ProcessBuilder(binary, "search", query, "--json", "--reveal")

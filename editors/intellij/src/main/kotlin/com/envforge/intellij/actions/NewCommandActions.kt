@@ -102,8 +102,8 @@ class RevealValueAction : EnvForgeAction() {
         )
         if (confirm != Messages.YES) return
 
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
         val output: String = try {
+            val binary = EnvForgeLspFactory.findEnvforgeBinary(project)
             val proc = ProcessBuilder(binary, "get", key, "--json")
                 .directory(project.basePath?.let { java.io.File(it) })
                 .redirectErrorStream(true)
@@ -214,10 +214,10 @@ class RevealValueAction : EnvForgeAction() {
 class ExtendLeaseAction : EnvForgeAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
         val cwd = project.basePath?.let { java.io.File(it) }
 
         val listOutput: String = try {
+            val binary = EnvForgeLspFactory.findEnvforgeBinary(project)
             val proc = ProcessBuilder(binary, "lease", "list", "--json")
                 .directory(cwd)
                 .redirectErrorStream(true)

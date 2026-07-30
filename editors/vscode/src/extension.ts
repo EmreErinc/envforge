@@ -12,6 +12,8 @@ import { ExposureRenderer } from './exposure';
 import { EnvFileDecorationProvider } from './decorations';
 import { WelcomeWebviewPanel } from './welcome';
 
+import { findBinaryPath, ensureBinaryWithProgress } from './binaryManager';
+
 let client: LanguageClient | undefined;
 let statusBar: StatusBar;
 let outputChannel: vscode.OutputChannel;
@@ -55,14 +57,24 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-    // Now check binary
-    const binaryPath = getEnvforgePath();
-    const binaryExists = await checkBinary(binaryPath);
+    // Now check binary (or auto-download if missing)
+    let binaryPath = getEnvforgePath();
+    let binaryExists = await checkBinary(binaryPath);
+
+    if (!binaryExists) {
+        outputChannel.appendLine('Binary not found in standard paths. Attempting auto-download...');
+        const downloaded = await ensureBinaryWithProgress();
+        if (downloaded) {
+            binaryPath = getEnvforgePath();
+            binaryExists = await checkBinary(binaryPath);
+        }
+    }
+
     await vscode.commands.executeCommand('setContext', 'envforge.cliAvailable', binaryExists);
 
     if (!binaryExists) {
         const installCmd = 'cargo install env-forge-tui';
-        const msg = `EnvForge CLI is not installed or not found. Run '${installCmd}' to install.`;
+        const msg = `EnvForge CLI is not installed. Click 'Auto-Download' or run '${installCmd}'.`;
         outputChannel.appendLine(`ERROR: ${msg}`);
         
         // Show Welcome Installer Webview panel
@@ -70,17 +82,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
         vscode.window.showWarningMessage(
             msg,
+            'Auto-Download CLI',
             'Install CLI (Webview)',
-            'Copy Command',
-            'Reload Window'
-        ).then(action => {
-            if (action === 'Install CLI (Webview)') {
+            'Copy Command'
+        ).then(async action => {
+            if (action === 'Auto-Download CLI') {
+                const ok = await ensureBinaryWithProgress();
+                if (ok) {
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+            } else if (action === 'Install CLI (Webview)') {
                 WelcomeWebviewPanel.show(context);
             } else if (action === 'Copy Command') {
                 vscode.env.clipboard.writeText(installCmd);
                 vscode.window.showInformationMessage(`Copied '${installCmd}' to clipboard!`);
-            } else if (action === 'Reload Window') {
-                vscode.commands.executeCommand('workbench.action.reloadWindow');
             }
         });
         outputChannel.appendLine('Extension activated (binary not found — limited mode)');
@@ -237,29 +252,7 @@ async function startLanguageServer(
 }
 
 export function getEnvforgePath(): string {
-    const config = vscode.workspace.getConfiguration('envforge');
-    const customPath = config.get<string>('path', '');
-    if (customPath && fs.existsSync(customPath)) {
-        return customPath;
-    }
-
-    // Check common install locations (absolute paths only — no PATH fallback)
-    const home = os.homedir();
-    const candidates = [
-        path.join(home, '.cargo', 'bin', 'envforge'),
-        '/usr/local/bin/envforge',
-        '/opt/homebrew/bin/envforge',
-    ];
-
-    for (const p of candidates) {
-        if (fs.existsSync(p)) {
-            return p;
-        }
-    }
-
-    // No PATH fallback — binary must be found at an absolute path
-    // to prevent supply-chain attacks via PATH manipulation.
-    return '';
+    return findBinaryPath() || '';
 }
 
 async function checkBinary(binaryPath: string): Promise<boolean> {

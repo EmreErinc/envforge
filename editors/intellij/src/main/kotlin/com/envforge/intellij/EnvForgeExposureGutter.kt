@@ -82,9 +82,9 @@ class EnvForgeExposureEditorListener : EditorFactoryListener {
     private fun refresh(editor: Editor, project: Project) {
         val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return
         val path = file.path
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
 
         val output: String = try {
+            val binary = EnvForgeLspFactory.findEnvforgeBinary(project)
             val proc = ProcessBuilder(binary, "exposure", "--file", path)
                 .directory(project.basePath?.let { java.io.File(it) })
                 .redirectErrorStream(true)

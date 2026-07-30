@@ -17,8 +17,8 @@ class ToggleFenceAction : EnvForgeAction() {
         // flip direction. Falls back to enable on probe failure so the
         // action always does something useful.
         val basePath = project.basePath?.let { java.io.File(it) }
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
         val currentlyFenced = try {
+            val binary = EnvForgeLspFactory.findEnvforgeBinary(project)
             val proc = ProcessBuilder(binary, "fence", "--status", "--json")
                 .directory(basePath)
                 .redirectErrorStream(true)

@@ -168,7 +168,7 @@ class EnvForgeStatusWidget(private val project: Project) :
     }
 
     private fun runCli(args: List<String>): String? = try {
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
+        val binary = EnvForgeLspFactory.findEnvforgeBinary(project)
         val process = ProcessBuilder(listOf(binary) + args)
             .directory(project.basePath?.let { java.io.File(it) })
             .redirectErrorStream(true)

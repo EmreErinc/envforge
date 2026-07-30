@@ -90,12 +90,13 @@ install_zed() {
 
 # ---------------------------------------------------------------- Homebrew formula
 install_brew() {
-  bold "==> Homebrew formula test"
+  bold "==> Homebrew formula"
   if ! command -v brew >/dev/null; then skip "brew CLI not installed — skipping"; return 0; fi
-  if [ -f "$REPO/Formula/envforge.rb" ]; then
-    ok "Formula/envforge.rb present ($(brew --version 2>/dev/null | head -1))"
+  local formula_path="$REPO/Formula/envforge.rb"
+  if [ -f "$formula_path" ]; then
+    ok "Formula present → $formula_path ($(brew --version 2>/dev/null | head -1))"
   else
-    fail "Formula/envforge.rb not found"
+    fail "Formula not found at $formula_path"
   fi
 }
 

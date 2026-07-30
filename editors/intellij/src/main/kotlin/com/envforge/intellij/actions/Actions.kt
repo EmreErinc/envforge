@@ -10,7 +10,7 @@ import com.envforge.intellij.EnvForgeLspFactory
 abstract class EnvForgeAction : AnAction() {
     override fun update(e: AnActionEvent) {
         val hasCli = try {
-            EnvForgeLspFactory.findEnvforgeBinary().isNotEmpty()
+            EnvForgeLspFactory.findEnvforgeBinary(e.project).isNotEmpty()
         } catch (_: Throwable) {
             false
         }

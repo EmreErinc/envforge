@@ -101,9 +101,9 @@ class EnvForgeProjectViewDecorator : ProjectViewNodeDecorator {
     }
 
     private fun computeBadge(project: Project, path: String): Badge? {
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
         val cwd = project.basePath?.let { java.io.File(it) }
         val output: String = try {
+            val binary = EnvForgeLspFactory.findEnvforgeBinary(project)
             val proc = ProcessBuilder(binary, "exposure", "--file", path)
                 .directory(cwd)
                 .redirectErrorStream(true)

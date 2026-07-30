@@ -67,7 +67,7 @@ class EnvForgeFileActionGroup : ActionGroup() {
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE)
         val isEnv = file != null && isEnvFile(file.name)
         val hasCli = try {
-            com.envforge.intellij.EnvForgeLspFactory.findEnvforgeBinary().isNotEmpty()
+            com.envforge.intellij.EnvForgeLspFactory.findEnvforgeBinary(e.project).isNotEmpty()
         } catch (_: Throwable) {
             false
         }

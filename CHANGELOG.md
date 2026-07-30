@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-07-30
+
+### Added
+- **Smart Managed Binary & Standalone IDE Architecture**:
+  - Integrated zero-dependency Standalone mode into VS Code and IntelliJ IDEA plugins, providing native syntax highlighting, file decorators, and sidebar UI out-of-the-box without requiring a pre-installed CLI binary.
+  - Built-in 4-tier binary resolution hierarchy (`ENVFORGE_PATH` -> Workspace target `target/release/envforge` -> Managed `~/.envforge/bin/envforge` -> System PATH/Cargo/Brew).
+  - Background auto-downloader for release binaries with non-blocking progress UI and automatic LSP server initialization.
+- **Enhanced IDE Welcome & Onboarding Experience**:
+  - Redesigned Welcome pages for VS Code and IntelliJ IDEA with dual Homebrew (`brew install envforge`) and Cargo (`cargo install env-forge-tui`) installation options.
+  - Detailed feature breakdown contrasting Standalone Mode (IDE-native features) with Full AI Protection & LSP Validation mode.
+- **Exception Hardening & Reliability**:
+  - Safely wrapped all background binary resolution calls in `try-catch` blocks across IDE components to eliminate unhandled background thread exceptions.
+  - Added project parameter context for reliable workspace target binary discovery and zero-state initialization.
+
 ## [1.0.0] - 2026-07-25
 
 ### Added

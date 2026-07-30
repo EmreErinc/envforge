@@ -1,7 +1,7 @@
 {
   "publisher": "emreerinc",
   "name": "envforge-env-manager",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "displayName": "EnvForge - AI-Safe Environment Manager",
   "description": "Manage environment variables with schema validation, secret scanning, and multi-profile support — built to protect your secrets from AI coding agents.",
   "license": "Elastic-2.0",

@@ -31,10 +31,10 @@ class FenceInactiveInspection : LocalInspectionTool() {
 
     private fun isFenceActive(file: PsiFile): Boolean {
         val project = file.project
-        val binary = EnvForgeLspFactory.findEnvforgeBinary()
         val workDir = project.basePath?.let { java.io.File(it) }
 
         return try {
+            val binary = EnvForgeLspFactory.findEnvforgeBinary(project)
             val process = ProcessBuilder(binary, "fence", "--status", "--json")
                 .directory(workDir)
                 .start()

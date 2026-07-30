@@ -17,7 +17,7 @@ class EnvForgeLspFactory : LanguageServerFactory {
                     "Trust this project to enable EnvForge."
             )
         }
-        val binary = findEnvforgeBinary()
+        val binary = findEnvforgeBinary(project)
         val cmd = GeneralCommandLine(binary, "lsp")
         cmd.workDirectory = project.basePath?.let { java.io.File(it) }
         return OSProcessStreamConnectionProvider(cmd)
@@ -48,28 +48,9 @@ class EnvForgeLspFactory : LanguageServerFactory {
             return true
         }
 
-        fun findEnvforgeBinary(): String {
-            val candidates = listOf(
-                System.getenv("ENVFORGE_PATH"),
-                "${System.getProperty("user.home")}/.cargo/bin/envforge",
-                "/usr/local/bin/envforge",
-                "/opt/homebrew/bin/envforge",
-            )
-
-            for (path in candidates) {
-                if (path != null && java.io.File(path).canExecute()) {
-                    return path
-                }
-            }
-
-            // M4: do NOT fall back to a bare "envforge" (PATH search). A poisoned
-            // PATH/cwd entry would otherwise yield arbitrary code execution, and
-            // the VS Code plugin already enforces absolute-path-only resolution.
-            // Fail loudly so the user sets ENVFORGE_PATH instead.
-            throw IllegalStateException(
-                "envforge binary not found at \$ENVFORGE_PATH, ~/.cargo/bin, /usr/local/bin, " +
-                    "or /opt/homebrew/bin. Set ENVFORGE_PATH to its absolute location " +
-                    "(refusing to search PATH for security)."
+        fun findEnvforgeBinary(project: Project? = null): String {
+            return EnvForgeBinaryManager.findBinaryPath(project) ?: throw IllegalStateException(
+                "envforge binary not found. Build locally with 'cargo build --release', set ENVFORGE_PATH, or install via cargo."
             )
         }
 

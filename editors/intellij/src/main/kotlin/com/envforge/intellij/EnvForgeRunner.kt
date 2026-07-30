@@ -25,10 +25,10 @@ object EnvForgeRunner {
         onSuccess: ((String) -> Unit)? = null,
     ) {
         ApplicationManager.getApplication().executeOnPooledThread {
-            val binary = EnvForgeLspFactory.findEnvforgeBinary()
             val cwd = project.basePath?.let { java.io.File(it) }
 
             val (exitCode, output) = try {
+                val binary = EnvForgeLspFactory.findEnvforgeBinary(project)
                 val proc = ProcessBuilder(listOf(binary) + args)
                     .directory(cwd)
                     .redirectErrorStream(true)

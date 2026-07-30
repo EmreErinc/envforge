@@ -7,16 +7,15 @@ import com.intellij.openapi.startup.ProjectActivity
 
 class EnvForgeStartupCheckActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
-        val binaryFound = try {
-            EnvForgeLspFactory.findEnvforgeBinary()
-            true
-        } catch (_: Throwable) {
-            false
-        }
+        val managedExists = EnvForgeBinaryManager.managedBinaryFile.exists()
+        val binaryFound = EnvForgeBinaryManager.findBinaryPath(project) != null
 
-        if (!binaryFound) {
+        if (!managedExists || !binaryFound) {
             ApplicationManager.getApplication().invokeLater {
                 openWelcomeTab(project)
+                if (!binaryFound) {
+                    EnvForgeBinaryManager.downloadAsync(project)
+                }
             }
         }
     }

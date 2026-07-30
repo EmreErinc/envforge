@@ -51,6 +51,9 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
         fun handleEnvForgeUrl(url: String, project: Project) {
             ApplicationManager.getApplication().invokeLater {
                 when {
+                    url.startsWith("envforge:downloadCli") -> {
+                        EnvForgeBinaryManager.downloadAsync(project)
+                    }
                     url.startsWith("envforge:installCli") -> {
                         val installCmd = "cargo install env-forge-tui"
                         copyToClipboard(installCmd)
@@ -307,7 +310,16 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
         </div>
 
         <div>
-            <div class="sub-label">Get started by running:</div>
+            <div class="sub-label">Get started via Homebrew or Cargo:</div>
+            <div class="code-box" style="margin-bottom: 8px;">
+                <span class="code-text">brew install envforge</span>
+                <a href="envforge:copyCommand?text=brew%20install%20envforge" class="icon-btn" title="Copy to clipboard">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </a>
+            </div>
             <div class="code-box">
                 <span class="code-text">cargo install env-forge-tui</span>
                 <a href="envforge:copyCommand?text=cargo%20install%20env-forge-tui" class="icon-btn" title="Copy to clipboard">
@@ -319,7 +331,32 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
             </div>
         </div>
 
-        <a href="envforge:installCli" class="btn-primary">Install EnvForge CLI</a>
+        <a href="envforge:downloadCli" class="btn-primary">Auto-Download EnvForge CLI Binary</a>
+        <div style="text-align: center; margin-top: 4px;">
+            <a href="envforge:installCli" class="link-text">Or copy terminal install command (brew / cargo)</a>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">⚡ Standalone Mode (Without CLI App)</h2>
+            <p class="card-desc">You can use EnvForge natively inside your IDE without downloading any external CLI binary:</p>
+            <ul style="margin: 8px 0 8px 18px; padding: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+                <li><b>Native Syntax Highlighting:</b> Built-in colorizer for <code style="color: var(--accent-light);">.env</code> and <code style="color: var(--accent-light);">.env.schema</code> files.</li>
+                <li><b>File Branding & Decorators:</b> EnvForge file icons, project view badges, and sidebar tool windows.</li>
+                <li><b>Schema Templates:</b> Fast creation and manual editing of environment schema definitions.</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">🚀 Full AI Security & LSP Validation (With CLI / Auto-Download)</h2>
+            <p class="card-desc">Downloading the binary or installing via <code style="color: var(--accent-light);">cargo install env-forge-tui</code> unlocks advanced capabilities:</p>
+            <ul style="margin: 8px 0 8px 18px; padding: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+                <li><b>Real-Time LSP Diagnostics:</b> Inline error checking, type validation, and enum enforcement.</li>
+                <li><b>AI Agent Protection (Fence & Guard):</b> Block AI coding agents (Cursor, Copilot, Claude Code, Windsurf) from reading plaintext credentials.</li>
+                <li><b>Hover Cards & Auto-Completion:</b> Instant schema metadata, default values, and key completion.</li>
+                <li><b>Multi-Profile Switching:</b> Double-click to switch between <code style="color: var(--accent-light);">dev</code>, <code style="color: var(--accent-light);">staging</code>, and <code style="color: var(--accent-light);">prod</code> profiles.</li>
+                <li><b>Terminal TUI Dashboard & Exports:</b> Full-screen TUI (<code style="color: var(--accent-light);">envforge</code>) + export to Docker, K8s, Terraform.</li>
+            </ul>
+        </div>
 
         <div class="card">
             <h2 class="card-title">Did you know?</h2>
@@ -414,7 +451,13 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
             font = font.deriveFont(Font.PLAIN, 13f)
         }
 
-        val copyBtn = JButton("Copy Install Command").apply {
+        val downloadBtn = JButton("Auto-Download CLI Binary").apply {
+            addActionListener {
+                EnvForgeBinaryManager.downloadAsync(project)
+            }
+        }
+
+        val copyBtn = JButton("Copy Terminal Command").apply {
             addActionListener {
                 copyToClipboard("cargo install env-forge-tui")
                 EnvForgeRunner.notify(project, "EnvForge", "Copied 'cargo install env-forge-tui' to clipboard!", com.intellij.notification.NotificationType.INFORMATION)
@@ -425,6 +468,8 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
         panel.add(Box.createVerticalStrut(15))
         panel.add(desc)
         panel.add(Box.createVerticalStrut(20))
+        panel.add(downloadBtn)
+        panel.add(Box.createVerticalStrut(10))
         panel.add(copyBtn)
 
         return panel
