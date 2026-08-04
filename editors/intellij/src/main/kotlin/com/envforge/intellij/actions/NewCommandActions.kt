@@ -330,13 +330,13 @@ class CanaryScanAction : EnvForgeAction() {
         val mode = if (selected != null) {
             "text"
         } else {
-            val choice = Messages.showChooseDialog(
+            val choice = Messages.showDialog(
                 project,
                 "How do you want to scan for canary tokens?",
                 "EnvForge: Canary Scan",
-                Messages.getQuestionIcon(),
                 arrayOf("Paste text...", "Pick a file..."),
-                "Paste text...",
+                0,
+                Messages.getQuestionIcon(),
             )
             when (choice) {
                 0 -> "text"

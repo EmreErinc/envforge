@@ -1,0 +1,30 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+        <server id="envforgeLsp"
+                name="EnvForge"
+                factoryClass="com.envforge.intellij.EnvForgeLspFactory"/>
+
+        <languageMapping language="EnvForgeEnv"
+                         serverId="envforgeLsp"/>
+        <!-- Schema files are TOML-typed for highlighting; LSP attaches by filename. -->
+        <languageMapping language="TOML"
+                         serverId="envforgeLsp"
+                         fileNamePattern=".env.schema.toml"/>
+        <languageMapping language="TOML"
+                         serverId="envforgeLsp"
+                         fileNamePattern=".env.schema"/>
+        <!--
+        MCP configuration files. Routed by filename only (JSON language
+        binding picks up arbitrary JSON files; we filter to mcp/claude
+        files via fileNamePattern). LSP server emits inline diagnostics
+        for hardcoded credentials in these files.
+        -->
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="mcp.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".mcp.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="claude_desktop_config.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="settings.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".claude.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="mcp_config.json"/>
+        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="cline_mcp_settings.json"/>
+    </extensions>
+</idea-plugin>

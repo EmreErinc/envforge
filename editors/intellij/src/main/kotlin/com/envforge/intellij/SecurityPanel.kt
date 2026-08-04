@@ -38,10 +38,7 @@ class SecurityPanel(private val project: Project) : JPanel(BorderLayout()) {
                     if (data.actionId != null) {
                         val action = ActionManager.getInstance().getAction(data.actionId)
                         if (action != null) {
-                            action.actionPerformed(
-                                AnActionEvent.createFromAnAction(action, null, "SecurityPanel", 
-                                    ActionManager.getInstance().createActionToolbar("SecurityPanel", DefaultActionGroup(action), true).context_as_data_context())
-                            )
+                            ActionManager.getInstance().tryToExecute(action, e, tree, "SecurityPanel", true)
                         }
                     }
                 }
@@ -51,8 +48,6 @@ class SecurityPanel(private val project: Project) : JPanel(BorderLayout()) {
         installContextMenu()
         refresh()
     }
-
-    private fun ActionToolbar.context_as_data_context(): DataContext = DataContext.EMPTY_CONTEXT
 
     fun refresh() {
         val binary = try { EnvForgeLspFactory.findEnvforgeBinary(project) } catch (_: Exception) { "" }
@@ -248,7 +243,9 @@ class SecurityPanel(private val project: Project) : JPanel(BorderLayout()) {
                     val data = node.userObject as? SecurityItem ?: return
                     if (data.actionId != null) {
                         val action = ActionManager.getInstance().getAction(data.actionId)
-                        action?.actionPerformed(e)
+                        if (action != null) {
+                            ActionManager.getInstance().tryToExecute(action, e.inputEvent, tree, "EnvForgeSecurityPopup", true)
+                        }
                         refresh()
                     }
                 }

@@ -58,7 +58,8 @@ class EnvForgeExposureEditorListener : EditorFactoryListener {
                     scheduleRefresh(editor, project)
                 }
             }
-        editor.document.addDocumentListener(listener)
+        val disposable = (editor as? com.intellij.openapi.Disposable) ?: project
+        editor.document.addDocumentListener(listener, disposable)
         documentListeners[editor] = listener
     }
 

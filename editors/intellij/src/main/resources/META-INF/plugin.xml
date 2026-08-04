@@ -20,48 +20,8 @@ AI coding agents.</p>
   ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
-    <depends>com.redhat.devtools.lsp4ij</depends>
+    <depends optional="true" config-file="envforge-lsp.xml">com.redhat.devtools.lsp4ij</depends>
     <depends>org.toml.lang</depends>
-
-    <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
-        <server id="envforgeLsp"
-                name="EnvForge"
-                factoryClass="com.envforge.intellij.EnvForgeLspFactory"/>
-
-        <languageMapping language="EnvForgeEnv"
-                         serverId="envforgeLsp"/>
-        <!-- Schema files are TOML-typed for highlighting; LSP attaches by filename. -->
-        <languageMapping language="TOML"
-                         serverId="envforgeLsp"
-                         fileNamePattern=".env.schema.toml"/>
-        <languageMapping language="TOML"
-                         serverId="envforgeLsp"
-                         fileNamePattern=".env.schema"/>
-        <!--
-        NOTE: EnvForge does NOT map whole source languages (JAVA, Python,
-        Rust, …) to its LSP. Doing so routes EVERY source file through
-        lsp4ij → EnvForge, which breaks the IDE's native code intelligence
-        (goto-definition, completion) for those languages. The LSP attaches
-        ONLY to EnvForge's own files (env/schema + MCP config below),
-        always scoped by fileNamePattern. The previous goto-from-source-code
-        -to-schema feature is intentionally dropped — its cost (hijacking all
-        source files) far outweighed the niche benefit.
-        -->
-        <!--
-        MCP configuration files. Routed by filename only (JSON language
-        binding picks up arbitrary JSON files; we filter to mcp/claude
-        files via fileNamePattern). LSP server emits inline diagnostics
-        for hardcoded credentials in these files.
-        -->
-        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="mcp.json"/>
-        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".mcp.json"/>
-        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="claude_desktop_config.json"/>
-        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="settings.json"/>
-        <!-- Story 3.1 (FR18): widened AI-tool/agent MCP config coverage. -->
-        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern=".claude.json"/>
-        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="mcp_config.json"/>
-        <languageMapping language="JSON" serverId="envforgeLsp" fileNamePattern="cline_mcp_settings.json"/>
-    </extensions>
 
   <extensions defaultExtensionNs="com.intellij">
     <fileType name="EnvForge .env"

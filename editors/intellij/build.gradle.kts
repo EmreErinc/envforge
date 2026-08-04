@@ -27,6 +27,14 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
+intellijPlatform {
+    pluginVerification {
+        ides {
+            recommended()
+        }
+    }
+}
+
 tasks {
     patchPluginXml {
         sinceBuild.set("242")
