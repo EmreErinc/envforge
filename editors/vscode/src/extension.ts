@@ -57,6 +57,14 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+    // Show welcome panel only on first extension installation/launch
+    const WELCOME_SHOWN_KEY = 'envforge.welcomeShown';
+    const welcomeShown = context.globalState.get<boolean>(WELCOME_SHOWN_KEY, false);
+    if (!welcomeShown) {
+        await context.globalState.update(WELCOME_SHOWN_KEY, true);
+        WelcomeWebviewPanel.show(context);
+    }
+
     // Now check binary (or auto-download if missing)
     let binaryPath = getEnvforgePath();
     let binaryExists = await checkBinary(binaryPath);
@@ -76,9 +84,6 @@ export async function activate(context: vscode.ExtensionContext) {
         const installCmd = 'cargo install env-forge-tui';
         const msg = `EnvForge CLI is not installed. Click 'Auto-Download' or run '${installCmd}'.`;
         outputChannel.appendLine(`ERROR: ${msg}`);
-        
-        // Show Welcome Installer Webview panel
-        WelcomeWebviewPanel.show(context);
 
         vscode.window.showWarningMessage(
             msg,

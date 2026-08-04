@@ -14,7 +14,7 @@ import java.util.zip.GZIPInputStream
 object EnvForgeBinaryManager {
     private val LOG = Logger.getInstance(EnvForgeBinaryManager::class.java)
 
-    const val DEFAULT_VERSION = "v0.2.1"
+    const val DEFAULT_VERSION = "v0.2.2"
     
     private val isWindows: Boolean
         get() = System.getProperty("os.name").lowercase().contains("win")

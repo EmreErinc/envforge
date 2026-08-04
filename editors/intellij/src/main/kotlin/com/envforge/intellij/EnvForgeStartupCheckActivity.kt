@@ -1,5 +1,6 @@
 package com.envforge.intellij
 
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
@@ -7,15 +8,21 @@ import com.intellij.openapi.startup.ProjectActivity
 
 class EnvForgeStartupCheckActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
-        val managedExists = EnvForgeBinaryManager.managedBinaryFile.exists()
-        val binaryFound = EnvForgeBinaryManager.findBinaryPath(project) != null
+        val properties = PropertiesComponent.getInstance()
+        val welcomeShownKey = "com.envforge.intellij.welcomeShown"
+        val welcomeShown = properties.getBoolean(welcomeShownKey, false)
 
-        if (!managedExists || !binaryFound) {
+        if (!welcomeShown) {
+            properties.setValue(welcomeShownKey, true)
             ApplicationManager.getApplication().invokeLater {
                 openWelcomeTab(project)
-                if (!binaryFound) {
-                    EnvForgeBinaryManager.downloadAsync(project)
-                }
+            }
+        }
+
+        val binaryFound = EnvForgeBinaryManager.findBinaryPath(project) != null
+        if (!binaryFound) {
+            ApplicationManager.getApplication().invokeLater {
+                EnvForgeBinaryManager.downloadAsync(project)
             }
         }
     }

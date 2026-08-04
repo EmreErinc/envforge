@@ -47,6 +47,16 @@ end
 
 function M.show_welcome()
   local tip = M.get_random_tip()
+  local is_mac = vim.fn.has("mac") == 1 or vim.fn.has("macunix") == 1
+  local install_lines = is_mac and {
+    "Get started via Homebrew or Cargo:",
+    "  brew install envforge",
+    "  cargo install env-forge-tui",
+  } or {
+    "Get started by running in your terminal:",
+    "  cargo install env-forge-tui",
+  }
+
   local lines = {
     "==================================================",
     "             ENVFORGE: WELCOME",
@@ -55,20 +65,22 @@ function M.show_welcome()
     "Welcome to EnvForge!",
     "AI-native environment security and secret management.",
     "",
-    "Get started by running in your terminal:",
-    "  cargo install env-forge-tui",
-    "",
-    "--------------------------------------------------",
-    "Did you know?",
-    tip.desc,
-    "  Command: " .. tip.code,
-    "--------------------------------------------------",
-    "",
-    "Available Neovim Commands:",
-    "  :EnvForgeInstall  - Open terminal & install CLI",
-    "  :EnvForgeTips     - Show another random CLI tip",
-    "",
-    "Press <Esc> or q to close this window."
+  }
+  for _, l in ipairs(install_lines) do
+    table.insert(lines, l)
+  end
+  table.insert(lines, "")
+  table.insert(lines, "--------------------------------------------------")
+  table.insert(lines, "Did you know?")
+  table.insert(lines, tip.desc)
+  table.insert(lines, "  Command: " .. tip.code)
+  table.insert(lines, "--------------------------------------------------")
+  table.insert(lines, "")
+  table.insert(lines, "Available Neovim Commands:")
+  table.insert(lines, "  :EnvForgeInstall  - Open terminal & install CLI")
+  table.insert(lines, "  :EnvForgeTips     - Show another random CLI tip")
+  table.insert(lines, "")
+  table.insert(lines, "Press <Esc> or q to close this window.")
   }
 
   local buf = vim.api.nvim_create_buf(false, true)

@@ -97,6 +97,21 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
         }
 
         private fun getWelcomeHtml(): String {
+            val isMac = System.getProperty("os.name").lowercase().contains("mac")
+            val getStartedLabel = if (isMac) "Get started via Homebrew or Cargo:" else "Get started via Cargo:"
+            val subtextInstall = if (isMac) "Or copy terminal install command (brew / cargo)" else "Or copy terminal install command (cargo)"
+            val brewBoxHtml = if (isMac) """
+            <div class="code-box" style="margin-bottom: 8px;">
+                <span class="code-text">brew install envforge</span>
+                <a href="envforge:copyCommand?text=brew%20install%20envforge" class="icon-btn" title="Copy to clipboard">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </a>
+            </div>
+            """ else ""
+
             return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -310,16 +325,8 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
         </div>
 
         <div>
-            <div class="sub-label">Get started via Homebrew or Cargo:</div>
-            <div class="code-box" style="margin-bottom: 8px;">
-                <span class="code-text">brew install envforge</span>
-                <a href="envforge:copyCommand?text=brew%20install%20envforge" class="icon-btn" title="Copy to clipboard">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </a>
-            </div>
+            <div class="sub-label">$getStartedLabel</div>
+            $brewBoxHtml
             <div class="code-box">
                 <span class="code-text">cargo install env-forge-tui</span>
                 <a href="envforge:copyCommand?text=cargo%20install%20env-forge-tui" class="icon-btn" title="Copy to clipboard">
@@ -333,7 +340,7 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
 
         <a href="envforge:downloadCli" class="btn-primary">Auto-Download EnvForge CLI Binary</a>
         <div style="text-align: center; margin-top: 4px;">
-            <a href="envforge:installCli" class="link-text">Or copy terminal install command (brew / cargo)</a>
+            <a href="envforge:installCli" class="link-text">$subtextInstall</a>
         </div>
 
         <div class="card">

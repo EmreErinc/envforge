@@ -92,6 +92,21 @@ export class WelcomeWebviewPanel {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
+        const isMac = process.platform === 'darwin';
+        const getStartedLabel = isMac ? 'Get started via Homebrew or Cargo:' : 'Get started via Cargo:';
+        const subtextInstall = isMac ? 'Or copy terminal install command (brew / cargo)' : 'Or copy terminal install command (cargo)';
+        const brewBoxHtml = isMac ? `
+            <div class="code-box" style="margin-bottom: 8px;">
+                <span class="code-text">brew install envforge</span>
+                <button class="icon-btn" id="copyBrewBtn" title="Copy to clipboard">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            </div>
+        ` : '';
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -307,16 +322,8 @@ export class WelcomeWebviewPanel {
         </div>
 
         <div>
-            <div class="sub-label">Get started via Homebrew or Cargo:</div>
-            <div class="code-box" style="margin-bottom: 8px;">
-                <span class="code-text">brew install envforge</span>
-                <button class="icon-btn" id="copyBrewBtn" title="Copy to clipboard">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            </div>
+            <div class="sub-label">${getStartedLabel}</div>
+            ${brewBoxHtml}
             <div class="code-box">
                 <span class="code-text">cargo install env-forge-tui</span>
                 <button class="icon-btn" id="copyBtn" title="Copy to clipboard">
@@ -330,7 +337,7 @@ export class WelcomeWebviewPanel {
 
         <button class="btn-primary" id="downloadBtn">Auto-Download EnvForge CLI Binary</button>
         <div style="text-align: center; margin-top: 4px;">
-            <a class="link-text" id="installBtn">Or copy terminal install command (brew / cargo)</a>
+            <a class="link-text" id="installBtn">${subtextInstall}</a>
         </div>
 
         <div class="card">
@@ -445,9 +452,12 @@ export class WelcomeWebviewPanel {
             vscode.postMessage({ command: 'installCli' });
         });
 
-        document.getElementById('copyBrewBtn').addEventListener('click', () => {
-            vscode.postMessage({ command: 'copyCommand', text: 'brew install envforge' });
-        });
+        const copyBrewBtn = document.getElementById('copyBrewBtn');
+        if (copyBrewBtn) {
+            copyBrewBtn.addEventListener('click', () => {
+                vscode.postMessage({ command: 'copyCommand', text: 'brew install envforge' });
+            });
+        }
 
         document.getElementById('copyBtn').addEventListener('click', () => {
             vscode.postMessage({ command: 'copyCommand', text: 'cargo install env-forge-tui' });
