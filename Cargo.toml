@@ -68,7 +68,7 @@ unicode-normalization = "0.1"
 
 # Masked password input for project wizard sensitive values
 rpassword = "7"
-rmcp = { version = "2.2.0", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
+rmcp = { version = "3.1.0", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
 dialoguer = "0.12"
 arboard = "3.6.1"
 
@@ -152,7 +152,7 @@ insta = "1.47.2"
 proptest = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
 trybuild = "1"
-serial_test = "3"
+serial_test = "4"
 
 [[bench]]
 name = "benchmarks"
