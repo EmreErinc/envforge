@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785841594971,
+  "lastUpdate": 1786519585429,
   "repoUrl": "https://github.com/EmreErinc/envforge",
   "entries": {
     "Benchmark": [
@@ -833,6 +833,54 @@ window.BENCHMARK_DATA = {
             "name": "security/redact_secrets_in_message",
             "value": 375,
             "range": "± 5",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "emre_erinc@hotmail.com",
+            "name": "Emre Erinç",
+            "username": "EmreErinc"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fef7ffbb3fc49f99af4c8ae5b99975f61b047d9a",
+          "message": "Create CNAME",
+          "timestamp": "2026-08-12T10:15:32+03:00",
+          "tree_id": "9665284d44289b83508ea9d9c993371d1e2eceee",
+          "url": "https://github.com/EmreErinc/envforge/commit/fef7ffbb3fc49f99af4c8ae5b99975f61b047d9a"
+        },
+        "date": 1786519583955,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parser/roundtrip_small",
+            "value": 2095,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parser/roundtrip_large_500_exports",
+            "value": 782925,
+            "range": "± 12830",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sync/compute_diff_small",
+            "value": 379,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "security/redact_secrets_in_message",
+            "value": 388,
+            "range": "± 7",
             "unit": "ns/iter"
           }
         ]
