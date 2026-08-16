@@ -21,30 +21,47 @@ import javax.swing.*
 class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()) {
 
     init {
-        if (JBCefApp.isSupported()) {
-            val browser = JBCefBrowser()
-            browser.jbCefClient.addRequestHandler(object : CefRequestHandlerAdapter() {
-                override fun onBeforeBrowse(
-                    browser: CefBrowser?,
-                    frame: CefFrame?,
-                    request: CefRequest?,
-                    user_gesture: Boolean,
-                    is_redirect: Boolean
-                ): Boolean {
-                    val url = request?.url ?: return false
-                    if (url.startsWith("envforge:")) {
-                        handleEnvForgeUrl(url, project)
-                        return true // Cancel default browser navigation for custom scheme
-                    }
-                    return false
-                }
-            }, browser.cefBrowser)
-
-            browser.loadHTML(getWelcomeHtml())
-            add(browser.component, BorderLayout.CENTER)
+        val browserComponent = if (isJbcefSupported()) {
+            try {
+                createJbcefBrowserComponent()
+            } catch (_: Throwable) {
+                createFallbackSwingPanel()
+            }
         } else {
-            add(createFallbackSwingPanel(), BorderLayout.CENTER)
+            createFallbackSwingPanel()
         }
+        add(browserComponent, BorderLayout.CENTER)
+    }
+
+    private fun isJbcefSupported(): Boolean {
+        return try {
+            JBCefApp.isSupported()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun createJbcefBrowserComponent(): JComponent {
+        val browser = JBCefBrowser()
+        browser.jbCefClient.addRequestHandler(object : CefRequestHandlerAdapter() {
+            override fun onBeforeBrowse(
+                browser: CefBrowser?,
+                frame: CefFrame?,
+                request: CefRequest?,
+                user_gesture: Boolean,
+                is_redirect: Boolean
+            ): Boolean {
+                val url = request?.url ?: return false
+                if (url.startsWith("envforge:")) {
+                    handleEnvForgeUrl(url, project)
+                    return true // Cancel default browser navigation for custom scheme
+                }
+                return false
+            }
+        }, browser.cefBrowser)
+
+        browser.loadHTML(getWelcomeHtml())
+        return browser.component
     }
 
     companion object {
