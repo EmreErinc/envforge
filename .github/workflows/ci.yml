@@ -36,7 +36,9 @@ jobs:
         run: cargo test --all-targets --all-features --locked
 
       - name: Run benchmarks
-        run: cargo bench --bench benchmarks -- --output-format bencher | tee output.txt
+        run: |
+          rm -rf target/criterion
+          cargo bench --bench benchmarks -- --output-format bencher | tee output.txt
 
       - name: Store benchmark result
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
