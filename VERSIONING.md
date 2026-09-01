@@ -32,7 +32,7 @@ After `1.0.0`:
 
 ## Release Process
 
-For the full pre-release checklist, readiness gates, CI pipeline, and post-release steps, see [docs/release-preparation-guide.md](docs/release-preparation-guide.md).
+For the full pre-release checklist, readiness gates, CI pipeline, and post-release steps, see [plans/release-preparation-guide.md](plans/release-preparation-guide.md). Launch copy lives in [plans/product-launch-playbook.md](plans/product-launch-playbook.md) and [plans/launch/](plans/launch/). Application docs and the website stay under `docs/` — do not put release/launch material there.
 
 ### Creating a Release
 
