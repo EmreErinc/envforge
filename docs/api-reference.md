@@ -1,4 +1,4 @@
-# EnvForge API Reference v1.0.1
+# EnvForge API Reference v1.0.2
 
 
 > Rust library reference for integrating envforge types and functions into your own tools.  

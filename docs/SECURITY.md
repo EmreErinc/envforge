@@ -142,4 +142,4 @@ Responsible disclosure process:
 
 ---
 
-*Last updated: 2026-05-21. Covers EnvForge v0.7.8.*
+*Last updated: 2026-09-01. Covers EnvForge v1.0.2.*
