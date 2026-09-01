@@ -38,14 +38,14 @@ jobs:
       - name: Run benchmarks
         run: |
           rm -rf target/criterion
-          cargo bench --bench benchmarks -- --output-format bencher | tee output.txt
+          cargo bench --bench benchmarks -- --output-format bencher | tee target/benchmark-output.txt
 
       - name: Store benchmark result
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: 'cargo'
-          output-file-path: output.txt
+          output-file-path: target/benchmark-output.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
           alert-threshold: '110%' # Fail if regression > 10%
