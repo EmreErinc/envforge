@@ -162,10 +162,7 @@ pub fn resolve_uris(
 }
 
 fn map_provider_name(scheme: &str) -> &str {
-    match scheme {
-        "1password" => "1password",
-        other => other,
-    }
+    scheme
 }
 
 /// Resolve a single URI to its secret value.

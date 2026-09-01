@@ -84,6 +84,7 @@ panic = "abort"
 [lints.rust]
 future-incompatible = "warn"
 nonstandard_style = { level = "deny", priority = 1 }
+unknown_lints = "allow"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
@@ -108,6 +109,8 @@ uninlined_format_args = "allow"
 unnecessary_wraps = "allow"
 wildcard_imports = "allow"
 redundant_closure_for_method_calls = "allow"
+unused_async_trait_impl = "allow"
+unused_async = "allow"
 needless_pass_by_value = "allow"
 unused_self = "allow"
 items_after_statements = "allow"

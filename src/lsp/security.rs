@@ -50,11 +50,8 @@ pub struct LspAuditLogger {
 
 impl LspAuditLogger {
     pub fn new() -> Result<Self, std::io::Error> {
-        let config_dir = dirs::config_dir().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, "Config directory not found")
-        })?;
-
-        let envforge_dir = config_dir.join("envforge");
+        let envforge_dir = crate::config::config_dir()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))?;
         std::fs::create_dir_all(&envforge_dir)?;
 
         let log_path = envforge_dir.join("lsp-audit.log");
