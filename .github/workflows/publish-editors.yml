@@ -53,24 +53,29 @@ jobs:
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' &&
         (github.event.inputs.target == 'all' || github.event.inputs.target == 'vscode'))
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v7
-        if: ${{ secrets.AZURE_CLIENT_ID != '' || secrets.VSCE_PAT != '' || secrets.OVSX_PAT != '' }}
+        if: env.AZURE_CLIENT_ID != '' || env.VSCE_PAT != '' || env.OVSX_PAT != ''
 
       - uses: actions/setup-node@v7
-        if: ${{ secrets.AZURE_CLIENT_ID != '' || secrets.VSCE_PAT != '' || secrets.OVSX_PAT != '' }}
+        if: env.AZURE_CLIENT_ID != '' || env.VSCE_PAT != '' || env.OVSX_PAT != ''
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
 
       - name: Install dependencies
-        if: ${{ secrets.AZURE_CLIENT_ID != '' || secrets.VSCE_PAT != '' || secrets.OVSX_PAT != '' }}
+        if: env.AZURE_CLIENT_ID != '' || env.VSCE_PAT != '' || env.OVSX_PAT != ''
         working-directory: editors/vscode
         run: npm ci
 
       - name: Login to Azure (GitHub OIDC)
-        if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' }}
+        if: env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != ''
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -78,30 +83,26 @@ jobs:
           allow-no-subscriptions: true
 
       - name: Publish to Visual Studio Marketplace (Entra ID)
-        if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' }}
+        if: env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != ''
         working-directory: editors/vscode
         run: npx --yes @vscode/vsce@3 publish --azure-credential --skip-duplicate
 
       - name: Publish to Visual Studio Marketplace (PAT fallback)
-        if: ${{ (secrets.AZURE_CLIENT_ID == '' || secrets.AZURE_TENANT_ID == '') && secrets.VSCE_PAT != '' }}
+        if: (env.AZURE_CLIENT_ID == '' || env.AZURE_TENANT_ID == '') && env.VSCE_PAT != ''
         working-directory: editors/vscode
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx vsce publish --skip-duplicate
 
       - name: Skip Visual Studio Marketplace
-        if: ${{ (secrets.AZURE_CLIENT_ID == '' || secrets.AZURE_TENANT_ID == '') && secrets.VSCE_PAT == '' }}
+        if: (env.AZURE_CLIENT_ID == '' || env.AZURE_TENANT_ID == '') && env.VSCE_PAT == ''
         run: echo '::notice::Set AZURE_CLIENT_ID + AZURE_TENANT_ID (OIDC) or VSCE_PAT; skipping Marketplace publish.'
 
       - name: Publish to Open VSX
-        if: ${{ secrets.OVSX_PAT != '' }}
+        if: env.OVSX_PAT != ''
         working-directory: editors/vscode
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: npx --yes ovsx publish --skip-duplicate
 
       - name: Skip Open VSX
-        if: ${{ secrets.OVSX_PAT == '' }}
+        if: env.OVSX_PAT == ''
         run: echo '::notice::OVSX_PAT secret is not set; skipping Open VSX publish.'
 
   intellij:
@@ -112,26 +113,28 @@ jobs:
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' &&
         (github.event.inputs.target == 'all' || github.event.inputs.target == 'intellij'))
+    env:
+      JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
     steps:
       - uses: actions/checkout@v7
-        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+        if: env.JETBRAINS_MARKETPLACE_TOKEN != ''
 
       - uses: actions/setup-java@v6
-        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+        if: env.JETBRAINS_MARKETPLACE_TOKEN != ''
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
-        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+        if: env.JETBRAINS_MARKETPLACE_TOKEN != ''
         uses: gradle/actions/setup-gradle@v6
 
       - name: Skip JetBrains Marketplace
-        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN == '' }}
+        if: env.JETBRAINS_MARKETPLACE_TOKEN == ''
         run: echo '::notice::JETBRAINS_MARKETPLACE_TOKEN secret is not set; skipping JetBrains publish.'
 
       - name: Publish to JetBrains Marketplace
-        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+        if: env.JETBRAINS_MARKETPLACE_TOKEN != ''
         working-directory: editors/intellij
         env:
           JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
