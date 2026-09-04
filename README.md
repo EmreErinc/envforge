@@ -2,7 +2,7 @@
 
 A Rust CLI + TUI for environment variables, with extra tools so AI coding agents are less likely to eat your secrets.
 
-Fence secret files, harden MCP configs, and run commands with secrets in memory. Linux and macOS. Source-available (Elastic License 2.0). 28 AI safety tools. 2,800+ tests.
+Fence secret files, harden MCP configs, MCP supply-chain pin/verify, and run commands with secrets in memory. Linux and macOS. Source-available (Elastic License 2.0). 28 AI safety tools. 2,800+ tests.
 
 [Website](https://envforge.tech) · [CLI reference](docs/cli-reference.md) · [Integration matrix](docs/integration-matrix.md) · [Security](SECURITY.md)
 
