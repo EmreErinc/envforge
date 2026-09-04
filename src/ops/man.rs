@@ -287,9 +287,8 @@ pub fn format_man_index(pages: &BTreeMap<String, ManPage>) -> String {
     out.push_str("\x1b[1mNAME\x1b[0m\n");
     out.push_str("       envforge - AI-safe environment variable manager\n\n");
     out.push_str("\x1b[1mDESCRIPTION\x1b[0m\n");
-    out.push_str("       EnvForge safely manages environment variables with 30+ AI safety\n");
-    out.push_str("       tools, 13 secret provider integrations, encrypted sync, and 130+\n");
-    out.push_str("       CLI commands.\n\n");
+    out.push_str("       EnvForge safely manages environment variables with 28 AI safety\n");
+    out.push_str("       tools, 13 secret provider integrations, and encrypted sync.\n\n");
     out.push_str("\x1b[1mCOMMANDS\x1b[0m\n\n");
 
     // Group by category, only show "envforge xxx" entries (not short aliases)

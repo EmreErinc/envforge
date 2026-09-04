@@ -142,21 +142,19 @@ fn test_canonical_counts_no_stale_values() {
     let man = read("src/ops/man.rs");
 
     // Canonical values must be present on the public surfaces.
+    // Tool count is the named row count in docs/index.html #tools (28), not 30+.
+    // Command counts (130+ / 100+) are not advertised — do not reintroduce them.
     assert!(
-        index.contains("30+ AI safety tools"),
-        "landing page lost canonical '30+ AI safety tools'"
+        index.contains("28 AI safety tools"),
+        "landing page lost canonical '28 AI safety tools'"
     );
     assert!(
-        index.contains("130+"),
-        "landing page lost canonical '130+' command count"
+        readme.contains("28 AI safety tools"),
+        "README lost canonical '28 AI safety tools'"
     );
     assert!(
-        readme.contains("30+ AI safety tools"),
-        "README lost canonical '30+ AI safety tools'"
-    );
-    assert!(
-        man.contains("30+ AI safety") && man.contains("130+"),
-        "man index lost canonical counts"
+        man.contains("28 AI safety"),
+        "man index lost canonical '28 AI safety'"
     );
 
     // Stale values must never reappear.
@@ -165,11 +163,17 @@ fn test_canonical_counts_no_stale_values() {
         ("docs/index.html", "<b>25</b>"),
         ("docs/index.html", "27 tools"),
         ("docs/index.html", "<b>27</b>"),
+        ("docs/index.html", "30+ AI safety"),
+        ("docs/index.html", "130+"),
         ("docs/index.html", "100+ command"),
         ("README.md", "25 AI safety"),
         ("README.md", "| 25 tools"),
+        ("README.md", "30+ AI safety"),
+        ("README.md", "130+"),
         ("src/ops/man.rs", "22 AI safety"),
+        ("src/ops/man.rs", "30+ AI safety"),
         ("src/ops/man.rs", "and 90+"),
+        ("src/ops/man.rs", "130+"),
     ];
     let mut hits = Vec::new();
     for (file, needle) in forbidden {
