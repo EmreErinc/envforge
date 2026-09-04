@@ -4,7 +4,7 @@ version = "1.0.2"
 edition = "2021"
 rust-version = "1.75"
 
-description = "AI-safe environment variable & secret manager with CLI, TUI, LSP, and MCP"
+description = "AI-safe environment variable & secret manager with CLI, TUI, and LSP (MCP server is optional, feature-gated)"
 license = "Elastic-2.0"
 repository = "https://github.com/emreerinc/envforge"
 homepage = "https://envforge.tech"
