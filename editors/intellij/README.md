@@ -1,44 +1,58 @@
 # EnvForge for IntelliJ IDEA
 
-Manage environment variables with schema validation, secret scanning, and multi-profile support — built to protect your secrets from AI coding agents.
+EnvForge is a Rust **CLI + TUI** for environment variables: **profiles** (dev / staging / prod), `.env.schema` validation, secret scanning, and encrypted sync. This plugin is the IntelliJ client for that binary.
 
 > Activates only in a **trusted project** — the language server and `envforge` binary don't start in an untrusted project.
 
-## Features
+## Core app (the CLI)
 
-### LSP (Language Server)
+```bash
+brew install emreerinc/tap/envforge
+# or
+cargo install env-forge-tui
+```
+
+Profiles, schema, TUI (`envforge` in a terminal), scan/doctor, fence (ignore/rules for configured AI tools — **not a sandbox**), guard, MCP config scan. `envforge mcp serve` is optional (`--features mcp-server`); default brew and GitHub binaries omit it.
+
+## What this plugin adds
+
+### LSP (Language Server) — needs the CLI + [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij)
+
 - **Diagnostics** — Missing required vars, type errors, secret leak warnings
-- **Hover** — Schema info: type, description, default, example, sensitive flag
-- **Completions** — All envforge-managed vars + schema keys + value suggestions (bool, enum, defaults)
-- **Go-to-definition** — Navigate from `.env` key to `.env.schema` section
+- **Hover** — Schema info: type, description, default, example, sensitive flag (values redacted)
+- **Completions** — EnvForge-managed vars + schema keys + value suggestions (bool, enum, defaults)
+- **Go-to-definition** — `.env` key → `.env.schema` section
 
 ### Tool Window (Sidebar)
+
 - **Variables panel** — Grouped by prefix (toggle grouping), masked sensitive values
 - **Profiles panel** — View all profiles, double-click to switch active profile
-- **Copy operations** — Right-click context menu: Copy Key Name, Copy Value, Copy KEY=VALUE
-- **Refresh button** — Manual refresh of variables and profiles
-- **Grouping toggle** — Switch between grouped and flat variable view
+- **Copy operations** — Right-click: Copy Key Name, Copy Value, Copy KEY=VALUE
+- **Refresh** and grouping toggle
 
 ### Actions (Tools > EnvForge)
+
 - List Variables, Switch Profile, Diff Profiles
 - Validate, Scan, Health Check, Run All Checks
 - Export (8 formats), Sync Push/Pull, Generate Schema
 
-### Status Bar
-- Variable count widget
+### Status bar & project view
 
-## Security Features
+- Variable count widget; fence shield indicator
+- Project-view file decorators; Fence Inactive inspection
+- Canary tripwire gutter icons
 
-- **Secret Fence** — ignore rules for Cursor, Copilot, and Claude so those tools are less likely to read `.env` files. Run `envforge fence` to activate. Fence shield indicator in the status bar. Not a sandbox.
-- **Value Redaction** — Sensitive values never appear in hover cards, completions, or diagnostics. All user-visible strings from env values are replaced with `***`.
-- **MCP Credential Warnings** — Inline diagnostics for hardcoded API keys and tokens in MCP server config files.
-- **AI-Guard Diagnostics** — Save-time prompt-injection scan on `.env` files. Detects canary token payloads and adversarial input patterns.
-- **Canary Tripwire Glyphs** — Gutter icons mark lines containing canary honeypot tokens.
+### Defense (CLI)
+
+- **Fence** — writes ignore/rules for configured AI tools. Status in the status bar. Not a sandbox.
+- **Value redaction** — sensitive values show as `***` in hover, completions, and diagnostics
+- **MCP credential warnings** — hardcoded keys/tokens in MCP config files
+- **Guard** — save-time prompt-injection / canary scan on `.env` files
 
 ## Requirements & Execution Modes
 
-- **Standalone Mode (Zero External Dependencies):** The plugin works out-of-the-box without downloading an external CLI binary for native syntax highlighting, file decorators, and sidebar UI.
-- **Full AI Security & LSP Validation Mode:** Auto-downloading via the welcome page or installing the CLI binary (`brew install emreerinc/tap/envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
+- **Standalone:** highlighting, file decorators, and sidebar UI without a binary.
+- **Full LSP / fence / profiles:** auto-download from the welcome page, or install the CLI with the tap above.
 
 ```bash
 # Optional manual terminal installation

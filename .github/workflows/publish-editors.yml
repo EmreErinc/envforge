@@ -1,0 +1,152 @@
+# Publish editor extensions to stores when their versions change.
+# CLI tags (v*) still only attach .vsix/.zip to GitHub Releases — they do not
+# republish the same plugin version to marketplaces.
+#
+# Required GitHub secrets (skip the matching job if unset):
+#   AZURE_CLIENT_ID + AZURE_TENANT_ID  — Entra ID app (OIDC → vsce --azure-credential)
+#   VSCE_PAT                           — PAT fallback until 1 Dec 2026 (ignored if Azure IDs are set)
+#   OVSX_PAT                           — Open VSX (optional; VSCodium / some Cursor installs)
+#   JETBRAINS_MARKETPLACE_TOKEN        — JetBrains Marketplace upload token
+#
+# Create GitHub Environment "marketplace" to match the Entra federated credential subject
+#   repo:<owner>/<repo>:environment:marketplace
+#
+# Manual run: Actions → Publish editor extensions → Run workflow
+
+name: Publish editor extensions
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which store(s) to publish
+        type: choice
+        options:
+          - all
+          - vscode
+          - intellij
+        default: all
+  push:
+    branches: [main, master]
+    paths:
+      - 'editors/vscode/package.json'
+      - 'editors/intellij/build.gradle.kts'
+      - '.github/workflows/publish-editors.yml'
+
+concurrency:
+  group: publish-editors-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  vscode:
+    name: VS Code Marketplace + Open VSX
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+        (github.event.inputs.target == 'all' || github.event.inputs.target == 'vscode'))
+    steps:
+      - uses: actions/checkout@v7
+        if: ${{ secrets.AZURE_CLIENT_ID != '' || secrets.VSCE_PAT != '' || secrets.OVSX_PAT != '' }}
+
+      - uses: actions/setup-node@v7
+        if: ${{ secrets.AZURE_CLIENT_ID != '' || secrets.VSCE_PAT != '' || secrets.OVSX_PAT != '' }}
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        if: ${{ secrets.AZURE_CLIENT_ID != '' || secrets.VSCE_PAT != '' || secrets.OVSX_PAT != '' }}
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Login to Azure (GitHub OIDC)
+        if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Publish to Visual Studio Marketplace (Entra ID)
+        if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' }}
+        working-directory: editors/vscode
+        run: npx --yes @vscode/vsce@3 publish --azure-credential --skip-duplicate
+
+      - name: Publish to Visual Studio Marketplace (PAT fallback)
+        if: ${{ (secrets.AZURE_CLIENT_ID == '' || secrets.AZURE_TENANT_ID == '') && secrets.VSCE_PAT != '' }}
+        working-directory: editors/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --skip-duplicate
+
+      - name: Skip Visual Studio Marketplace
+        if: ${{ (secrets.AZURE_CLIENT_ID == '' || secrets.AZURE_TENANT_ID == '') && secrets.VSCE_PAT == '' }}
+        run: echo '::notice::Set AZURE_CLIENT_ID + AZURE_TENANT_ID (OIDC) or VSCE_PAT; skipping Marketplace publish.'
+
+      - name: Publish to Open VSX
+        if: ${{ secrets.OVSX_PAT != '' }}
+        working-directory: editors/vscode
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx publish --skip-duplicate
+
+      - name: Skip Open VSX
+        if: ${{ secrets.OVSX_PAT == '' }}
+        run: echo '::notice::OVSX_PAT secret is not set; skipping Open VSX publish.'
+
+  intellij:
+    name: JetBrains Marketplace
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+        (github.event.inputs.target == 'all' || github.event.inputs.target == 'intellij'))
+    steps:
+      - uses: actions/checkout@v7
+        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+
+      - uses: actions/setup-java@v6
+        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Skip JetBrains Marketplace
+        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN == '' }}
+        run: echo '::notice::JETBRAINS_MARKETPLACE_TOKEN secret is not set; skipping JetBrains publish.'
+
+      - name: Publish to JetBrains Marketplace
+        if: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN != '' }}
+        working-directory: editors/intellij
+        env:
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+        shell: bash
+        run: |
+          set +e
+          ./gradlew publishPlugin --no-daemon 2>&1 | tee /tmp/ij-publish.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          # Duplicate version is not a failure — bump build.gradle.kts version to ship again.
+          if grep -Eqi 'already (uploaded|published|exists)|version already' /tmp/ij-publish.log; then
+            echo '::notice::JetBrains already has this plugin version; skipping.'
+            exit 0
+          fi
+          exit "$status"

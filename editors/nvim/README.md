@@ -1,10 +1,18 @@
 # EnvForge — Neovim plugin
 
-First-party Neovim integration for [EnvForge](../../). Layers native UI on top of
-`envforge lsp` and the CLI: LSP diagnostics/hover/completion, an AI-exposure
-heatmap in the sign column, a statusline indicator, and a fence-toggle command.
+First-party Neovim client for [EnvForge](../../): a Rust **CLI + TUI** for env
+**profiles** (dev / staging / prod), `.env.schema`, and secret scanning.
 
-**Requires:** Neovim **0.10+** and the `envforge` binary on `PATH`.
+This plugin is a thin layer on `envforge lsp` and the CLI: diagnostics/hover/completion,
+an exposure heatmap in the sign column, a statusline indicator, and fence commands.
+It does not reimplement EnvForge logic.
+
+**Requires:** Neovim **0.10+** and the `envforge` binary on `PATH`
+(`brew install emreerinc/tap/envforge` or `cargo install env-forge-tui`).
+
+Fence writes ignore/rules for configured AI tools; it is **not a sandbox**.
+`envforge mcp serve` is optional (`--features mcp-server`) and is not in the
+default brew/GitHub binaries.
 
 ## Install
 
@@ -27,25 +35,20 @@ require("envforge").setup({
 })
 ```
 
-## Features
+## What this plugin adds
 
-- **LSP** — auto-starts `envforge lsp` for `.env*` and source files (TS/JS/Py/Rust/Go/…),
-  giving schema completion, hover with provenance, diagnostics, MCP-config credential
-  warnings, and the `envforge/*` custom requests.
+- **LSP** — auto-starts `envforge lsp` for `.env*` and source files (TS/JS/Py/Rust/Go/…):
+  schema completion, hover (values redacted), diagnostics, MCP-config credential
+  warnings, and `envforge/*` custom requests.
 - **Exposure heatmap** — red/amber/green signs per env-var line (shield glyph for
   canary tripwires), from `envforge exposure <file>`. Refreshes on read/save.
-- **Statusline** — `12 vars · AI BLOCKED`. Add to your statusline:
+- **Statusline** — e.g. `12 vars · AI BLOCKED` when fence is active (fence ≠ sandbox). Add to your statusline:
   ```lua
   vim.o.statusline = "%{v:lua.require'envforge'.statusline()}"
   ```
   or in lualine: `sections.lualine_x = { require("envforge").statusline }`.
 - **Commands** — `:EnvForgeFence`, `:EnvForgeFenceToggle`, `:EnvForgeStatus`.
 
-## Design
-
-This plugin is a **thin client**: every decision (fence state, exposure level,
-diagnostics) comes from the EnvForge binary. It re-implements no logic — parity
-with the VS Code / IntelliJ plugins is guaranteed because all three consume the
-same LSP behavior and CLI JSON (see `docs/ide-behavior-contract.md`).
-
 No custom UI beyond what Neovim natively supports (signs, statusline, commands).
+Parity with VS Code / IntelliJ comes from the same LSP and CLI JSON
+(see `docs/ide-behavior-contract.md`).

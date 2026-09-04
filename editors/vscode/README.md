@@ -1,38 +1,51 @@
 # EnvForge for VS Code
 
-Manage environment variables with schema validation, secret scanning, and multi-profile support — built to protect your secrets from AI coding agents.
+EnvForge is a Rust **CLI + TUI** for environment variables: **profiles** (dev / staging / prod), `.env.schema` validation, secret scanning, and encrypted sync. This extension is the VS Code client for that binary.
 
 > Activates only in a **trusted workspace** — the language server and `envforge` binary don't start in an untrusted workspace.
 
-## Features
+## Core app (the CLI)
 
-- **Diagnostics** — Missing required vars, type errors, secret leak warnings
-- **Hover** — Schema info: type, description, default, example, sensitive flag
-- **Completions** — Key names from `.env.schema` (only missing keys suggested)
-- **Go-to-definition** — Click a key in `.env` to jump to its `.env.schema` section
-- **Syntax highlighting** — `.env` and `.env.schema` files
-- **50+ commands** — Validate, scan, export, sync, profile switch, health check, plus the security suite (fence, guard, MCP scan, canary, volatile sessions, audit-logged reveal, lifecycle)
-- **Status bar** — Variable count, auto-refreshes
-
-## Security Features
-
-- **Secret Fence** — ignore rules for Cursor, Copilot, and Claude so those tools are less likely to read `.env` files. Run `envforge fence` to activate. Status indicator in the status bar. Not a sandbox.
-- **Value Redaction** — Sensitive values never appear in hover cards, completions, or diagnostics. All user-visible strings from env values are replaced with `***`.
-- **MCP Credential Warnings** — Inline diagnostics for hardcoded API keys and tokens in MCP server config files (`.cursor/mcp.json`, `.claude/settings.json`).
-- **AI-Guard Diagnostics** — Save-time prompt-injection scan on `.env` files. Detects canary token payloads and adversarial input patterns.
-- **Canary Tripwire Glyphs** — Gutter icons mark lines containing canary honeypot tokens. Green = untouched, Red = triggered.
-
-## Requirements & Execution Modes
-
-- **Standalone Mode (Zero External Dependencies):** The extension works out-of-the-box without downloading an external CLI binary for native syntax highlighting, file decorators, and sidebar UI.
-- **Full AI Security & LSP Validation Mode:** Auto-downloading via the welcome page or installing the CLI binary (`brew install emreerinc/tap/envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
+Install once, use in the terminal and in this extension:
 
 ```bash
-# Optional manual terminal installation
 brew install emreerinc/tap/envforge
-# OR
+# or
 cargo install env-forge-tui
 ```
+
+| Core capability | What it is |
+|-----------------|------------|
+| Profiles | Switch and diff named env sets (dev / staging / prod) |
+| Schema | `.env.schema` types, required keys, examples |
+| TUI | `envforge` full-screen manager in the terminal |
+| Scan / doctor | Secret-leak scan and health check |
+| Fence | Writes ignore/rules for **configured** AI tools. Not a sandbox. |
+| Guard | Prompt-injection / canary scan on save (via LSP) |
+| MCP scan | Warns on hardcoded credentials in MCP config files |
+| `mcp serve` | Optional (`--features mcp-server`). Default brew and GitHub binaries do **not** include it. |
+
+Linux and macOS. Source-available (Elastic License 2.0).
+
+## What this extension adds
+
+### Without the CLI (standalone)
+
+Syntax highlighting for `.env` / `.env.schema`, file icons, sidebar chrome, and schema file templates. No live diagnostics until the CLI is present.
+
+### With the CLI
+
+- **LSP** — missing required vars, type errors, secret-leak warnings; hover (schema metadata, values redacted); completions; go-to-definition (`.env` key → `.env.schema`)
+- **Sidebars** — Variables (prefix grouping), Profiles (click to switch), Security dashboard
+- **Status bar** — variable count; fence indicator
+- **Gutter** — exposure heatmap; canary tripwire glyphs (untouched vs triggered)
+- **Commands** — validate, scan, export, sync, profile switch/diff, doctor, fence/guard, canary, volatile session, audit-logged reveal, lifecycle
+- **Redaction** — sensitive values show as `***` in hover, completions, and diagnostics
+
+## Requirements & execution modes
+
+- **Standalone:** highlighting, decorators, and sidebar UI without a binary.
+- **Full LSP / fence / profiles:** auto-download from the welcome page, or install the CLI with the tap above.
 
 ## Installation
 

@@ -1,16 +1,20 @@
 # EnvForge — Zed extension
 
-First-party [EnvForge](../../) integration for [Zed](https://zed.dev): registers
-the EnvForge **LSP** (diagnostics, hover provenance, completion, MCP-config
-credential warnings) and the read-safe **MCP context server** (`envforge mcp
-serve`) so Zed's AI assistant gets env metadata without reading secrets.
+First-party [EnvForge](../../) client for [Zed](https://zed.dev). EnvForge is a
+Rust **CLI + TUI** for env **profiles**, `.env.schema` validation, and secret
+scanning. This extension registers the **LSP** only — no sidebar, gutter, or
+status bar (Zed WASM API limit; Draft RFC #53403).
 
-**No custom status-bar/gutter UI** — Zed's extension API (WASM) does not yet
-support it (Draft RFC #53403). EnvForge therefore reaches Zed via LSP + MCP. If
-Zed ships its Visual Extension API, a native exposure heatmap can follow.
+**Requires:** `envforge` on PATH (`brew install emreerinc/tap/envforge` or
+`cargo install env-forge-tui`).
 
-**Requires:** `envforge` on PATH (LSP + the `mcp-server` feature build for the
-MCP context server).
+The **MCP context server** (`envforge mcp serve`) is registered only if your
+binary was built with `--features mcp-server`. Default brew and GitHub
+binaries do **not** include it. When present it exposes `list_keys` +
+`describe_schema` (redacted, audited, never raw values).
+
+Fence (`envforge fence`) is a CLI command: it writes ignore/rules for configured
+AI tools (including files Zed honors such as `AGENTS.md`). Not a sandbox.
 
 ## Install (dev)
 
@@ -20,16 +24,14 @@ MCP context server).
 
 ## What you get
 
-- LSP for `.env*` (and the `envforge/*` custom requests).
-- `envforge-mcp` context server available to Zed's assistant — `list_keys` +
-  `describe_schema`, redacted, audited, never raw values.
-- The fence (`envforge fence`) writes the rules-chain files Zed honors
-  (`AGENTS.md` canonical), so fencing Zed works from the CLI today.
+- LSP for `.env*` (diagnostics, hover, completion, MCP-config credential warnings,
+  `envforge/*` custom requests).
+- Optional `envforge-mcp` context server if the CLI has `mcp-server`.
+- No native heatmap/status UI until Zed ships a richer extension API.
 
 ## Notes
 
 - `src/lib.rs` targets `zed_extension_api = "0.2"`. Zed's extension API evolves —
   verify the `language_server_command` / `context_server_command` signatures
   against the release you build with.
-- Thin client: no business logic here (parity, FR22 — see
-  `docs/ide-behavior-contract.md`).
+- Thin client: no business logic here (see `docs/ide-behavior-contract.md`).

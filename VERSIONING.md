@@ -60,8 +60,10 @@ Each release includes:
 
 | Channel | Update Frequency |
 |---------|-----------------|
-| GitHub Releases | Every tag |
-| `cargo install env-forge-tui` | Every tag (crates.io) |
+| GitHub Releases | Every CLI tag (`v*`) |
+| `cargo install env-forge-tui` | Every tag (crates.io, still manual `cargo publish`) |
+| VS Code Marketplace + Open VSX | Plugin version bump on `main` (`.github/workflows/publish-editors.yml`; Entra OIDC: `AZURE_CLIENT_ID` + `AZURE_TENANT_ID`, or PAT fallback `VSCE_PAT` until 1 Dec 2026; optional `OVSX_PAT`) |
+| JetBrains Marketplace | Plugin version bump on `main` (needs `JETBRAINS_MARKETPLACE_TOKEN`) |
 
 ## Stability Guarantees
 

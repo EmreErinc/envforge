@@ -41,7 +41,11 @@ tasks {
         untilBuild.set("262.*")
     }
     publishPlugin {
-        token.set(providers.gradleProperty("intellijPublishToken"))
+        // CI sets JETBRAINS_MARKETPLACE_TOKEN. Local: -PintellijPublishToken=...
+        token.set(
+            providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
+                .orElse(providers.gradleProperty("intellijPublishToken")),
+        )
     }
 }
 

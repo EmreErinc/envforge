@@ -5,18 +5,23 @@
     <vendor email="emre_erinc@hotmail.com" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[
-<p><b>EnvForge — AI-Safe Environment Manager.</b> Manage environment variables with schema
-validation, secret scanning, and multi-profile support — built to protect your secrets from
-AI coding agents.</p>
+<p><b>EnvForge</b> is a Rust CLI + TUI for environment variables: named <b>profiles</b>
+(dev / staging / prod), <code>.env.schema</code> validation, secret scanning, and encrypted
+sync. This plugin is the IntelliJ client for that binary.</p>
+<p><b>In the IDE</b></p>
 <ul>
-<li><b>Diagnostics</b> — Missing required vars, type errors, secret leak warnings</li>
-<li><b>Hover &amp; Completions</b> — Schema info (type, description, default, example) and key-name completion</li>
-<li><b>Go-to-definition</b> — Jump from a .env key to its .env.schema entry, and from source code that reads env vars</li>
-<li><b>AI Safety</b> — Fence blocks AI agents from reading env files; Guard detects prompt injection; canary tripwires; audit-logged value reveal; volatile (short-lived) sessions</li>
-<li><b>Security Dashboard</b> — Fence, Guard, MCP config scan, canary tokens, lifecycle &amp; audit trail</li>
-<li><b>Workflow</b> — Validate, scan, export (8 formats), sync, profile switch, health check</li>
+<li><b>Tool window</b> — variables (prefix grouping, values masked) and profiles (double-click to switch)</li>
+<li><b>LSP</b> — diagnostics, hover, completions, go-to-definition (.env key → schema, and from source that reads env vars)</li>
+<li><b>Status bar</b> — variable count and fence indicator</li>
+<li><b>Project view</b> — file decorators; Fence Inactive inspection</li>
+<li><b>Workflow</b> — validate, scan, export, sync, doctor, generate schema</li>
 </ul>
-<p>Activates only in a trusted project. Requires the <code>envforge</code> CLI: <code>cargo install env-forge-tui</code>.</p>
+<p><b>Defense (needs the CLI)</b> — fence writes ignore/rules for configured AI tools (not a sandbox);
+guard scans on save; MCP config credential warnings; canary gutter icons; audit-logged reveal;
+volatile sessions. <code>envforge mcp serve</code> is optional and not in the default brew/GitHub binaries.</p>
+<p>Standalone mode: highlighting and sidebar without a binary. Full LSP and profiles:
+<code>brew install emreerinc/tap/envforge</code> or <code>cargo install env-forge-tui</code>.
+Activates only in a trusted project. Language server uses LSP4IJ.</p>
   ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

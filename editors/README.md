@@ -1,6 +1,6 @@
 # EnvForge IDE Extensions
 
-EnvForge provides IDE integration through a built-in Language Server Protocol (LSP) server and editor-specific extensions.
+EnvForge is a Rust CLI + TUI for environment variables (profiles, `.env.schema`, secret scanning). Editor plugins are thin clients of `envforge lsp` and the CLI.
 
 ## Architecture
 
@@ -11,6 +11,8 @@ envforge lsp (Rust binary, stdio transport)
 ```
 
 Both editors share the same LSP server. Same diagnostics, hover, completions, and go-to-definition everywhere. Plugin packages are versioned separately from the CLI (plugins **0.2.2**, CLI **1.0.2**).
+
+Store publish is **not** tied to CLI tags. Bump the plugin version on `main` and [publish-editors.yml](../.github/workflows/publish-editors.yml) sends VS Code Marketplace (and Open VSX if `OVSX_PAT` is set) plus JetBrains Marketplace. Neovim and Zed have no equivalent token publish (Zed goes through the `zed-industries/extensions` repo).
 
 ## Language Server
 

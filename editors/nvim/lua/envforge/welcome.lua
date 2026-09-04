@@ -7,7 +7,7 @@ local tips = {
     code = "envforge doctor"
   },
   {
-    desc = "EnvForge can prevent AI coding agents (Cursor, Copilot, Claude Code, Windsurf) from reading raw credentials in your workspace:",
+    desc = "Fence writes ignore/rules for configured AI tools so they are less likely to ingest .env files. Not a sandbox:",
     code = "envforge fence"
   },
   {
@@ -15,7 +15,7 @@ local tips = {
     code = "envforge run --volatile -- npm start"
   },
   {
-    desc = "Scan AI tool configuration files (Cursor, Claude, Windsurf) for hardcoded plaintext credentials:",
+    desc = "Scan MCP config files for hardcoded credentials:",
     code = "envforge mcp status"
   },
   {
@@ -63,7 +63,7 @@ function M.show_welcome()
     "==================================================",
     "",
     "Welcome to EnvForge!",
-    "AI-native environment security and secret management.",
+    "Profiles, .env.schema, and a TUI — this plugin adds LSP, signs, and fence commands.",
     "",
   }
   for _, l in ipairs(install_lines) do

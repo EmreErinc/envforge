@@ -3,18 +3,17 @@ name = "EnvForge"
 version = "0.2.0"
 schema_version = 1
 authors = ["EnvForge"]
-description = "AI-safe environment & secrets: EnvForge LSP diagnostics + read-safe MCP server."
-repository = "https://github.com/envforge/envforge"
+description = "EnvForge LSP for .env files: profiles, schema diagnostics, hover, and completions. No gutter or status bar (Zed API). MCP context server only if the CLI has mcp-server."
+repository = "https://github.com/emreerinc/envforge"
 
-# EnvForge speaks LSP — Zed gets schema completion, hover provenance,
-# diagnostics, MCP-config credential warnings, and the envforge/* requests.
-# (Native status-bar/gutter UI is not possible via Zed's extension API yet —
-# Draft RFC #53403 — so this is LSP + MCP only, per Architecture D8.)
+# EnvForge speaks LSP — Zed gets schema completion, hover,
+# diagnostics, MCP-config credential warnings, and envforge/* requests.
+# Native status-bar/gutter UI is not possible via Zed's extension API yet
+# (Draft RFC #53403). MCP context server needs a CLI built with mcp-server.
 [language_servers.envforge]
 name = "EnvForge"
 languages = ["Dotenv"]
 
-# Read-safe MCP server (`envforge mcp serve`): exposes env-var key names +
-# schema metadata to Zed's AI assistant through a guarded, audited channel —
-# never raw secret values (Epic 2).
+# Read-safe MCP server (`envforge mcp serve`): optional feature-gated binary.
+# Exposes key names + schema metadata — never raw secret values.
 [context_servers.envforge-mcp]

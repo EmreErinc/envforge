@@ -337,7 +337,7 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
             <div class="logo-title">envforge</div>
             <h1 class="welcome-heading">Welcome to EnvForge</h1>
             <p class="description">
-                AI-native environment security and secret management system. Protect secrets from AI coding agents, enforce schema validation, and manage multi-profile environment variables.
+                Environment manager with profiles (dev / staging / prod), .env.schema validation, and a TUI in the terminal. This plugin adds a tool window and LSP; fence/guard need the CLI.
             </p>
         </div>
 
@@ -361,7 +361,7 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
         </div>
 
         <div class="card">
-            <h2 class="card-title">⚡ Standalone Mode (Without CLI App)</h2>
+            <h2 class="card-title">Standalone (without CLI)</h2>
             <p class="card-desc">You can use EnvForge natively inside your IDE without downloading any external CLI binary:</p>
             <ul style="margin: 8px 0 8px 18px; padding: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
                 <li><b>Native Syntax Highlighting:</b> Built-in colorizer for <code style="color: var(--accent-light);">.env</code> and <code style="color: var(--accent-light);">.env.schema</code> files.</li>
@@ -371,14 +371,14 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
         </div>
 
         <div class="card">
-            <h2 class="card-title">🚀 Full AI Security & LSP Validation (With CLI / Auto-Download)</h2>
-            <p class="card-desc">Downloading the binary or installing via <code style="color: var(--accent-light);">cargo install env-forge-tui</code> unlocks advanced capabilities:</p>
+            <h2 class="card-title">With the EnvForge CLI</h2>
+            <p class="card-desc">Downloading the binary or installing via <code style="color: var(--accent-light);">brew install emreerinc/tap/envforge</code> / <code style="color: var(--accent-light);">cargo install env-forge-tui</code> unlocks:</p>
             <ul style="margin: 8px 0 8px 18px; padding: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
                 <li><b>Real-Time LSP Diagnostics:</b> Inline error checking, type validation, and enum enforcement.</li>
-                <li><b>AI Agent Protection (Fence & Guard):</b> Block AI coding agents (Cursor, Copilot, Claude Code, Windsurf) from reading plaintext credentials.</li>
-                <li><b>Hover Cards & Auto-Completion:</b> Instant schema metadata, default values, and key completion.</li>
+                <li><b>Fence &amp; Guard:</b> Fence writes ignore/rules for configured AI tools (not a sandbox). Guard scans .env on save.</li>
+                <li><b>Hover Cards &amp; Auto-Completion:</b> Instant schema metadata, default values, and key completion.</li>
                 <li><b>Multi-Profile Switching:</b> Double-click to switch between <code style="color: var(--accent-light);">dev</code>, <code style="color: var(--accent-light);">staging</code>, and <code style="color: var(--accent-light);">prod</code> profiles.</li>
-                <li><b>Terminal TUI Dashboard & Exports:</b> Full-screen TUI (<code style="color: var(--accent-light);">envforge</code>) + export to Docker, K8s, Terraform.</li>
+                <li><b>Terminal TUI &amp; Exports:</b> Full-screen TUI (<code style="color: var(--accent-light);">envforge</code>) + export to Docker, K8s, Terraform.</li>
             </ul>
         </div>
 
@@ -416,7 +416,7 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
                 code: "envforge doctor"
             },
             {
-                desc: "EnvForge can prevent AI coding agents (Cursor, Copilot, Claude Code, Windsurf) from reading raw credentials in your workspace:",
+                desc: "Fence writes ignore/rules for configured AI tools so they are less likely to ingest .env files. Not a sandbox:",
                 code: "envforge fence"
             },
             {
@@ -424,7 +424,7 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
                 code: "envforge run --volatile -- npm start"
             },
             {
-                desc: "Scan AI tool configuration files (Cursor, Claude, Windsurf) for hardcoded plaintext credentials:",
+                desc: "Scan MCP config files for hardcoded credentials:",
                 code: "envforge mcp status"
             },
             {
@@ -471,7 +471,7 @@ class EnvForgeWelcomePanel(private val project: Project) : JPanel(BorderLayout()
         val title = JLabel("ENVFORGE: WELCOME").apply {
             font = font.deriveFont(Font.BOLD, 18f)
         }
-        val desc = JLabel("<html>AI-native environment security and secret management system.<br>Requires the EnvForge CLI. Run: <b>cargo install env-forge-tui</b></html>").apply {
+        val desc = JLabel("<html>Profiles, .env.schema, and a TUI in the terminal.<br>This plugin adds a tool window and LSP. CLI: <b>brew install emreerinc/tap/envforge</b> or <b>cargo install env-forge-tui</b></html>").apply {
             font = font.deriveFont(Font.PLAIN, 13f)
         }
 
