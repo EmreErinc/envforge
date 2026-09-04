@@ -148,7 +148,7 @@ jobs:
             exit 0
           fi
           # Duplicate version is not a failure — bump build.gradle.kts version to ship again.
-          if grep -Eqi 'already (uploaded|published|exists)|version already' /tmp/ij-publish.log; then
+          if grep -Eqi 'already contains version|already (uploaded|published|exists)|version already' /tmp/ij-publish.log; then
             echo '::notice::JetBrains already has this plugin version; skipping.'
             exit 0
           fi
