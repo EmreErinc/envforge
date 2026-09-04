@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.envforge.ide</id>
     <name>EnvForge - AI-Safe Environment Manager</name>
-    <version>0.2.2</version>
+    <version>0.3.0</version>
     <vendor email="emre_erinc@hotmail.com" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[

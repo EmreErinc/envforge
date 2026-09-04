@@ -66,7 +66,7 @@ cd editors/vscode
 npm install
 npm run bundle
 npx vsce package --allow-missing-repository
-code --install-extension envforge-env-manager-0.2.2.vsix
+code --install-extension envforge-env-manager-0.3.0.vsix
 ```
 
 ### From source (development)

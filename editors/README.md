@@ -10,7 +10,7 @@ envforge lsp (Rust binary, stdio transport)
     └── IntelliJ Plugin (Kotlin, via LSP4IJ)
 ```
 
-Both editors share the same LSP server. Same diagnostics, hover, completions, and go-to-definition everywhere. Plugin packages are versioned separately from the CLI (plugins **0.2.2**, CLI **1.0.2**).
+Both editors share the same LSP server. Same diagnostics, hover, completions, and go-to-definition everywhere. Plugin packages are versioned separately from the CLI (plugins **0.3.0**, CLI **1.0.2**).
 
 Store publish is **not** tied to CLI tags. Bump the plugin version on `main` and [publish-editors.yml](../.github/workflows/publish-editors.yml) sends VS Code Marketplace (and Open VSX if `OVSX_PAT` is set) plus JetBrains Marketplace. Neovim and Zed have no equivalent token publish (Zed goes through the `zed-industries/extensions` repo).
 

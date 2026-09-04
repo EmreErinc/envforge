@@ -1,6 +1,6 @@
 id = "envforge"
 name = "EnvForge"
-version = "0.2.0"
+version = "0.3.0"
 schema_version = 1
 authors = ["EnvForge"]
 description = "EnvForge LSP for .env files: profiles, schema diagnostics, hover, and completions. No gutter or status bar (Zed API). MCP context server only if the CLI has mcp-server."

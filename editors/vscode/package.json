@@ -1,7 +1,7 @@
 {
   "publisher": "emreerinc",
   "name": "envforge-env-manager",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "displayName": "EnvForge - AI-Safe Environment Manager",
   "description": "Env profiles, .env.schema validation, and a variables sidebar. LSP diagnostics plus fence/guard when the EnvForge CLI is installed.",
   "license": "Elastic-2.0",

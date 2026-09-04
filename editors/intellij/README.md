@@ -96,12 +96,12 @@ cd editors/intellij
 ./gradlew buildPlugin
 
 # The plugin ZIP will be at:
-# build/distributions/envforge-intellij-0.2.2.zip
+# build/distributions/envforge-intellij-0.3.0.zip
 ```
 
 Install manually:
 1. Open **Settings** > **Plugins** > gear icon > **Install Plugin from Disk...**
-2. Select `build/distributions/envforge-intellij-0.2.2.zip`
+2. Select `build/distributions/envforge-intellij-0.3.0.zip`
 3. Restart IDE
 
 ### Run in development mode
