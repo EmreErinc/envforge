@@ -570,7 +570,7 @@ pub enum Commands {
         action: LeaseAction,
     },
 
-    /// Manage canary secrets (honeypot credentials for exfiltration detection)
+    /// Manage canary secrets (honeypot credentials that alert when the fake value is seen)
     Canary {
         #[command(subcommand)]
         action: CanaryAction,

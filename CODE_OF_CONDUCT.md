@@ -59,10 +59,11 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported privately by emailing security@envforge.dev, or by opening a GitHub
+reported privately by emailing emre_erinc@hotmail.com, or by opening a GitHub
 issue at
 [https://github.com/emreerinc/envforge/issues](https://github.com/emreerinc/envforge/issues)
-(use a private security advisory if the report itself should not be public).
+(use a [private security advisory](https://github.com/emreerinc/envforge/security/advisories/new)
+if the report itself should not be public).
 
 All complaints will be reviewed and investigated promptly and fairly.
 

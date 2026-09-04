@@ -33,6 +33,7 @@
 
 **Boundary 3: envforge process → Filesystem**
 - Storage: `~/.config/envforge/credentials.toml` (age-encrypted, 0600)
+- Storage: `~/.config/envforge/secrets-cache/*.cache` (TOML; `value` fields age-encrypted, 0600)
 - Storage: `~/.config/envforge/audit.jsonl` (append-only, 0600, 10MB rotation)
 - Storage: `~/.config/envforge/age.key` (0600, O_NOFOLLOW read)
 - Threat: Disk access by same-uid process, backup exfiltration
@@ -102,7 +103,7 @@
 
 1. **AI tools reading .env files** (Fence: ignore/deny rules for Claude, Cursor, Copilot)
 2. **AI prompt injection leaking secrets** (AI Guard: pre/post-tool scanning with adversarial hardening)
-3. **Secret exfiltration by AI agents** (Canary tokens: honey-token detection with forensic payloads)
+3. **Honeypot canaries** (alert when a planted fake value appears in scanned tool output, logs, or files; v2 tokens carry a forensic payload. Does not watch the network.)
 4. **Shell history exposure** (Argv blocking + HISTFILE suppression in provider subprocesses)
 5. **Process listing exposure** (Secrets piped via stdin/tempfile, not argv)
 6. **Core dump exposure** (Core dumps disabled at process start)
@@ -134,7 +135,7 @@
 
 ## Vulnerability Reporting
 
-Report security vulnerabilities to the project maintainer. Do not open public issues.
+Report security vulnerabilities to emre_erinc@hotmail.com or via [GitHub Security Advisories](https://github.com/emreerinc/envforge/security/advisories/new). Do not open public issues.
 Responsible disclosure process:
 1. Contact: [GitHub issues](https://github.com/emreerinc/envforge/issues) (use a private security advisory if the report should not be public)
 2. Expected response: within 48 hours

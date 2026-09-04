@@ -2887,7 +2887,7 @@ envforge revoke --all --dry-run
 
 ### envforge canary create
 
-Create a canary secret (honeypot credential for exfiltration detection).
+Create a canary secret (honeypot credential that alerts when the fake value is seen in scanned output).
 
 ```
 Usage: envforge canary create [OPTIONS] <KEY>
@@ -3977,7 +3977,7 @@ envforge analytics prune --before 2026-01-01T00:00:00Z --json
 
 ### envforge envbom emit
 
-Generate a cryptographically-signed ENV-BOM for reproducible environment attestation.
+Generate an ENV-BOM (SHA-256 digest of canonical JSON, not a signature) for reproducible environment attestation.
 
 ```
 Usage: envforge envbom emit [OPTIONS]
@@ -6170,7 +6170,7 @@ envforge session stop
 
 ### envforge canary
 
-Manage canary secrets (honeypot credentials for exfiltration detection).
+Manage canary secrets (honeypot credentials that alert when the fake value is seen in scanned output).
 
 ```
 Usage: envforge canary [OPTIONS] <COMMAND>
@@ -6180,7 +6180,7 @@ Usage: envforge canary [OPTIONS] <COMMAND>
 
 - `create <KEY>`: Create a new canary secret with a fake value
 - `list`: List all registered canary secrets
-- `check`: Check if any canary tokens have been triggered (exfiltrated)
+- `check`: Check if any canary tokens have been triggered (fake value seen in scanned output)
 - `scan --input <FILE>`: Scan a log, file, or stdin for known canary tokens
 - `mint-v2`: Mint a forensic v2 canary token (HMAC-encoded)
 

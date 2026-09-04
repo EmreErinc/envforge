@@ -10,7 +10,7 @@ envforge lsp (Rust binary, stdio transport)
     └── IntelliJ Plugin (Kotlin, via LSP4IJ)
 ```
 
-Both editors share the same LSP server. Same diagnostics, hover, completions, and go-to-definition everywhere.
+Both editors share the same LSP server. Same diagnostics, hover, completions, and go-to-definition everywhere. Plugin packages are versioned separately from the CLI (plugins **0.2.2**, CLI **1.0.2**).
 
 ## Language Server
 

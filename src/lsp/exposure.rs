@@ -95,7 +95,7 @@ pub fn compute_exposure_map(
         let canary = canary_keys.contains(&entry.key);
         if canary {
             reason.push_str(
-                " Canary tripwire registered — any exfiltration of this value triggers an alert.",
+                " Canary tripwire registered — an alert fires if this fake value appears in scanned tool output, logs, or files.",
             );
         }
 

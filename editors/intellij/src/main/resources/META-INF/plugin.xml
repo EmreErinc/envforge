@@ -2,7 +2,7 @@
     <id>com.envforge.ide</id>
     <name>EnvForge - AI-Safe Environment Manager</name>
     <version>0.2.2</version>
-    <vendor email="emre@envforge.dev" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
+    <vendor email="emre_erinc@hotmail.com" url="https://github.com/emreerinc/envforge">Emre Erinc</vendor>
 
   <description><![CDATA[
 <p><b>EnvForge — AI-Safe Environment Manager.</b> Manage environment variables with schema

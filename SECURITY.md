@@ -5,7 +5,7 @@
 If you discover a security vulnerability in EnvForge, please report it responsibly:
 
 1. **Do NOT** open a public GitHub issue
-2. Email: security@envforge.dev (or use GitHub Security Advisories)
+2. Email: emre_erinc@hotmail.com (or use [GitHub Security Advisories](https://github.com/emreerinc/envforge/security/advisories/new))
 3. Include: description, reproduction steps, potential impact
 4. We aim to respond within 48 hours
 
@@ -28,7 +28,7 @@ If you discover a security vulnerability in EnvForge, please report it responsib
 - **Terminal history** — CLI commands with values may appear in shell history
 - **Clipboard** — Copied values are in system clipboard (not cleared automatically)
 - **CLI binary integrity** — EnvForge does not verify GPG signatures of provider CLIs. A compromised binary in PATH could exfiltrate secrets. Verify binary integrity yourself.
-- **Cache on disk** — Secret cache files are encrypted at rest with 0600 permissions, but are plaintext TOML within the file. Protect your home directory.
+- **Cache on disk** — Secret cache files (`~/.config/envforge/secrets-cache/*.cache`) are TOML whose `value` fields are age-encrypted (`ENC[age:...]`) with 0600 permissions. Legacy plaintext caches are treated as a miss and removed. Anyone with the age key can decrypt them, same as `credentials.toml`.
 - **ARGV bypass in debug builds** — `ENVFORGE_UNSAFE_ARGV=*` disables secret detection in debug builds only. This path is audited at `Critical` severity and rejected in release builds. The old `ENVFORGE_UNSAFE_ARGV=1` format is blocked entirely.
 
 ### Encryption Details
@@ -36,7 +36,7 @@ If you discover a security vulnerability in EnvForge, please report it responsib
 - Algorithm: X25519 (via `age` crate, `plugin` feature disabled)
 - Key storage: `~/.config/envforge/age.key` with `0600` permissions (auto-corrected if permissive). Override via `ENVFORGE_AGE_KEY` (inline) or `ENVFORGE_AGE_KEY_FILE` (custom path).
 - Recovery key: `~/.config/envforge/age-recovery.key` — generated on first run, store offline.
-- Encrypted format: `ENC[age:base64data]` stored in shell files and credentials
+- Encrypted format: `ENC[age:base64data]` stored in shell files, credentials, and the secrets cache (`value` field)
 - Key generation: Automatic on first `encrypt` command; auto-generated keypair with explicit permission hardening
 - Credential encryption: Mandatory by construction for all providers except those with explicit `NotSupported` justification
 - RUSTSEC-2024-0433 mitigation: `age` crate compiled without `plugin` feature; arbitrary code execution vector eliminated
@@ -49,7 +49,7 @@ If you discover a security vulnerability in EnvForge, please report it responsib
 | `~/.config/envforge/age.key` | `0600` | Age secret key (primary) |
 | `~/.config/envforge/age-recovery.key` | `0600` | Age secret key (recovery — store offline) |
 | `~/.config/envforge/credentials.toml` | `0600` | Encrypted provider credentials |
-| `~/.config/envforge/secrets-cache/` | `0600` per file | Cached secret values (TTL-based) |
+| `~/.config/envforge/secrets-cache/` | `0600` per file | Age-encrypted cached secret values (TTL-based) |
 | `~/.config/envforge/backups/` | User default | File backups |
 | `~/.config/envforge/changelog.log` | User default | Change log (values masked) |
 

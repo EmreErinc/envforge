@@ -302,18 +302,6 @@
       border-radius: var(--radius-sm); background: var(--color-paper-2);
     }
 
-    /* ── comparison ──────────────────────────────────────────── */
-    .compare { width: 100%; border-collapse: collapse; font-size: var(--text-sm); min-width: 680px; }
-    .compare th, .compare td { padding: var(--space-sm) var(--space-md); text-align: center; border-bottom: var(--rule-hair) solid var(--color-rule); }
-    .compare th { font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-neutral); font-weight: 500; }
-    .compare td:first-child, .compare th:first-child { text-align: left; }
-    .compare td:first-child { color: var(--color-ink); }
-    .compare .col-ef { background: color-mix(in oklab, var(--color-accent) 8%, transparent); }
-    .compare th.col-ef { color: var(--color-accent); font-weight: 700; }
-    .compare .yes { color: var(--color-accent); }
-    .compare .no { color: var(--color-neutral); }
-    .compare b.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-ink); }
-
     /* ── install ─────────────────────────────────────────────── */
     .install-block { display: grid; gap: var(--space-lg); max-width: 720px; }
     .install-meta { color: var(--color-neutral); font-size: var(--text-sm); }
@@ -365,7 +353,7 @@
 
   <!-- nav · N8 terminal command -->
   <header class="nav-term">
-    <pre class="nav-term__line"><span class="prompt">&gt;</span> <span class="brand">envforge</span> <a href="#workflow">--defend</a> <a href="#tools">--tools</a> <a class="opt" href="#editors">--editors</a> <a class="opt" href="#compare">--compare</a> <a href="#install">--install</a><span class="nav-term__spacer"></span><span class="sep opt" aria-hidden="true">|</span> <a class="ext opt" href="api-doc.html">docs↗</a> <a class="ext" href="crates.html">crates↗</a> <a class="ext gh" href="https://github.com/emreerinc/envforge">github↗</a><span class="caret" aria-hidden="true">▮</span></pre>
+    <pre class="nav-term__line"><span class="prompt">&gt;</span> <span class="brand">envforge</span> <a href="#workflow">--defend</a> <a href="#tools">--tools</a> <a class="opt" href="#editors">--editors</a> <a href="#install">--install</a><span class="nav-term__spacer"></span><span class="sep opt" aria-hidden="true">|</span> <a class="ext opt" href="api-doc.html">docs↗</a> <a class="ext" href="crates.html">crates↗</a> <a class="ext gh" href="https://github.com/emreerinc/envforge">github↗</a><span class="caret" aria-hidden="true">▮</span></pre>
   </header>
 
   <main>
@@ -387,7 +375,6 @@
           <div class="statbar reveal">
             <span><b>28</b> AI safety tools</span>
             <span><b>13</b> secret providers</span>
-            <span><b>2,800+</b> tests passing</span>
           </div>
         </div>
         <figure class="hero-demo reveal">
@@ -477,11 +464,11 @@
         <div>
           <div class="stage__num">4.0</div>
           <h3 class="stage__name">WATCH</h3>
-          <p class="stage__desc">Plant honeypot canaries that <strong>alert on exfiltration</strong>, audit git history for AI-assisted leaks, and map what breaks before you rotate. Detection and governance, not just prevention.</p>
+          <p class="stage__desc">Plant honeypot canaries that <strong>alert when the fake value is seen</strong> in scanned tool output, logs, or files, audit git history for AI-assisted leaks, and map what breaks before you rotate. Detection and governance, not just prevention.</p>
         </div>
         <figure class="transcript">
           <figcaption class="transcript__bar"><span>Example: watch</span><span class="live">detection · governance</span></figcaption>
-          <pre><span class="c"># honeypot credential — tripwire on read/exfil</span>
+          <pre><span class="c"># honeypot credential — tripwire when the fake value is read or used</span>
 <span class="p">$</span> envforge canary create <span class="v">STRIPE_KEY</span>
 <span class="s">  canary planted · monitoring enabled</span>
 
@@ -514,7 +501,7 @@
           <div class="legend__row"><span class="dot dot--red" aria-hidden="true"></span><code>RED</code><span>plaintext, readable by AI agents right now</span></div>
           <div class="legend__row"><span class="dot dot--amber" aria-hidden="true"></span><code>AMBER</code><span>sensitive — will be redacted by AI-guard</span></div>
           <div class="legend__row"><span class="dot dot--green" aria-hidden="true"></span><code>GREEN</code><span>fenced — ignore rules in place (not a sandbox)</span></div>
-          <p class="editors-note">VS Code, IntelliJ, and Neovim share gutter and status-bar UI on the same <code class="inline-code">envforge lsp</code> engine. Zed is LSP only (no gutter or status bar). Also works through LSP alone in Helix, Emacs, Sublime Text, Kakoune &amp; Lapce.</p>
+          <p class="editors-note">VS Code, IntelliJ, and Neovim share gutter and status-bar UI on the same <code class="inline-code">envforge lsp</code> engine. Marketplace plugins are versioned separately from the CLI (plugins 0.2.2, CLI 1.0.2). Zed is LSP only (no gutter or status bar). Also works through LSP alone in Helix, Emacs, Sublime Text, Kakoune &amp; Lapce.</p>
         </div>
       </div>
     </section>
@@ -550,7 +537,7 @@
             <tr><td><span class="layer layer--remediation">Remediation</span></td><td>MCP Scan</td><td><code>mcp status</code></td><td>Find creds in AI tool configs</td></tr>
             <tr><td><span class="layer layer--remediation">Remediation</span></td><td>MCP Harden</td><td><code>mcp harden</code></td><td>Auto-replace with ${VAR} references</td></tr>
             <tr><td><span class="layer layer--remediation">Remediation</span></td><td>Prompt Sanitizer</td><td><code>sanitize FILE</code></td><td>Strip secrets from any file</td></tr>
-            <tr><td><span class="layer layer--detection">Detection</span></td><td>Canary Secrets</td><td><code>canary create</code></td><td>Honeypot credentials — alert on exfiltration</td></tr>
+            <tr><td><span class="layer layer--detection">Detection</span></td><td>Canary Secrets</td><td><code>canary create</code></td><td>Honeypot credentials — alert when the fake value is seen in scanned output</td></tr>
             <tr><td><span class="layer layer--detection">Detection</span></td><td>AI Leak Audit</td><td><code>audit --ai-leaks</code></td><td>Scan git for AI-assisted leaks</td></tr>
             <tr><td><span class="layer layer--detection">Detection</span></td><td>Access Audit</td><td><code>audit --access</code></td><td>JSONL log of proxy access</td></tr>
             <tr><td><span class="layer layer--governance">Governance</span></td><td>Approval Flow</td><td><code>--require-approval</code></td><td>Human approves each secret access</td></tr>
@@ -592,33 +579,6 @@
       </div>
     </section>
 
-    <!-- comparison -->
-    <section id="compare" class="wrap">
-      <div class="sec-head">
-        <h2>How EnvForge compares.</h2>
-        <p>AI-safety commands plus local environment management.</p>
-      </div>
-      <div class="table-scroll reveal">
-        <table class="compare">
-          <thead>
-            <tr><th></th><th class="col-ef">EnvForge</th><th>ggshield</th><th>dotenvx</th><th>Infisical</th><th>Doppler</th><th>Varlock</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Pre-tool scanning</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
-            <tr><td>Canary secrets</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
-            <tr><td>Session leases + killswitch</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
-            <tr><td>MCP config harden</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
-            <tr><td>Volatile mode (no disk)</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
-            <tr><td>Full env management</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td></tr>
-            <tr><td>TUI interface</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
-            <tr><td>13 secret providers</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td></tr>
-            <tr><td>Encrypted sync</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="no">✕</span></td></tr>
-            <tr><td>Zero cloud dependency</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="yes">✓</span></td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
     <!-- install -->
     <section id="install" class="wrap">
       <div class="sec-head">
@@ -629,7 +589,7 @@
         <button type="button" class="copycmd" data-copy="brew install emreerinc/tap/envforge" aria-label="Copy Homebrew install command">
           <span class="dollar">$</span><span class="cmd-text">brew install emreerinc/tap/envforge</span><span class="hint">copy</span>
         </button>
-        <p class="install-meta">Or Cargo: <code>cargo install env-forge-tui</code> · Linux and macOS tarballs: <a href="https://github.com/EmreErinc/envforge/releases">GitHub Releases</a>. Default binaries do not include <code>envforge mcp serve</code> (build with <code>--features mcp-server</code>).</p>
+        <p class="install-meta">Or Cargo: <code>cargo install env-forge-tui</code> (binary name is <code>envforge</code>). Linux and macOS tarballs: <a href="https://github.com/EmreErinc/envforge/releases">GitHub Releases</a>. Default binaries do not include <code>envforge mcp serve</code> (build with <code>--features mcp-server</code>).</p>
         <figure class="transcript">
           <figcaption class="transcript__bar"><span>Example: setup</span><span class="live">completions · man</span></figcaption>
           <pre><span class="c"># shell completions (auto-install)</span>

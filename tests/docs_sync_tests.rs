@@ -243,8 +243,8 @@ fn test_advertised_test_floor_is_true() {
     let index = read("docs/index.html");
     let readme = read("README.md");
     assert!(
-        index.contains("2,800+"),
-        "landing page lost the '2,800+ tests' floor claim"
+        !index.contains("2,800+"),
+        "landing hero should not advertise the test-count floor (README only)"
     );
     assert!(
         readme.contains("2,800+"),

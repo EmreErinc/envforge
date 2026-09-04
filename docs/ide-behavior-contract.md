@@ -268,7 +268,7 @@ This file is the single source of truth for triggers, wording, icons, and keybin
 | Field | Value |
 |---|---|
 | LSP method | `envforge/exposureMap` (extended) |
-| Wire format | `ExposureEntry.canary: bool` (defaults to `false` for backward compatibility). When `true`, the entry's `reason` string is suffixed with `" Canary tripwire registered — any exfiltration of this value triggers an alert."` |
+| Wire format | `ExposureEntry.canary: bool` (defaults to `false` for backward compatibility). When `true`, the entry's `reason` string is suffixed with `" Canary tripwire registered — an alert fires if this fake value appears in scanned tool output, logs, or files."` |
 | Data source | `ops::canary::list_canaries()` queried once per exposure-map request and indexed into a HashSet for O(1) per-entry lookup. |
 | Plugin rendering | **Shipped both IDEs.** Canary lines render a shield-shaped glyph in the gutter instead of the plain dot, keeping the red/amber/green threat color from the exposure tier. VS Code: inline shield SVG via separate `TextEditorDecorationType`. IntelliJ: custom `ShieldIcon` painted with `Graphics2D.Path2D` (no asset files). Hover banner switches to `"<LEVEL> · CANARY ACTIVE"` to make the tripwire status explicit. |
 | Test ID | covered by exposure tests + canary-store integration on dev machines. |

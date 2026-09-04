@@ -105,7 +105,7 @@ fn cache_dir() -> Result<PathBuf, SecretsError> {
 ///
 /// BOTH `provider` and `key` are sanitized so they can't escape the
 /// cache directory via `..`, absolute path, or directory separator.
-/// Cache files contain decrypted secret values; a `provider="../etc"`
+/// Cache files hold age-encrypted secret values; a `provider="../etc"`
 /// would otherwise let a SecretRef poison the user's wider config tree.
 fn cache_file_path(provider: &str, key: &str) -> Result<PathBuf, SecretsError> {
     if provider.is_empty() {
@@ -247,7 +247,7 @@ pub fn write_cache(
         toml::to_string_pretty(&entry).map_err(|e| SecretsError::CacheError(e.to_string()))?;
 
     // Write cache file with restrictive permissions (0600 on Unix)
-    // Cache contains decrypted secret values and must not be world-readable
+    // Cache holds age-encrypted secret values and must not be world-readable
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

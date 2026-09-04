@@ -102,7 +102,7 @@ This tool is specifically designed to protect secrets from AI agents. Key featur
 - **Fence** — blocks AI from reading env vars
 - **AI-guard** — detects and blocks prompt injection
 - **MCP scan** — hardens MCP server configs
-- **Canary tokens** — detect secret exfiltration
+- **Canary tokens** — honeypot credentials; alert when the fake value is seen in scanned output (not network exfil watching)
 - **Redaction** — masks secrets in logs/output
 
 When modifying security features, consider attack vectors from AI systems.

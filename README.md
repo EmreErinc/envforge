@@ -10,7 +10,7 @@ Fence secret files, harden MCP configs, and run commands with secrets in memory.
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-blue.svg)
 
-License: Elastic License 2.0 (source-available, not OSI open source).
+License: Elastic License 2.0 (source-available, not OSI open source). You may use and modify EnvForge. You may not offer it to others as a hosted service. Crates 0.1.0–0.8.0 were MIT; 0.8.1+ is ELv2.
 
 ![EnvForge Demo](assets/envforge_demo.gif)
 

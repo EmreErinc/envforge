@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MCP Supply-Chain Protection**: `envforge mcp status/harden/pin/verify` with SPKI pinning, bundled reputation feed, and tool-poisoning detection.
 - **13 Secret Provider Integrations**: Native `vault://` URI resolution for HashiCorp Vault, AWS SSM, GCP Secret Manager, Azure Key Vault, 1Password, Bitwarden, Infisical, and Doppler.
 - **Full IDE & Tooling Suite**: Built-in Language Server (`envforge lsp`) + optional read-safe MCP Server (`envforge mcp serve`, `--features mcp-server`; not in default Homebrew/GitHub binaries) + native extensions for VS Code, JetBrains IntelliJ, Neovim, and Zed.
-- **Signed ENV-BOM Attestations**: SPDX-compliant environmental Bill of Materials generator (`envforge envbom`).
+- **ENV-BOM**: SPDX-shaped environmental Bill of Materials (`envforge envbom`) with a SHA-256 digest of canonical JSON. Not a cryptographic signature.
 
 ## [0.8.4] - 2026-06-23
 
@@ -1311,7 +1311,7 @@ Total secret manager integrations expanded from 7 to **13 providers**.
 #### Canary Secrets (Honeypot Credentials)
 - `envforge canary create KEY [--pattern aws_key|github_token|stripe_key|slack_token|gitlab_token|generic]` — Plant fake credentials
 - `envforge canary list` — Show all canary secrets with trigger status
-- `envforge canary check` — Check for triggered canaries (exfiltration detected)
+- `envforge canary check` — Check for triggered canaries (fake value seen in scanned output)
 - `envforge canary delete KEY` — Remove a canary
 - Generates plausible-looking fake values per pattern type
 - Integrated into AI guard: canary values in tool output trigger alerts
