@@ -1,6 +1,4 @@
 # EnvForge — cargo-audit configuration
 
 [advisories]
-ignore = [
-    "RUSTSEC-2026-0173", # proc-macro-error2 is unmaintained, used by age -> i18n-embed-fl
-]
+ignore = []
