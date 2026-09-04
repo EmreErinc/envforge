@@ -257,7 +257,7 @@ ${e.message}`,void 0,i.handled===!0?!1:"force")}hookConfigurationChanged(e){this
             <div class="sub-label">${t?"Get started via Homebrew or Cargo:":"Get started via Cargo:"}</div>
             ${t?`
             <div class="code-box" style="margin-bottom: 8px;">
-                <span class="code-text">brew install envforge</span>
+                <span class="code-text">brew install emreerinc/tap/envforge</span>
                 <button class="icon-btn" id="copyBrewBtn" title="Copy to clipboard">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -397,7 +397,7 @@ ${e.message}`,void 0,i.handled===!0?!1:"force")}hookConfigurationChanged(e){this
         const copyBrewBtn = document.getElementById('copyBrewBtn');
         if (copyBrewBtn) {
             copyBrewBtn.addEventListener('click', () => {
-                vscode.postMessage({ command: 'copyCommand', text: 'brew install envforge' });
+                vscode.postMessage({ command: 'copyCommand', text: 'brew install emreerinc/tap/envforge' });
             });
         }
 

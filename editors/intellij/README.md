@@ -29,7 +29,7 @@ Manage environment variables with schema validation, secret scanning, and multi-
 
 ## Security Features
 
-- **Secret Fence** — `.env` files protected from AI coding agents (Cursor, Copilot, Claude) via auto-generated ignore rules. Run `envforge fence` to activate. Fence shield indicator in the status bar.
+- **Secret Fence** — ignore rules for Cursor, Copilot, and Claude so those tools are less likely to read `.env` files. Run `envforge fence` to activate. Fence shield indicator in the status bar. Not a sandbox.
 - **Value Redaction** — Sensitive values never appear in hover cards, completions, or diagnostics. All user-visible strings from env values are replaced with `***`.
 - **MCP Credential Warnings** — Inline diagnostics for hardcoded API keys and tokens in MCP server config files.
 - **AI-Guard Diagnostics** — Save-time prompt-injection scan on `.env` files. Detects canary token payloads and adversarial input patterns.
@@ -38,11 +38,11 @@ Manage environment variables with schema validation, secret scanning, and multi-
 ## Requirements & Execution Modes
 
 - **Standalone Mode (Zero External Dependencies):** The plugin works out-of-the-box without downloading an external CLI binary for native syntax highlighting, file decorators, and sidebar UI.
-- **Full AI Security & LSP Validation Mode:** Auto-downloading via the welcome page or installing the CLI binary (`brew install envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
+- **Full AI Security & LSP Validation Mode:** Auto-downloading via the welcome page or installing the CLI binary (`brew install emreerinc/tap/envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
 
 ```bash
 # Optional manual terminal installation
-brew install envforge
+brew install emreerinc/tap/envforge
 # OR
 cargo install env-forge-tui
 ```
@@ -82,12 +82,12 @@ cd editors/intellij
 ./gradlew buildPlugin
 
 # The plugin ZIP will be at:
-# build/distributions/envforge-intellij-0.1.8.zip
+# build/distributions/envforge-intellij-0.2.2.zip
 ```
 
 Install manually:
 1. Open **Settings** > **Plugins** > gear icon > **Install Plugin from Disk...**
-2. Select `build/distributions/envforge-intellij-0.1.8.zip`
+2. Select `build/distributions/envforge-intellij-0.2.2.zip`
 3. Restart IDE
 
 ### Run in development mode

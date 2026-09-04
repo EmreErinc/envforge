@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Built-in 4-tier binary resolution hierarchy (`ENVFORGE_PATH` -> Workspace target `target/release/envforge` -> Managed `~/.envforge/bin/envforge` -> System PATH/Cargo/Brew).
   - Background auto-downloader for release binaries with non-blocking progress UI and automatic LSP server initialization.
 - **Enhanced IDE Welcome & Onboarding Experience**:
-  - Redesigned Welcome pages for VS Code and IntelliJ IDEA with dual Homebrew (`brew install envforge`) and Cargo (`cargo install env-forge-tui`) installation options.
+  - Redesigned Welcome pages for VS Code and IntelliJ IDEA with dual Homebrew (`brew install emreerinc/tap/envforge`) and Cargo (`cargo install env-forge-tui`) installation options.
   - Detailed feature breakdown contrasting Standalone Mode (IDE-native features) with Full AI Protection & LSP Validation mode.
 - **Exception Hardening & Reliability**:
   - Safely wrapped all background binary resolution calls in `try-catch` blocks across IDE components to eliminate unhandled background thread exceptions.
@@ -28,10 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Official v1.0.0 Public Release** — General Availability of EnvForge as the AI-safe environment variable manager.
-- **Complete AI Safety Suite (30+ Tools)**: Secret fencing (`envforge fence`) across 11 AI coding assistants (Cursor, Copilot, Claude Code, Windsurf, Aider, Cline, Gemini CLI, etc.), pre/post-execution hooks (`envforge ai-hook`), `.env.ai.md` schema generator, in-memory volatile execution (`envforge run --volatile`), log redaction, local credential proxy, and canary honeypots.
+- **Complete AI Safety Suite**: Secret fencing (`envforge fence`) across AI coding assistants (Cursor, Copilot, Claude Code, Windsurf, Aider, Cline, Gemini CLI, and others listed in the integration matrix), pre/post-execution hooks (`envforge ai-hook`), `.env.ai.md` schema generator, in-memory volatile execution (`envforge run --volatile`), log redaction, local credential proxy, and canary honeypots.
 - **MCP Supply-Chain Protection**: `envforge mcp status/harden/pin/verify` with SPKI pinning, bundled reputation feed, and tool-poisoning detection.
 - **13 Secret Provider Integrations**: Native `vault://` URI resolution for HashiCorp Vault, AWS SSM, GCP Secret Manager, Azure Key Vault, 1Password, Bitwarden, Infisical, and Doppler.
-- **Full IDE & Tooling Suite**: Built-in Language Server (`envforge lsp`) + read-safe MCP Server (`envforge mcp serve`) + native extensions for VS Code, JetBrains IntelliJ, Neovim, and Zed.
+- **Full IDE & Tooling Suite**: Built-in Language Server (`envforge lsp`) + optional read-safe MCP Server (`envforge mcp serve`, `--features mcp-server`; not in default Homebrew/GitHub binaries) + native extensions for VS Code, JetBrains IntelliJ, Neovim, and Zed.
 - **Signed ENV-BOM Attestations**: SPDX-compliant environmental Bill of Materials generator (`envforge envbom`).
 
 ## [0.8.4] - 2026-06-23
@@ -504,7 +504,7 @@ Remaining pre-launch gaps from the threat model addressed:
 
 - **LSP redaction utility:** `redact_secrets_in_message()` in `src/lsp/redact.rs` — centralized string-level secret redaction available to all LSP message handlers. Handles arbitrary secret patterns, sorts by length descending to prevent partial-match escapes, skips sub-8-char strings to avoid false positives.
 - **Audit log integrity:** HMAC-style hash chain was already implemented in `src/ops/audit/tamper.rs` (616 lines, `verify_integrity()`, `ChainState`). Residual risk marked resolved — gap was documentation, not implementation.
-- **Fence multi-tool propagation:** `KNOWN_TOOLS` registry (6 AI tools: Cursor, Claude, Copilot, Aider, Windsurf, Continue) + `apply_tool()` function. Uses symlinks on Unix (auto-updating) and file copies on Windows. New `envforge fence apply --tool <name>` subcommand.
+- **Fence multi-tool propagation:** `KNOWN_TOOLS` registry (Cursor, Claude, Copilot, Aider, Windsurf) + `apply_tool()` function. Unix symlinks (auto-updating). Later releases use `envforge fence` / `envforge fence config` (no `fence apply` subcommand). Continue is not a current fence target — see the integration matrix.
 - **GPG signature verification:** `gpg_fingerprint()` and `signature_url()` trait methods on `SecretProvider` + `verify_gpg_signature()` helper. GPG verification at provider registration time; SHA-256 hash pinning at load time. Zero new dependencies — uses system `gpg` binary.
 - **Provider binary verification:** `verify_gpg_signature()` validates GOODSIG status and fingerprint match. Graceful fallback when `gpg` not installed.
 
@@ -563,7 +563,7 @@ VSCode `0.1.6`, IntelliJ `0.1.6`:
 - Status bar trio: `<N> vars` · fence shield (`AI BLOCKED` / `AI ALLOWED`) · volatile-lease countdown with sub-minute precision and color escalation (amber ≤5 min, red ≤1 min). Click fence → toggle. Click countdown → extend.
 - AI-exposure gutter heatmap: colored dot per env-var line; lines with a registered canary render a shield glyph instead. Hover tooltips quote the classification reason.
 - File-explorer / project-view badges on `.env*` files: 🛡 (fenced) / ! (red) / ? (amber) / ✓ (all-green).
-- Source-language goto-definition: Ctrl-click `process.env.X`, `os.environ["X"]`, `std::env::var("X")`, etc. to land on the schema entry.
+- Source-language goto-definition: Ctrl-click `process.env.X` (later dropped from first-party VS Code / IntelliJ / Neovim clients; env-file → schema goto remains).
 - MCP Supply-Chain Integrity diagnostics on `mcp.json` / `.cursor/mcp.json` / `.claude/settings.json` — credential patterns flagged inline.
 - New command-palette / tools-menu entries: Run Volatile Session, Reveal Value (audit-logged), Plant Canary, Canary Scan, Check Triggered Canaries, Extend Volatile Lease, Enable / Toggle Fence.
 
@@ -629,7 +629,7 @@ VSCode `0.1.6`, IntelliJ `0.1.6`:
 
 ### Added — MCP Supply-Chain Integrity
 
-First env-management tool to combine pin + reputation + tool-poisoning detection for Model Context Protocol (MCP) servers consumed by Claude Code and Cursor. Closes 10 documented attack classes against AI tooling. **200 new tests** (1873 → 2073 total).
+Pin + reputation + tool-poisoning detection for Model Context Protocol (MCP) servers consumed by Claude Code and Cursor. Closes 10 documented attack classes against AI tooling. **200 new tests** (1873 → 2073 total).
 
 #### New CLI commands
 
@@ -1025,7 +1025,7 @@ Comprehensive security hardening pass — 50 fixes across the entire codebase, o
   - **Tamper-Evident Writer** (`tamper.rs`): SHA-256 hash chain for all log entries, persistent chain state, integrity verification with ChainBreak detection
   - **Query Engine** (`query_engine.rs`): Execute queries with time/field filters, sort, pagination, aggregation (by EventType, Source, etc.)
   - **Chain of Custody** (`custody.rs`): Secret lineage tracking, session paths, ownership verification, custody gap detection
-  - **Report Generator** (`report_generator.rs`): SOC2 compliance reports, violation detection (UnauthorizedAccess, CustodyGap, SecretExposure, AnomalousFrequency), compliance scoring, JSON/CSV/Markdown export
+  - **Report Generator** (`report_generator.rs`): local audit reports (not a SOC 2 certification), violation detection (UnauthorizedAccess, CustodyGap, SecretExposure, AnomalousFrequency), compliance scoring, JSON/CSV/Markdown export
   - **AI Guard Integration** (`ai_guard_integration.rs`): Pre/post-tool audit events, secret binding/exposure logging, session lifecycle tracking, input secret detection
   - **CLI Commands** (`audit_cmd.rs`): `envforge audit-trail {query,report,custody,integrity,stats,tail,retention}` — 8 subcommands for full audit lifecycle
 - **176 total audit tests** — all passing, covering all 8 submodules

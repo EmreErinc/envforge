@@ -15,8 +15,8 @@ default, plus the named `envforge/*` custom requests
 
 | Editor | First-party plugin? | Setup |
 |---|---|---|
-| VS Code | ✓ `envforge-env-manager` 0.1.9 | Install via Marketplace or the bundled `.vsix` |
-| IntelliJ Platform (Idea, GoLand, PyCharm, RustRover, …) | ✓ `envforge-intellij` 0.1.9 | Settings → Plugins → Install Plugin from Disk |
+| VS Code | ✓ `envforge-env-manager` 0.2.2 | Install via Marketplace or the bundled `.vsix` |
+| IntelliJ Platform (Idea, GoLand, PyCharm, RustRover, …) | ✓ `envforge-intellij` 0.2.2 | Settings → Plugins → Install Plugin from Disk |
 
 | Neovim | ✓ first-party plugin (`editors/nvim`) | statusline + exposure heatmap + fence toggle — see [`editors/nvim/README.md`](../editors/nvim/README.md) |
 | Zed | LSP + MCP (first-party extension `editors/zed`) | LSP + read-safe MCP context server; no custom UI (Zed API limit) — see [`editors/zed/README.md`](../editors/zed/README.md) |

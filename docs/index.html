@@ -5,17 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="envforge-icon.svg">
   <title>EnvForge — AI-safe environment variable manager | Protect secrets from AI agents</title>
-  <meta name="description" content="The environment variable manager built to protect secrets from AI coding agents. 30+ AI safety tools, encrypted sync, 13 secret providers, a Rust CLI + TUI, and a Language Server for VS Code, IntelliJ, Neovim & Zed.">
+  <meta name="description" content="The environment variable manager built to protect secrets from AI coding agents. 28 AI safety tools, encrypted sync, 13 secret providers, a Rust CLI + TUI, and a Language Server for VS Code, IntelliJ, Neovim & Zed.">
   <meta name="keywords" content="environment variable manager, env file security, AI agent secrets, secrets management CLI, dotenv alternative, protect secrets from AI, vibe coding security, MCP secrets">
   <meta name="author" content="Emre Erinc">
 
   <meta property="og:title" content="EnvForge — AI-safe environment variable manager">
-  <meta property="og:description" content="30+ AI safety tools. Encrypted sync. 13 secret providers. CLI + TUI + LSP. Protect your secrets from AI coding agents.">
+  <meta property="og:description" content="28 AI safety tools. Encrypted sync. 13 secret providers. CLI + TUI + LSP. Protect your secrets from AI coding agents.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://envforge.tech">
+  <meta property="og:image" content="https://envforge.tech/envforge_demo.gif">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="EnvForge — AI-safe environment variable manager">
-  <meta name="twitter:description" content="30+ AI safety tools to protect your secrets from AI coding agents. Source-available, written in Rust.">
+  <meta name="twitter:description" content="28 AI safety tools to protect your secrets from AI coding agents. Source-available, written in Rust.">
+  <meta name="twitter:image" content="https://envforge.tech/envforge_demo.gif">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -139,6 +141,25 @@
       font-variant-numeric: tabular-nums;
     }
     .statbar b { color: var(--color-ink); font-weight: 700; }
+
+    .hero-demo { margin-top: var(--space-2xl); max-width: 72rem; }
+    .hero-demo img {
+      width: 100%; height: auto; display: block;
+      border: var(--rule-hair) solid var(--color-rule);
+      border-radius: var(--radius-md); background: var(--color-paper-2);
+    }
+    .hero-demo figcaption {
+      font-family: var(--font-mono); font-size: var(--text-xs);
+      color: var(--color-neutral); margin-top: var(--space-sm);
+    }
+    .btn-ghost {
+      font-family: var(--font-mono); font-weight: 700; font-size: var(--text-sm);
+      display: inline-flex; align-items: center; gap: 0.6ch; white-space: nowrap;
+      padding: 0.75rem 1.4rem; border-radius: var(--radius-md);
+      background: transparent; color: var(--color-ink);
+      border: var(--rule-hair) solid var(--color-rule);
+    }
+    .btn-ghost:hover { border-color: var(--color-accent); text-decoration: none; }
 
     /* ── threat line ─────────────────────────────────────────── */
     .threat {
@@ -353,22 +374,26 @@
       <div class="grid-bg" aria-hidden="true"></div>
       <div class="wrap">
         <div class="hero__inner">
-          <p class="hero__kicker reveal"><span class="ok">●</span> EnvForge v1.0.2 · 30+ AI safety tools · Rust · source-available · VS&nbsp;Code, IntelliJ, Neovim, Zed</p>
+          <p class="hero__kicker reveal"><span class="ok">●</span> EnvForge v1.0.2 · 28 AI safety tools · Rust · source-available · VS&nbsp;Code, IntelliJ, Neovim, Zed</p>
           <h1 class="reveal">Your secrets aren’t <span class="danger">safe</span> from AI.</h1>
           <p class="hero__sub reveal">An AI agent is a process with read access to your working directory and an outbound network connection. EnvForge is designed for that. Fence the files, intercept the tool calls, run with secrets sealed in memory, and trip a canary if anything leaks. <strong>One Rust CLI, a TUI, and a Language Server</strong> that lights up your editor.</p>
           <div class="cta-row reveal">
-            <a class="btn-star" href="https://github.com/emreerinc/envforge">★ Star on GitHub</a>
-            <button type="button" class="copycmd" data-copy="cargo install env-forge-tui" aria-label="Copy install command">
-              <span class="dollar">$</span><span class="cmd-text">cargo install env-forge-tui</span><span class="hint">copy</span>
+            <a class="btn-star" href="#install">Install</a>
+            <a class="btn-ghost" href="https://github.com/emreerinc/envforge">★ Star on GitHub</a>
+            <button type="button" class="copycmd" data-copy="brew install emreerinc/tap/envforge" aria-label="Copy Homebrew install command">
+              <span class="dollar">$</span><span class="cmd-text">brew install emreerinc/tap/envforge</span><span class="hint">copy</span>
             </button>
           </div>
           <div class="statbar reveal">
-            <span><b>30+</b> AI safety tools</span>
+            <span><b>28</b> AI safety tools</span>
             <span><b>13</b> secret providers</span>
-            <span><b>130+</b> commands</span>
             <span><b>2,800+</b> tests passing</span>
           </div>
         </div>
+        <figure class="hero-demo reveal">
+          <img src="envforge_demo.gif" alt="EnvForge TUI demo: browsing and masking environment variables">
+          <figcaption>Example: EnvForge TUI</figcaption>
+        </figure>
       </div>
     </section>
 
@@ -392,10 +417,10 @@
         <div>
           <div class="stage__num">1.0</div>
           <h3 class="stage__name">FENCE</h3>
-          <p class="stage__desc">Block AI tools from ever reading your secrets, then hand them <strong>context without values</strong> — types and names from an inferred schema, never the credentials themselves.</p>
+          <p class="stage__desc">Fence adds ignore files and rules so AI tools are less likely to read secret files, then hands them <strong>context without values</strong> — types and names from an inferred schema, never the credentials themselves. This is not a sandbox. Terminal and MCP can still bypass ignore files. See the <a href="docs.html?doc=integration-matrix">integration matrix</a> for covered vs fallback.</p>
         </div>
         <figure class="transcript">
-          <figcaption class="transcript__bar"><span>fence</span><span class="live">prevention</span></figcaption>
+          <figcaption class="transcript__bar"><span>Example: fence</span><span class="live">prevention</span></figcaption>
           <pre><span class="c"># block Cursor, Copilot &amp; Claude Code at the file level</span>
 <span class="p">$</span> envforge fence
 <span class="o">  created .envforgeignore · .cursorignore · .claude/settings.json</span>
@@ -414,7 +439,7 @@
           <p class="stage__desc">Wire EnvForge into the agent’s tool loop and your git hooks. Every read and every commit is <strong>scanned before it lands</strong>; leaked credentials in MCP configs get rewritten to <code class="inline-code">${VAR}</code> references.</p>
         </div>
         <figure class="transcript">
-          <figcaption class="transcript__bar"><span>guard</span><span class="live">prevention · remediation</span></figcaption>
+          <figcaption class="transcript__bar"><span>Example: guard</span><span class="live">prevention · remediation</span></figcaption>
           <pre><span class="c"># PreToolUse + PostToolUse hooks in the agent</span>
 <span class="p">$</span> envforge ai-hook install <span class="v">claude-code</span>
 <span class="s">  hooks installed: PreToolUse + PostToolUse</span>
@@ -435,7 +460,7 @@
           <p class="stage__desc">Execute your app with secrets resolved <strong>in memory only</strong> and masked in every log line. Scope access to a time-boxed lease — and revoke everything instantly if something feels wrong.</p>
         </div>
         <figure class="transcript">
-          <figcaption class="transcript__bar"><span>run</span><span class="live">runtime</span></figcaption>
+          <figcaption class="transcript__bar"><span>Example: run</span><span class="live">runtime</span></figcaption>
           <pre><span class="c"># volatile = never on disk · redact = masked output</span>
 <span class="p">$</span> envforge run <span class="k">--volatile --redact --</span> npm start
 <span class="o">  connecting to [REDACTED:DB_PASSWORD]@host…</span>
@@ -455,7 +480,7 @@
           <p class="stage__desc">Plant honeypot canaries that <strong>alert on exfiltration</strong>, audit git history for AI-assisted leaks, and map what breaks before you rotate. Detection and governance, not just prevention.</p>
         </div>
         <figure class="transcript">
-          <figcaption class="transcript__bar"><span>watch</span><span class="live">detection · governance</span></figcaption>
+          <figcaption class="transcript__bar"><span>Example: watch</span><span class="live">detection · governance</span></figcaption>
           <pre><span class="c"># honeypot credential — tripwire on read/exfil</span>
 <span class="p">$</span> envforge canary create <span class="v">STRIPE_KEY</span>
 <span class="s">  canary planted · monitoring enabled</span>
@@ -473,14 +498,14 @@
     <section id="editors" class="wrap">
       <div class="sec-head">
         <h2>See the danger in your editor.</h2>
-        <p>EnvForge ships a Language Server and first-party VS Code, IntelliJ, Neovim & Zed plugins. The AI-exposure story lives where you write code — not buried in a CLI.</p>
+        <p>EnvForge ships a Language Server and first-party VS Code, IntelliJ, Neovim &amp; Zed plugins. The AI-exposure story lives where you write code — not buried in a CLI. Zed has no gutter or status bar yet.</p>
       </div>
       <div class="editor-grid">
         <ul class="spec-list reveal">
-          <li><b>Exposure heatmap</b> — a colored dot in the gutter on every env-var line. It shows exactly the same result as the command line.</li>
+          <li><b>Exposure heatmap</b> — a colored dot in the gutter on every env-var line. It shows exactly the same result as the command line. (VS Code, IntelliJ, Neovim — not Zed.)</li>
           <li><b>Canary tripwire glyphs</b> — a shield replaces the dot when a canary is registered. Hover for status.</li>
-          <li><b>Status-bar trio</b> — variable count, fence shield (<code>AI BLOCKED</code> / <code>AI ALLOWED</code>), and a live volatile-lease countdown.</li>
-          <li><b>Source-language goto-definition</b> — ctrl-click <code>process.env.X</code>, <code>os.environ["X"]</code>, <code>std::env::var("X")</code> across 11 languages, land on the schema entry.</li>
+          <li><b>Status-bar trio</b> — variable count, fence shield (<code>AI BLOCKED</code> / <code>AI ALLOWED</code>), and a live volatile-lease countdown. (Not on Zed.)</li>
+          <li><b>Env-file go-to-definition</b> — jump from a key in <code>.env</code> to its <code>.env.schema</code> section.</li>
           <li><b>MCP config linter</b> — credential patterns flagged inline in <code>.cursor/mcp.json</code>, <code>.claude/settings.json</code> and friends.</li>
           <li><b>One-key quick-fixes</b> — plant a canary, mark as secret, generate <code>.env</code> from schema, swap in a secret reference.</li>
         </ul>
@@ -488,8 +513,8 @@
           <div class="legend__title">Gutter heatmap — what the dots mean</div>
           <div class="legend__row"><span class="dot dot--red" aria-hidden="true"></span><code>RED</code><span>plaintext, readable by AI agents right now</span></div>
           <div class="legend__row"><span class="dot dot--amber" aria-hidden="true"></span><code>AMBER</code><span>sensitive — will be redacted by AI-guard</span></div>
-          <div class="legend__row"><span class="dot dot--green" aria-hidden="true"></span><code>GREEN</code><span>fenced — the agent can’t reach it</span></div>
-          <p class="editors-note">Every plugin talks to the same <code class="inline-code">envforge lsp</code> engine, so they all behave the same way. Also works through LSP alone in Helix, Emacs, Sublime Text, Kakoune &amp; Lapce.</p>
+          <div class="legend__row"><span class="dot dot--green" aria-hidden="true"></span><code>GREEN</code><span>fenced — ignore rules in place (not a sandbox)</span></div>
+          <p class="editors-note">VS Code, IntelliJ, and Neovim share gutter and status-bar UI on the same <code class="inline-code">envforge lsp</code> engine. Zed is LSP only (no gutter or status bar). Also works through LSP alone in Helix, Emacs, Sublime Text, Kakoune &amp; Lapce.</p>
         </div>
       </div>
     </section>
@@ -497,8 +522,8 @@
     <!-- tools table -->
     <section id="tools" class="wrap">
       <div class="sec-head">
-        <h2>30+ tools. Six layers.</h2>
-        <p>From prevention to governance — the most comprehensive AI-agent secret protection of any CLI.</p>
+        <h2>28 tools. Six layers.</h2>
+        <p>From prevention to governance — fence, guard, run, and watch.</p>
       </div>
       <div class="table-scroll reveal">
         <table class="tools">
@@ -543,15 +568,15 @@
     <section class="wrap">
       <div class="sec-head">
         <h2>Beyond AI safety.</h2>
-        <p>A complete environment-variable manager underneath — 130+ commands, no migration required.</p>
+        <p>A complete environment-variable manager underneath — CLI + TUI, no migration required.</p>
       </div>
       <div class="features">
         <div class="feature reveal"><h3><span class="mk">+</span>Encrypted sync</h3><p>Sync across machines through Git, with strong encryption (age). Pick which keys to sync, override values per machine, roll back, and work offline. Your env vars are stored encrypted in the repo — never in plain text.</p></div>
         <div class="feature reveal"><h3><span class="mk">+</span>13 secret providers</h3><p>Pull, push and reference across Vault, AWS SSM, 1Password, Doppler, GCP, Azure and more — with URI refs like <code>vault://secret/app/DB_URL</code>.</p></div>
         <div class="feature reveal"><h3><span class="mk">+</span>Schema validation</h3><p><code>.env.schema</code> with types, defaults &amp; descriptions. Drift detection, JSON Schema for autocomplete, onboarding wizard.</p></div>
-        <div class="feature reveal"><h3><span class="mk">+</span>TUI + CLI</h3><p>Vim-style TUI with fuzzy search, grouping and masking. 130+ CLI commands with <code>--json</code> and <code>--dry-run</code>.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>TUI + CLI</h3><p>Vim-style TUI with fuzzy search, grouping and masking. CLI commands with <code>--json</code> and <code>--dry-run</code>.</p></div>
         <div class="feature reveal"><h3><span class="mk">+</span>8 export formats</h3><p>dotenv, JSON, YAML, TOML, Docker, Docker Secrets, Kubernetes Secret, Terraform tfvars — one command.</p></div>
-        <div class="feature reveal"><h3><span class="mk">+</span>Workflows &amp; audit</h3><p>Profiles, snapshots, guided rotation with propagation, secure sharing, a unified <code>check</code>, plus SOC2 audit-trail reports.</p></div>
+        <div class="feature reveal"><h3><span class="mk">+</span>Workflows &amp; audit</h3><p>Profiles, snapshots, guided rotation with propagation, secure sharing, a unified <code>check</code>, plus <code>envforge audit-trail report</code> for a local audit report (useful for your own records). EnvForge is not SOC 2 certified.</p></div>
       </div>
     </section>
 
@@ -571,7 +596,7 @@
     <section id="compare" class="wrap">
       <div class="sec-head">
         <h2>How EnvForge compares.</h2>
-        <p>The only tool pairing comprehensive AI safety with full environment management.</p>
+        <p>AI-safety commands plus local environment management.</p>
       </div>
       <div class="table-scroll reveal">
         <table class="compare">
@@ -579,7 +604,6 @@
             <tr><th></th><th class="col-ef">EnvForge</th><th>ggshield</th><th>dotenvx</th><th>Infisical</th><th>Doppler</th><th>Varlock</th></tr>
           </thead>
           <tbody>
-            <tr><td>AI safety tools</td><td class="col-ef"><b class="num">30+</b></td><td><b class="num">3</b></td><td><b class="num">2</b></td><td><b class="num">1</b></td><td><span class="no">0</span></td><td><b class="num">7</b></td></tr>
             <tr><td>Pre-tool scanning</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
             <tr><td>Canary secrets</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
             <tr><td>Session leases + killswitch</td><td class="col-ef"><span class="yes">✓</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td><td><span class="no">✕</span></td></tr>
@@ -598,16 +622,16 @@
     <!-- install -->
     <section id="install" class="wrap">
       <div class="sec-head">
-        <h2>Install in 10 seconds.</h2>
-        <p>Rust 1.75+ · Linux and macOS.</p>
+        <h2>Install</h2>
+        <p>Needs Rust 1.75+ (Homebrew tap builds from source), Linux or macOS.</p>
       </div>
       <div class="install-block reveal">
         <button type="button" class="copycmd" data-copy="brew install emreerinc/tap/envforge" aria-label="Copy Homebrew install command">
           <span class="dollar">$</span><span class="cmd-text">brew install emreerinc/tap/envforge</span><span class="hint">copy</span>
         </button>
-        <p class="install-meta">Or Cargo: <code>cargo install env-forge-tui</code> · Source: <code>git clone https://github.com/emreerinc/envforge &amp;&amp; cd envforge &amp;&amp; cargo install --path .</code></p>
+        <p class="install-meta">Or Cargo: <code>cargo install env-forge-tui</code> · Linux and macOS tarballs: <a href="https://github.com/EmreErinc/envforge/releases">GitHub Releases</a>. Default binaries do not include <code>envforge mcp serve</code> (build with <code>--features mcp-server</code>).</p>
         <figure class="transcript">
-          <figcaption class="transcript__bar"><span>setup</span><span class="live">completions · man</span></figcaption>
+          <figcaption class="transcript__bar"><span>Example: setup</span><span class="live">completions · man</span></figcaption>
           <pre><span class="c"># shell completions (auto-install)</span>
 <span class="p">$</span> envforge completions zsh <span class="k">--install</span>
 
@@ -629,7 +653,7 @@
   <!-- footer · Ft5 statement -->
   <footer class="foot">
     <div class="foot__inner">
-      <p class="foot__line">Keep your secrets <span class="ok">yours</span> — even from the model.</p>
+      <p class="foot__line">Keep your secrets <span class="ok">yours</span>. Fence reduces how often AI tools read secret files — it is not a sandbox.</p>
       <div class="foot__links">
         <a href="https://github.com/emreerinc/envforge">GitHub</a>
         <a href="docs.html">Documentation</a>

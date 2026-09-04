@@ -54,7 +54,7 @@
 | Audit log modification | High | 0600 permissions, append-only writes, 10MB rotation, SHA-256 hash chain with `verify_integrity()` (tamper.rs). | **Mitigated** |
 | Credential store corruption | Medium | `save_store()` uses tempfile + atomic rename. Hash verification on write. | **Mitigated** |
 | Sync snapshot tampering | Medium | age-encrypted snapshots, `SyncEncryptionPolicy` (Mandatory sum type, no runtime bool toggle) blocks downgrade attacks. | **Mitigated** |
-| Fence file removal | Medium | Auto-recreated on LSP init. `apply_tool()` propagates rules to 6 supported AI tools (Cursor, Claude, Copilot, Aider, Windsurf, Continue). | **Mitigated** |
+| Fence file removal | Medium | Auto-recreated on LSP init. Fence writes ignore/rules for the tools in the [integration matrix](docs/integration-matrix.md) (Cursor, Copilot, Claude Code, Windsurf, Cline, Aider, Gemini CLI, Amazon Q, AGENTS.md, EnvForge). Continue is not a fence target. | **Mitigated** |
 
 ### R — Repudiation
 
@@ -71,7 +71,7 @@
 | Secrets in shell history (.zsh_history/.bash_history) | Critical | CLI blocks positional secret args. Provider subprocesses get `HISTFILE=/dev/null`. | **Mitigated** |
 | Secrets in /proc/PID/cmdline (argv leakage) | Critical | CLI blocks positional secret args. Provider secrets piped via stdin/tempfile. | **Mitigated** |
 | Secrets in core dumps | High | `setrlimit(RLIMIT_CORE, 0)` at process start. | **Mitigated** |
-| Secrets in swap/pagefile | Medium | `VolatileMode::On` (5-min TTL) default. Secret values zeroized after use. `CredentialEncryptionPolicy::Mandatory` keeps creds encrypted at rest. No `mlock`/`MADV_DONTDUMP` yet. | Partial |
+| Secrets in swap/pagefile | Medium | Credential `VolatileMode` defaults to On (5-min TTL) for in-memory provider creds. That is not `envforge run --volatile`, which you must pass explicitly. Secret values zeroized after use. `CredentialEncryptionPolicy::Mandatory` keeps creds encrypted at rest. No `mlock`/`MADV_DONTDUMP` yet. | Partial |
 | LSP autocomplete leaking secret values | High | Sensitive vars show "(sensitive)" in completions and hover. | **Mitigated** |
 | LSP methods exposing secret key names | Medium | `redact_secrets_in_message()` centralized utility available to all LSP handlers. Sorts secrets by length descending, skips sub-8-char strings. | Partial |
 | Clipboard leakage when copying secrets | Low | `ClipboardConfig` with `warn_on_secret` and `enabled` toggle. | **Mitigated** |
@@ -109,7 +109,7 @@
 7. **Credential storage theft** (age-encrypted at rest, 0600, zeroize on drop — mandatory by construction via `CredentialEncryptionPolicy`)
 8. **Sync interception** (age-encrypted snapshots, `SyncEncryptionPolicy` sum-type downgrade prevention)
 9. **MCP config credential leaks** (Inline diagnostics for hardcoded tokens)
-10. **Long-lived credential risk** (`VolatileMode::On` default 5-min TTL, leases with PID binding)
+10. **Long-lived credential risk** (credential `VolatileMode` defaults to On with a 5-min TTL; `envforge run --volatile` is still opt-in)
 
 ## What EnvForge Does NOT Protect Against
 
@@ -118,7 +118,7 @@
 3. **Compromised provider binaries** (trojaned `aws`, `vault` binaries — partial mitigation with hash verification)
 4. **Side-channel attacks** (timing, power analysis — not in threat model scope)
 5. **Compromised editor extensions** (malicious LSP client with same-uid access can send executeCommand)
-6. **Swap/pagefile forensics** (no `mlock` — secrets may page to disk; mitigated by `VolatileMode::On` default and `CredentialEncryptionPolicy::Mandatory`)
+6. **Swap/pagefile forensics** (no `mlock` — secrets may page to disk; mitigated by credential `VolatileMode` default On and `CredentialEncryptionPolicy::Mandatory`. `envforge run --volatile` is a separate opt-in flag.)
 7. **CI/CD pipeline attacks using `ENVFORGE_UNSAFE_ARGV`** — debug-only, per-provider gated, `Critical` audited
 8. **Social engineering** (phishing, shoulder-surfing terminal output)
 9. **Shell built-in history (`fc -l` in zsh) if attacker has shell access**
@@ -126,7 +126,7 @@
 
 ## Residual Risks (Accepted)
 
-1. **Fence is tool-specific.** Six AI tools supported via `KNOWN_TOOLS` registry + `apply_tool()` (Cursor, Claude, Copilot, Aider, Windsurf, Continue). Tools not in the registry must be manually configured. Mitigation: document the registry; expand on request.
+1. **Fence is tool-specific.** Coverage follows the [integration matrix](docs/integration-matrix.md). Tools not in the registry must be configured manually. Continue is deferred (not a fence target). Mitigation: document the matrix; expand on request.
 2. **Audit log integrity is hash-chain-verified, not HMAC.** SHA-256 chain via `tamper.rs::verify_integrity()`. Root can still tamper (physics). (Resolved: was "no cryptographic chain.")
 3. **Provider credential encryption is now mandatory by construction.** `CredentialEncryptionPolicy::Mandatory` is the only non-deprecated construction path for all 13 providers. `NotSupported` requires explicit justification, reviewer name, and auto-re-evaluation timer. (Resolved: was `[enc:0/3]` reporting-only.)
 4. **LSP redaction is centralized, not per-method.** `redact_secrets_in_message()` utility available to all LSP handlers. Individual handlers must opt in to calling it. Mitigation: wire to hover/completion/definition paths in first patch.
@@ -136,7 +136,7 @@
 
 Report security vulnerabilities to the project maintainer. Do not open public issues.
 Responsible disclosure process:
-1. Contact: [project maintainer]
+1. Contact: [GitHub issues](https://github.com/emreerinc/envforge/issues) (use a private security advisory if the report should not be public)
 2. Expected response: within 48 hours
 3. Disclosure timeline: coordinated after fix is shipped and users have upgrade window
 

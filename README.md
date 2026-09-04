@@ -10,6 +10,8 @@ Fence secret files, harden MCP configs, and run commands with secrets in memory.
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-blue.svg)
 
+License: Elastic License 2.0 (source-available, not OSI open source).
+
 ![EnvForge Demo](assets/envforge_demo.gif)
 
 GitGuardian's 2026 report found AI-assisted commits leak secrets at about 2x the baseline rate, and more than 24,000 credentials sitting in MCP config files on public GitHub.

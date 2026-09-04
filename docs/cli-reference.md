@@ -4238,7 +4238,7 @@ The LSP server communicates over stdio (stdin/stdout) and is launched automatica
 
 **Execution Modes in IDE Extensions:**
 - **Standalone Mode (Zero External Dependencies):** VS Code and IntelliJ extensions work out-of-the-box without downloading an external CLI binary for native syntax highlighting, file decorators, and sidebar UI.
-- **Full AI Security & LSP Validation Mode:** Auto-downloading via the welcome page or installing the CLI binary (`brew install envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
+- **Full AI Security & LSP Validation Mode:** Auto-downloading via the welcome page or installing the CLI binary (`brew install emreerinc/tap/envforge` or `cargo install env-forge-tui`) unlocks real-time LSP diagnostics, AI Fence & Guard protection, and multi-profile switching.
 
 ---
 

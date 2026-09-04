@@ -50,7 +50,7 @@ function M.show_welcome()
   local is_mac = vim.fn.has("mac") == 1 or vim.fn.has("macunix") == 1
   local install_lines = is_mac and {
     "Get started via Homebrew or Cargo:",
-    "  brew install envforge",
+    "  brew install emreerinc/tap/envforge",
     "  cargo install env-forge-tui",
   } or {
     "Get started by running in your terminal:",

@@ -4,7 +4,7 @@ Thank you for your interest in contributing to EnvForge! This document outlines 
 
 ## Code of Conduct
 
-This project follows the [Contributor Covenant](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). Please be respectful and constructive.
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). Please be respectful and constructive.
 
 ## Getting Started
 

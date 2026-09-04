@@ -117,16 +117,15 @@ Add to LSP settings:
 
 ### Feature Parity
 
-Both plugins are built on the same LSP server and CLI binary, so all features are available in both editors.
+Both plugins are built on the same LSP server and CLI binary. Native UI differs (see table). Zed is a separate extension: LSP only, no gutter or status bar.
 
 | Feature | VS Code | IntelliJ |
 |---------|---------|----------|
 | **LSP: Diagnostics** | ✅ | ✅ |
 | **LSP: Hover info** | ✅ | ✅ |
 | **LSP: Completions** | ✅ | ✅ |
-| **LSP: Go-to-definition** | ✅ | ✅ |
+| **LSP: Go-to-definition** | ✅ `.env` → schema | ✅ `.env` → schema |
 | **LSP: MCP config inline diagnostics** | ✅ | ✅ |
-| **LSP: Source-language goto-definition** | ✅ (13 languages) | ✅ (13 languages) |
 | **Variables tree view** | ✅ Sidebar panel | ✅ Tool window |
 | **Profiles tree view** | ✅ Sidebar panel | ✅ Tool window |
 | **Security dashboard** | ✅ Sidebar panel | ✅ Tool window |

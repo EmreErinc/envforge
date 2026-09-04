@@ -148,7 +148,7 @@ pub enum Commands {
         #[arg(long)]
         filter: Option<String>,
 
-        /// Output format: dotenv, json, yaml, toml, docker, k8s, tfvars
+        /// Output format: dotenv, json, yaml, toml, docker, k8s, tfvars, docker-secrets
         #[arg(long)]
         format: Option<String>,
 

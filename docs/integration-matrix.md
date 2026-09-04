@@ -1,4 +1,4 @@
-# EnvForge Integration Matrix (0.8.3 "Omnipresence")
+# EnvForge Integration Matrix (v1.0.2)
 
 What EnvForge covers across AI coding tools and editors. Generated from the
 fence target registry (`src/ops/fence/registry.rs`) and the editor plugins.
@@ -44,8 +44,9 @@ JetBrains Fleet: **dropped** (discontinued Dec 2025).
 
 ## MCP (read-safe egress)
 
-`envforge mcp serve` — stdio MCP server exposing `list_keys` + `describe_schema`
-(redacted, audited, **no raw values**). Config snippets for Claude Desktop/Code,
+`envforge mcp serve` — optional stdio MCP server exposing `list_keys` + `describe_schema`
+(redacted, audited, **no raw values**). Available when built with `--features mcp-server`.
+Default Homebrew and GitHub release binaries do not include it. Config snippets for Claude Desktop/Code,
 Cursor, VS Code, Windsurf, Cline: see `mcp-server.md`.
 
 ## Capabilities by surface
@@ -55,7 +56,7 @@ Cursor, VS Code, Windsurf, Cline: see `mcp-server.md`.
 | Fence / status / detection | ✓ | ✓ (custom req) | ✓ | ✓ | ✓ | via CLI |
 | Exposure classification | ✓ | ✓ | ✓ gutter | ✓ gutter | ✓ signs | — |
 | MCP-config credential lint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| MCP server (read-safe egress) | ✓ | — | ✓ client | ✓ client | ✓ client | ✓ extension |
+| MCP server (read-safe egress) | optional² | — | ✓ client | ✓ client | ✓ client | ✓ extension |
 | Env-aware `.env` intelligence¹ | — | ✓ | ✓ | ✓ | ✓ | ✓ (LSP) |
 
 ¹ Manifest-driven (`.envforge.project.toml`): recognizes a project's env files
@@ -65,10 +66,12 @@ server-side (deterministic across clients). Profile variants attach via existing
 `.env.*` selectors; non-`.env*` `extra_files` client attach is a documented
 limitation — see `docs/envforge-project-toml.md`.
 
-## Deferred to Vision (not in 0.8.3)
+² `envforge mcp serve` needs `--features mcp-server`. Default Homebrew and GitHub release binaries do not include it.
+
+## Deferred to Vision (not in v1.0.2)
 
 - Long-tail fence tools as community registry data: Roo Code, Continue, Augment, Tabnine, OpenAI Codex (several already covered via `AGENTS.md`).
 - MCP **remote** transport (Streamable HTTP + OAuth 2.1 / RFC 8707) and extra MCP tools (`exposure_map`, `canary_scan`, `canary_check`).
 - First-party **Emacs** / **Sublime Text** plugins (native UI).
 - Native **Zed** status-bar/gutter UI (blocked on Zed Visual Extension API, Draft RFC #53403).
-- Standalone `envforge doctor --ai` (detection is folded into `fence --status` for 0.8.3).
+- Standalone `envforge doctor --ai` (detection is folded into `fence --status`).
