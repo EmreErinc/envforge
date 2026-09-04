@@ -143,4 +143,4 @@ Responsible disclosure process:
 
 ---
 
-*Last updated: 2026-09-01. Covers EnvForge v1.0.2.*
+*Last updated: 2026-09-05. Covers EnvForge v1.0.3.*

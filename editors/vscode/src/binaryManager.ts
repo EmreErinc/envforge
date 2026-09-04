@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as https from 'https';
 import * as zlib from 'zlib';
 
-export const DEFAULT_VERSION = 'v0.2.2';
+export const DEFAULT_VERSION = 'v1.0.3';
 
 export function getManagedBinaryDir(): string {
     const dir = path.join(os.homedir(), '.envforge', 'bin');

@@ -1,4 +1,4 @@
-# EnvForge Integration Matrix (v1.0.2)
+# EnvForge Integration Matrix (v1.0.3)
 
 What EnvForge covers across AI coding tools and editors. Generated from the
 fence target registry (`src/ops/fence/registry.rs`) and the editor plugins.
@@ -68,7 +68,7 @@ limitation — see `docs/envforge-project-toml.md`.
 
 ² `envforge mcp serve` needs `--features mcp-server`. Default Homebrew and GitHub release binaries do not include it.
 
-## Deferred to Vision (not in v1.0.2)
+## Deferred to Vision (not in v1.0.3)
 
 - Long-tail fence tools as community registry data: Roo Code, Continue, Augment, Tabnine, OpenAI Codex (several already covered via `AGENTS.md`).
 - MCP **remote** transport (Streamable HTTP + OAuth 2.1 / RFC 8707) and extra MCP tools (`exposure_map`, `canary_scan`, `canary_check`).
