@@ -27,7 +27,7 @@ path = "src/lib.rs"
 [dependencies]
 regex = "1"
 sha2 = "0.11"
-dirs = "6"
+dirs = "7"
 thiserror = "2"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
